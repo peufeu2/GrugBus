@@ -1,6 +1,6 @@
 # GrugBus controls Solis inverters via Modbus
 
-"Dude, Modbus is outdated! When there's a blackout, I'd much rather use a JSON cloud API to control my backup inverter!"
+"Dude, Modbus is outdated! When there's a blackout, I'd much rather use a RESTful JSON cloud API to control my backup inverter, it's so modern!"
 
 This repository contains:
 
