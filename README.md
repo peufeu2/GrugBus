@@ -47,7 +47,8 @@ In the above example, grugbus will look at the list of registers to read, split 
 chunks that fit into the maximum transaction size, and read the registers you asked for
 in the minimum number of transactions. This also works for writes, but in this case it will
 split the registers to write into contiguous ranges (ie without holes) to avoid overwriting
-innocent bystanders.
+innocent bystanders. It is of course possible to pass a list of registers with any
+combination of data types.
 
 - Multiple client support
 
