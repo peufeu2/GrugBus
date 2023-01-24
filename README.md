@@ -85,6 +85,20 @@ Shopping list:
 - Several [USB-RS485 interfaces](https://www.waveshare.com/catalog/product/view/id/3629/s/usb-to-rs232-485-ttl/category/37/usb-to-rs232-485-ttl.htm?sku=22547)
 - Orange Pi Lite or other similar device
 
+# Logging MQTT data to clickhouse
+
+A script is included, it's a bit raw but it does the job.
+
+Clickhouse's major selling points for logging MQTT data are :
+
+1) Insane speed on SELECTs.
+
+2) Well suited to time series data: asof joins, automatic aggregating materialized views, etc.
+
+3) Compression. 
+
+It is a column store database that stores data in an ordered manner, in this case (mqtt_topic, timestamp). MQTT topics are stored using LowCardinality(String) which puts strings into an automatic dictionary and only stores the key. Because rows are ordered on disk, all rows in the same page have the same topic, so they compress down to nothing. Timestamps are monotonously increasing, so they compress very well using Deltas. Float MQTT data item values also use a delta encoding and de-duplication. This results in data usage of about 1.2 bytes per row (yes one decimal point two bytes). The largest contributor to data growth is useless decimals in floating point values. Clickhouse is way overkill for this application. It likes using a lot of RAM, so it's probably not the right choice for a tiny Pi, I'm running it on a PC that doubles as a NAS. 
+
 
 
 
