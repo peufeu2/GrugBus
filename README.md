@@ -30,7 +30,7 @@ GrugBus puts lipstick on Modbus and brings it up to modern Neanderthal tech leve
 
 - Automatic handling of types, units, fixed point, floats, bitfields, etc.
 
-Example: you define an Uint16 register that contains Volts, with a unit value of 0.1V.
+Example #1: you define an Uint16 register that contains Volts, with a unit value of 0.1V.
 If the register contains 2305, this means 230.5V. This is the last time you'll see this,
 reg.value is a float, and it's in volts. Also works for writes.
 
@@ -42,12 +42,15 @@ smartmeter.
 - Bulk register reads up to 40x faster than single reads.
 
 Most modbus commands don't take much longer to read 10 registers instead of just one.
-In the above example, grugbus will look at the list of registers to read, split it into
-chunks that fit into the maximum transaction size, and read the registers you asked for
-in the minimum number of transactions. This also works for writes, but in this case it will
-split the registers to write into contiguous ranges (ie without holes) to avoid overwriting
-innocent bystanders. It is of course possible to pass a list of registers of any
-combination of data types.
+In the above example, grugbus will split the list of registers into chunks that fit into
+the maximum transaction size, and read the registers you asked for in the minimum number 
+of transactions. 
+
+read_regs() and write_regs() accept a list of registers with any combination of data types, 
+sizes, modbus function codes, with continguous addresses or not.
+
+This also works for writes. Bulk writes are split into contiguous ranges (ie without holes)
+to avoid overwriting innocent bystander registers that are not specified in the list. 
 
 - Multiple client support
 
