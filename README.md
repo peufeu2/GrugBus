@@ -30,7 +30,7 @@ GrugBus puts lipstick on Modbus and brings it up to modern Neanderthal tech leve
 
 - Automatic handling of types, units, fixed point, floats, bitfields, etc.
 
-Example #1: you define an Uint16 register that contains Volts, with a unit value of 0.1V.
+Example: you define an Uint16 register that contains Volts, with a unit value of 0.1V.
 If the register contains 2305, this means 230.5V. This is the last time you'll see this,
 reg.value is a float, and it's in volts. Also works for writes.
 
@@ -48,6 +48,9 @@ of transactions.
 
 read_regs() and write_regs() accept a list of registers with any combination of data types, 
 sizes, modbus function codes, with continguous addresses or not.
+
+Example: one Uint16 register at address 10 and one Int32 register at address 11-12 will be
+read in one transaction.
 
 This also works for writes. Bulk writes are split into contiguous ranges (ie without holes)
 to avoid overwriting innocent bystander registers that are not specified in the list. 
