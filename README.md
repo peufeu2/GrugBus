@@ -71,7 +71,9 @@ If we add a constant P to active_power, the inverter will think the house is con
 
 If we substract a constant P to active_power, the inverter will think the house is exporting energy due to another inverter producing, so it will try to absorb this power. It will reduce its power export and, if P is high enough, switch to charging batteries.
 
-After some quick tests, this works, but the full code isn't done yet. Mostly because the main reason to do this is to coordinate export power on two Solis inverters, and I haven't installed the second one yet.
+Combined with the maximum battery charge/discharge registers and modbus control of "time of use" logic, this should allow complete control of battery charge/discharge and export/import power.
+
+After some quick tests, this works, but the full code isn't written yet. Mostly because the main reason to do this is to coordinate export power on two Solis inverters, and I haven't installed the second one yet.
 
 Besides that, it logs everything to MQTT, and stores data in a Clickhouse database, ready for Grafana.
 
