@@ -9,7 +9,7 @@ This repository contains:
 
 # What's GrugBus?
 
-    reg_list = (
+    self.reg_list = (
               self.battery_voltage,                    
               self.battery_current,                    
               self.battery_current_direction,          
