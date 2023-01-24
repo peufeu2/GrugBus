@@ -80,9 +80,15 @@ Coming soon: power routing to resistive loads with MQTT driven dimmer.
 
 Shopping list:
 
-- Exceedcon EC04681-2014-BF connector for COM port, available on ebay. Pin1 = +5V, Pin2 = GND, Pin3 = RS485+, Pin4 = RS485-
+# Requirements
+
+- Exceedcon EC04681-2014-BF connector for Solis inverter COM port, available on ebay. Pin1 = +5V, Pin2 = GND, Pin3 = RS485+, Pin4 = RS485-. Double check the pinout online before soldering.
 - Several [USB-RS485 interfaces](https://www.waveshare.com/catalog/product/view/id/3629/s/usb-to-rs232-485-ttl/category/37/usb-to-rs232-485-ttl.htm?sku=22547)
 - Orange Pi Lite or other similar device
+- I used python 3.11, it probably works with earlier versions
+- pip install pyserial (not serial! that's a different module)
+- [pymodbus 3.1.1](https://github.com/pymodbus-dev/pymodbus) ; could also work with 3.1.0 but you'll need to alter the code to make sure the modbus server starts. There was a small [bug](https://github.com/pymodbus-dev/pymodbus/pull/1282) in 3.1.1 so make sure you get the fixed version.
+
 
 # Logging MQTT data to clickhouse
 
@@ -90,13 +96,18 @@ A script is included, it's a bit raw but it does the job.
 
 Clickhouse's major selling points for logging MQTT data are :
 
-1) Insane speed on SELECTs.
+1) Ludicrous speed.
 
-2) Well suited to time series data: asof joins, automatic aggregating materialized views, etc.
+2) Well suited for time series data: asof joins, automatic aggregating materialized views, etc.
 
 3) Compression. 
 
-It is a column store database that stores data in an ordered manner, in this case the ordering key is (mqtt_topic, timestamp). MQTT topics are stored using LowCardinality(String) which puts strings into an automatic dictionary and only stores the key. Because rows are ordered on disk, all rows in the same page have the same topic, so they compress down to nothing. Timestamps are monotonously increasing, so they compress very well using Deltas. Float MQTT data item values also use a delta encoding and de-duplication. This results in data usage of about 1.2 bytes per row (yes one decimal point two bytes). The largest contributor to data growth is useless decimals in floating point values. Clickhouse is way overkill for this application. It likes using a lot of RAM, so it's probably not the right choice for a tiny Pi. I'm running it on a PC that doubles as a NAS. 
+Clickhouse is way overkill for this application. It likes using a lot of RAM, so it's probably not the right choice for a tiny Pi. I'm running it on a PC that doubles as a NAS.
+
+Data usage is about 1.2 bytes per row (topic, timestamp, float), so it's fine to log everything.
+
+It is a column store database that stores data in an ordered manner. For this application the ordering key is (mqtt_topic, timestamp). MQTT topics are stored using LowCardinality(String) which puts strings into an automatic dictionary and only stores the key. Because rows are ordered on disk, all rows in the same page have the same topic, so they compress down to nothing. Timestamps are monotonously increasing, so they compress very well using Deltas. Float MQTT data item values also use a delta encoding and de-duplication. The largest contributor to data bloat is useless decimals in floating point values. 
+
 
 
 
