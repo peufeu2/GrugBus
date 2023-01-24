@@ -58,6 +58,30 @@ The pymodbus instance is protected by a mutex, so several Devices can use the sa
 
 Most of the documentation is the code.
 
+# Controlling Solis inverters via Modbus
+
+I have one (soon two) Solis S5-EH1P-6K inverters. The readable register list is available online, but to get to the interesting writable registers that allow full control of the inverter, a NDA must be signed in blood.
+
+This uses an alternate approach that should allow full control of any inverter featuring a modbus smartmeter port: man-in-the-middle attack.
+
+How it works: The code uses a RS485 interface to request data from the main smartmeter. Then, using another RS485 interface, it fakes a smartmeter and the inverter queries it. This allows manipulation of meter data seen by the inverter. The main item is active_power, which the inverter's internal feedback loop attempts to bring to zero.
+
+If we add a constant P to active_power, the inverter will think the house is consuming P more watts, so it will try to export this power.
+
+If we substract a constant P to active_power, the inverter will think the house is exporting energy due to another inverter producing, so it will try to absorb this power. It will reduce its power export and, if P is high enough, switch to charging batteries.
+
+After some quick tests, this works, but the full code isn't done yet. Mostly because the main reason to do this is to coordinate export power on two Solis inverters, and I haven't installed the second one yet.
+
+Besides that, it logs everything to MQTT, and stores data in a Clickhouse database, ready for Grafana.
+
+Coming soon: power routing to resistive loads with MQTT driven dimmer.
+
+Shopping list:
+
+- Exceedcon EC04681-2014-BF connector for COM port, available on ebay. Pin1 = +5V, Pin2 = GND, Pin3 = RS485+, Pin4 = RS485-
+- Several [USB-RS485 interfaces](https://www.waveshare.com/catalog/product/view/id/3629/s/usb-to-rs232-485-ttl/category/37/usb-to-rs232-485-ttl.htm?sku=22547)
+- Orange Pi Lite or other similar device
+
 
 
 
