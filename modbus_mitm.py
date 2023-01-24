@@ -18,7 +18,11 @@ import grugbus
 from grugbus.devices import Eastron_SDM120, Solis_S5_EH1P_6K_2020_Extras, Eastron_SDM630, Acrel_1_Phase
 import config
 
-logging.basicConfig(filename='modbus_mitm.log', encoding='utf-8', level=logging.INFO)
+logging.basicConfig( encoding='utf-8', 
+                     level=logging.INFO, 
+                     format='[%(asctime)s] %(levelname)s:%(message)s',
+                     handlers=[logging.FileHandler(filename='modbus_mitm.log'), 
+                            logging.StreamHandler(stream=sys.stdout)])
 log = logging.getLogger(__name__)
 
 
@@ -140,10 +144,10 @@ class MQTT():
         self.published_data = {}
 
     def on_connect(self, client, flags, rc, properties):
-        log.info('MQTT Connected')
+        pass
 
     def on_disconnect(self, client, packet, exc=None):
-        log.info('MQTT Disconnected')
+        pass
 
     def on_message(self, client, topic, payload, qos, properties):
         print( "MQTT", payload )
@@ -851,7 +855,8 @@ class SolisManager():
                     solis.bms_battery_charge_current_limit,   
                     solis.bms_battery_discharge_current_limit,
                     solis.bms_battery_soc,                    
-                    solis.bms_battery_health_soh,             
+                    solis.bms_battery_health_soh,   
+                    solis.rwr_power_on_off,          
 
                     solis.energy_generated_today,
 
@@ -889,7 +894,7 @@ class SolisManager():
                         r.append(reg)
                     else:
                         if reg.value != None:
-                            r.append( "%15s %40s %8.02f" % (reg.device.key, reg.key, reg.value ) )
+                            r.append( "%15s %40s %10s" % (reg.device.key, reg.key, reg.format_value() ) )
 
                 print( "\n".join(r) )
             except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
