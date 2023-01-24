@@ -1,0 +1,48 @@
+"function","addr","addr_end","type","unit","name","name_for_id","usertype","decimals","description"
+4,0,,"float","V","Voltage ",,"float",0,
+4,6,,"float","A","Current ",,"float",3,
+4,12,,"float","W","Active Power ",,"float",0,
+4,18,,"float","VA","Apparent Power ",,"float",0,
+4,24,,"float","Var ","Reactive Power ",,"float",0,
+4,30,,"float",,"Power Factor ",,"float",3,
+4,36,,"float","°","Phase Angle ",,"float",3,
+4,70,,"float","Hz ","Frequency ",,"float",3,
+4,72,,"float","kWh ","Import Active Energy ",,"float",3,
+4,74,,"float","kWh ","Export Active Energy ",,"float",3,
+4,76,,"float","kVArh ","Import Reactive Energy ",,"float",3,
+4,78,,"float","kVArh ","Export Reactive Energy ",,"float",3,
+4,342,,"float","kWh ","Total Active Energy ",,"float",3,
+4,344,,"float","kVArh ","Total Reactive Energy ",,"float",3,
+3,10,,"float",,"Relay Pulse Width ",,"float",,"Write relay on period in milliseconds: 
+60, 100 or 200, default 200. "
+3,18,,"float",,"Modbus Parity Stop ",,"float",,"Write the Modbus port parity/stop bits for MODBUS Protocol, where: 
+0 = One stop bit and no parity, default. 
+1 = One stop bit and even parity. 
+2 = One stop bit and odd parity.
+3 = Two stop bits and no parity. 
+Requires a restart to become effective."
+3,20,,"float",,"Modbus Node Address",,"float",,"Write the Modbus port node address: 
+1 to 247 for MODBUS Protocol, default 1. 
+Requires a restart to become effective. 
+Note, both the MODBUS Protocol and Johnson Controls node addresses 
+Can be changed via the display setup menus."
+3,28,,"float",,"Modbus Baud Rate ",,"float",,"Write the Modbus port baud rate for MODBUS Protocol, where:
+0 = 2400 baud. 1 = 4800 baud.2 = 9600 baud, default.3 = 19200 baud. 4 = 38400 baud. 
+Requires a restart to becomeeffective"
+3,62720,,"float",,"Display Config",,"float",,"Demand Interval, Slide Time, Automatic Scroll Display Interval (Scroll Time), Backlight Time
+Data Format: BCDmin-min-s-min
+Scroll Time=0: the display does not scroll automatically 
+Backlight Time=0: Backlight is Always On."
+3,63760,,"float",,"Display Format",,"float",,"Default Format: Hex
+0000: 0.001kWh (kVArh) (default)
+0001: 0.01kWh (kVArh)
+0002: 0.1kWh (kVArh)
+0003: 1kWh (kVArh)"
+3,63776,,"U16",,"Measurement Mode ",,"int",,"Data Format: Hex
+0001: Mode 1 (Total = Import)
+0002: Mode 2 (Total = Import + Export)
+0003: Mode 3 (Total = Import - Export)"
+3,63792,,"float",,"Pulse Output and LED Indicator Mode ",,"float",,"Data Format: Hex
+0000: Import & Export Energy, LED flashes for Import & Export Energy
+0001: Import Energy, LED flashes for Import Energy only
+0002: Export Energy, LED flashes for Export Energy only"
