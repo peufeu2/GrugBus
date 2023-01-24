@@ -1,12 +1,11 @@
-# GrugBus
-Convenient MODBUS abstraction on top of pymodbus to control Solis inverters
+# GrugBus controls Solis inverters via Modbus
 
-"Dude, Modbus is outdated! I'd much rather use a Chinese JSON cloud API that gives five minutes old data and only works if my internet is up!"
+"Dude, Modbus is outdated! When there's a blackout, I'd much rather use a JSON cloud API to control my backup inverter!"
 
 This repository contains:
 
-1) The Grugbus library
-2) An application using it to control Solis hybrid solar inverter(s).
+1) The Grugbus library, convenient abstraction layer powered by pymodbus.
+2) An application using it to control Solis hybrid solar inverters via modbus.
 
 # What's GrugBus?
 
@@ -25,9 +24,9 @@ This repository contains:
 
     print( self.battery_voltage.value )   
             
-GrugBus brings Modbus up to modern Neanderthal tech level, including:
+GrugBus puts lipstick on Modbus and brings it up to modern Neanderthal tech level, including:
 
-- No need to remember registers number, address, offset, function code, etc.
+- No need to remember registers' number, address, offset, function code, etc.
 
 - Automatic handling of types, units, fixed point, floats, bitfields, etc.
 
@@ -47,7 +46,7 @@ In the above example, grugbus will look at the list of registers to read, split 
 chunks that fit into the maximum transaction size, and read the registers you asked for
 in the minimum number of transactions. This also works for writes, but in this case it will
 split the registers to write into contiguous ranges (ie without holes) to avoid overwriting
-innocent bystanders. It is of course possible to pass a list of registers with any
+innocent bystanders. It is of course possible to pass a list of registers of any
 combination of data types.
 
 - Multiple client support
@@ -97,7 +96,7 @@ Clickhouse's major selling points for logging MQTT data are :
 
 3) Compression. 
 
-It is a column store database that stores data in an ordered manner, in this case (mqtt_topic, timestamp). MQTT topics are stored using LowCardinality(String) which puts strings into an automatic dictionary and only stores the key. Because rows are ordered on disk, all rows in the same page have the same topic, so they compress down to nothing. Timestamps are monotonously increasing, so they compress very well using Deltas. Float MQTT data item values also use a delta encoding and de-duplication. This results in data usage of about 1.2 bytes per row (yes one decimal point two bytes). The largest contributor to data growth is useless decimals in floating point values. Clickhouse is way overkill for this application. It likes using a lot of RAM, so it's probably not the right choice for a tiny Pi, I'm running it on a PC that doubles as a NAS. 
+It is a column store database that stores data in an ordered manner, in this case the ordering key is (mqtt_topic, timestamp). MQTT topics are stored using LowCardinality(String) which puts strings into an automatic dictionary and only stores the key. Because rows are ordered on disk, all rows in the same page have the same topic, so they compress down to nothing. Timestamps are monotonously increasing, so they compress very well using Deltas. Float MQTT data item values also use a delta encoding and de-duplication. This results in data usage of about 1.2 bytes per row (yes one decimal point two bytes). The largest contributor to data growth is useless decimals in floating point values. Clickhouse is way overkill for this application. It likes using a lot of RAM, so it's probably not the right choice for a tiny Pi. I'm running it on a PC that doubles as a NAS. 
 
 
 
