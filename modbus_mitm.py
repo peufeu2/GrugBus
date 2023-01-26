@@ -439,6 +439,8 @@ class MainSmartmeter( grugbus.SlaveDevice ):
             self.total_power                      ,    # required for fakemeter
             self.total_kwh                        ,    # required for fakemeter
             self.total_kvarh                      ,    # required for fakemeter
+            self.average_line_to_neutral_volts_thd,
+            self.average_line_current_thd         ,
         ))
 
         # publish these to MQTT
@@ -455,6 +457,13 @@ class MainSmartmeter( grugbus.SlaveDevice ):
             self.total_power                      ,
             self.total_import_kwh                 ,
             self.total_export_kwh                 ,
+            self.total_volt_amps                  ,    # required for fakemeter
+            self.total_var                        ,    # required for fakemeter
+            self.total_power_factor               ,    # required for fakemeter
+            self.total_phase_angle                ,    # required for fakemeter
+            self.average_line_to_neutral_volts_thd,
+            self.average_line_current_thd         ,
+
                 ))
 
         tick = grugbus.Metronome(config.POLL_PERIOD_METER)
