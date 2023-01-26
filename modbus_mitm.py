@@ -18,13 +18,16 @@ import grugbus
 from grugbus.devices import Eastron_SDM120, Solis_S5_EH1P_6K_2020_Extras, Eastron_SDM630, Acrel_1_Phase
 import config
 
+# pymodbus.pymodbus_apply_logging_config( logging.DEBUG )
 logging.basicConfig( encoding='utf-8', 
-                     level=logging.INFO, 
+                     level=logging.INFO,
                      format='[%(asctime)s] %(levelname)s:%(message)s',
                      handlers=[logging.FileHandler(filename='modbus_mitm.log'), 
                             logging.StreamHandler(stream=sys.stdout)])
 log = logging.getLogger(__name__)
 
+# set max reconnect wait time for Fronius
+pymodbus.constants.Defaults.ReconnectDelayMax = 60000   # in milliseconds
 
 """
 #### WARNING ####
@@ -119,7 +122,6 @@ if 0:
 STILL_ALIVE = True
 STOP = asyncio.Event()
 def abort():
-    log.info("Abort")
     STOP.set()
     global STILL_ALIVE
     STILL_ALIVE = False
@@ -127,7 +129,7 @@ def abort():
 # No zombie coroutines allowed
 async def abort_on_exit( awaitable ):
     await awaitable
-    log.info("*** Exited: ", awaitable)
+    log.info("*** Exited: %s", awaitable)
     return abort()
 
 ########################################################################################
@@ -224,7 +226,7 @@ class HookModbusSlaveContext(ModbusSlaveContext):
 
 #     # This is called when the inverter sends a request to this server
 #     # Solis S5-EH1P requests 4,342,2 and 4,0,76 in turn every second, so it gets a power update
-#     # only every 2 seconds. TODO: Try Acrel meter, it reads every second regs 0-65 fcode 3
+#     # only every 2 seconds.
 #     def _on_getValues( self, fc_as_hex, address, count ):
 
 #         meter = mgr.meter
@@ -232,7 +234,7 @@ class HookModbusSlaveContext(ModbusSlaveContext):
 #             print( "FakeSmartmeter cannot reply to client: real smartmeter offline" )
 #             return []
 
-#         # forward these registers to the fakemeter TODO: the fakemeter should do it
+#         # forward these registers to the fakemeter
 #         try:
 #             self.voltage                .value = meter.phase_1_line_to_neutral_volts .value
 #             self.current                .value = meter.phase_1_current               .value
@@ -344,8 +346,9 @@ class FakeSmartmeter( grugbus.LocalServer ):
         self.write_regs_to_context() # write data to modbus server context, so it can be served to inverter when it requests it.
 
         t = time.time()
-        # s = "query _on_getValues fc %3d addr %5d count %3d dt %d" % (fc_as_hex, address, count, t-self.last_request_time)
-        # print(s); mqtt.mqtt.publish("pv/query", s)
+        # s = "query _on_getValues fc %3d addr %5d count %3d dt %f" % (fc_as_hex, address, count, t-self.last_request_time)
+        # log.debug(s); 
+        # mqtt.mqtt.publish("pv/query", s)
         self.last_request_time = t
         if meter.data_timestamp:    # how fresh is this data?
             mqtt.publish( "pv/solis1/fakemeter/", {
@@ -494,25 +497,22 @@ class Fronius( grugbus.SlaveDevice ):
 
     async def read_coroutine( self ):
         tick = grugbus.Metronome( config.POLL_PERIOD_FRONIUS )
+        try:    # It powers down at night, which disconnects TCP. 
+                # pymodbus reconnects automatically, no need to put this in the while loop below
+                # otherwise it will leak sockets
+            await self.modbus.connect()
+        except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
+            return abort()
+
         while STILL_ALIVE:
             try:
                 await tick.wait()
-                if not self.modbus.connected:
-                    try:    # It powers down at night, which disconnects TCP. Reconnect automatically.
-                        await self.modbus.connect()
-                    except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
-                        return abort()
-                    except:
-                        log.warning("Can't connect to Fronius...")
-                        await asyncio.sleep(60)
-                        continue    # Ignore connect exceptions
-
                 try:
                     await self.grid_port_power.read()
                 except (asyncio.exceptions.TimeoutError, pymodbus.exceptions.ConnectionException):
                     self.grid_port_power.value = 0.
                     pub = {}
-                    await asyncio.sleep(5)
+                    # await asyncio.sleep(5)
                 else:
                     self.grid_port_power.value = -(self.grid_port_power.value or 0)
                     pub = { 
@@ -590,6 +590,8 @@ class Solis( grugbus.SlaveDevice ):
 
             self.rwr_battery_discharge_current_maximum_setting,
             self.rwr_battery_charge_current_maximum_setting,
+
+            self.rwr_real_time_clock_seconds,
 
             # self.meter_ac_voltage_a                           ,
             # self.meter_ac_current_a                           ,
@@ -670,7 +672,7 @@ class Solis( grugbus.SlaveDevice ):
                     await self.modbus.connect()
             try:
                 regs = await self.read_regs( self.regs_to_read )
-     
+
                 # multitasking: at this point the sign of battery current and power is wrong
 
                 # Add polarity to battery parameters
@@ -836,9 +838,8 @@ class SolisManager():
                     meter.total_power               ,
                     "",
                     solis.pv_power,      
-                    solis.grid_port_power,
-                    self.fronius.grid_port_power,
                     solis.battery_power,                      
+                    self.fronius.grid_port_power,
                     solis.grid_port_power,        
                     ms1.active_power,
                     # solis.house_load_power,                   
@@ -860,33 +861,32 @@ class SolisManager():
 
                     solis.energy_generated_today,
 
-                    solis.rwr_real_time_clock_year,
                     solis.rwr_real_time_clock_seconds,
 
                     "",
 
-            solis.meter_ac_voltage_a                           ,
-            solis.meter_ac_current_a                           ,
-            solis.meter_ac_voltage_b                           ,
-            solis.meter_ac_current_b                           ,
-            solis.meter_ac_voltage_c                           ,
-            solis.meter_ac_current_c                           ,
-            solis.meter_active_power_a                         ,
-            solis.meter_active_power_b                         ,
-            solis.meter_active_power_c                         ,
-            solis.meter_total_active_power                     ,
-            solis.meter_reactive_power_a                       ,
-            solis.meter_reactive_power_b                       ,
-            solis.meter_reactive_power_c                       ,
-            solis.meter_total_reactive_power                   ,
-            solis.meter_apparent_power_a                       ,
-            solis.meter_apparent_power_b                       ,
-            solis.meter_apparent_power_c                       ,
-            solis.meter_total_apparent_power                   ,
-            solis.meter_power_factor                           ,
-            solis.meter_grid_frequency                         ,
-            solis.meter_total_active_energy_imported_from_grid ,
-            solis.meter_total_active_energy_exported_to_grid   ,
+            # solis.meter_ac_voltage_a                           ,
+            # solis.meter_ac_current_a                           ,
+            # solis.meter_ac_voltage_b                           ,
+            # solis.meter_ac_current_b                           ,
+            # solis.meter_ac_voltage_c                           ,
+            # solis.meter_ac_current_c                           ,
+            # solis.meter_active_power_a                         ,
+            # solis.meter_active_power_b                         ,
+            # solis.meter_active_power_c                         ,
+            # solis.meter_total_active_power                     ,
+            # solis.meter_reactive_power_a                       ,
+            # solis.meter_reactive_power_b                       ,
+            # solis.meter_reactive_power_c                       ,
+            # solis.meter_total_reactive_power                   ,
+            # solis.meter_apparent_power_a                       ,
+            # solis.meter_apparent_power_b                       ,
+            # solis.meter_apparent_power_c                       ,
+            # solis.meter_total_apparent_power                   ,
+            # solis.meter_power_factor                           ,
+            # solis.meter_grid_frequency                         ,
+            # solis.meter_total_active_energy_imported_from_grid ,
+            # solis.meter_total_active_energy_exported_to_grid   ,
 
 
                     ):
@@ -906,7 +906,10 @@ class SolisManager():
 
 if 1:
     mgr = SolisManager()
-    mgr.start()
+    try:
+        mgr.start()
+    finally:
+        logging.shutdown()
 else:
     import cProfile
     with cProfile.Profile( time.process_time ) as pr:
@@ -916,3 +919,10 @@ else:
             mgr.start()
         finally:
             pr.dump_stats("profile.log")
+
+
+
+
+
+
+

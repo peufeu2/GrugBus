@@ -28,7 +28,7 @@ class Metronome():
     async def wait( self ):
         ct = time.time()
         if self.next_tick < ct:
-            self.next_tick += self.tick * math.ceil(ct-self.next_tick)
+            self.next_tick += self.tick * math.ceil((ct-self.next_tick)/self.tick)
         delay = self.next_tick - ct
         if delay>0.01:
             await asyncio.sleep(delay)
