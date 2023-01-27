@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-import asyncio, os, time, clickhouse_driver, datetime, pprint, math
+import asyncio, os, time, clickhouse_driver, datetime, pprint, math, traceback
 from gmqtt import Client as MQTTClient
 import config
 
@@ -141,19 +141,17 @@ class DB():
         self.reset()
         self.begin_ts = time.time()
         self.topic_stats = {}
+        self.insert_floats = []
+        self.insert_str    = []
 
-    def reset( self, st=0 ):
+    def reset( self, l=0, st=0 ):
         t = time.time()
         if self.start_ts:
             interval = t-self.start_ts
-            r = "%.02f rows/s" % (self.lines/interval)
+            r = "%d rows %.02f rows/s" % (l,l/interval)
         else:
             r = ""
         self.start_ts = t
-        self.insert_floats = []
-        self.insert_str    = []
-        self.insert_timeout = st + config.CLICKHOUSE_INSERT_PERIOD_SECONDS
-        self.lines = 0
         return r
 
     def insert( self, k, v ):
@@ -175,21 +173,79 @@ class DB():
                 # it's a string then
                 self.insert_str.append((k,ts,k.endswith("/exception"),v))
         self.topic_stats[k] = self.topic_stats.get(k,0) + 1
-        self.lines += 1
-        if self.lines >= 1000 or st > self.insert_timeout:
-            if self.insert_floats:
-                self.insert_floats = sorted( self.insert_floats )
-                # pprint.pprint( self.insert_floats )
-                clickhouse.execute( "INSERT INTO mqtt_float (topic,ts,is_int,value) VALUES", self.insert_floats )
-            if self.insert_str:
-                clickhouse.execute( "INSERT INTO mqtt_str (topic,ts,is_exception,value) VALUES", self.insert_str )
-            r = self.reset( st )
-            print( "INSERT %f ms %s" % ((time.time()-st)*1000, r ))
+
+    async def insert_coroutine( self ):
+        while True:
+            await asyncio.sleep( config.CLICKHOUSE_INSERT_PERIOD_SECONDS )
+            st = time.time()
+
+            l = len(self.insert_str)+len(self.insert_floats)
+            try:
+                if self.insert_floats:
+                    self.insert_floats = sorted( self.insert_floats )
+                    clickhouse.execute( "INSERT INTO mqtt_float (topic,ts,is_int,value) VALUES", self.insert_floats )
+                    self.insert_floats = []
+                if self.insert_str:
+                    clickhouse.execute( "INSERT INTO mqtt_str (topic,ts,is_exception,value) VALUES", self.insert_str )
+                    self.insert_str    = []
+            except Exception as e:
+                print( "Lost connection to Clickhouse, %d rows pending" % l )
+            else:
+                r = self.reset( l, st )
+                print( "INSERT %f ms %s" % ((time.time()-st)*1000, r ))
             # for k,v in sorted( self.topic_stats.items(), key=lambda x:x[1] ):
             #     f = v/(st-self.begin_ts)
             #     if f > 0.1:
             #         print( "%4.1f/s %s" % (f,k))
-            
+
+    async def cleanup_coroutine( self ):
+        while True:
+            for table in "system.trace_log", "system.metric_log", "system.asynchronous_metric_log", "system.session_log":
+                print("Cleanup", table, clickhouse.execute("SELECT count(*) FROM "+table ))
+                clickhouse.execute( "TRUNCATE TABLE "+table )
+                await asyncio.sleep(20)
+
+    async def database_size_coroutine( self, mqtt ):
+        while True:
+            r = clickhouse.execute( """
+        select
+        parts.*,
+        columns.compressed_size,
+        columns.uncompressed_size,
+        columns.ratio
+    from (
+        select database,
+            table,
+            (sum(data_uncompressed_bytes))          AS uncompressed_size,
+            (sum(data_compressed_bytes))            AS compressed_size,
+            sum(data_compressed_bytes) / sum(data_uncompressed_bytes) AS ratio
+        from system.columns
+        group by database, table
+    ) columns right join (
+        select database,
+               table,
+               sum(rows)                                            as rows,
+               max(modification_time)                               as latest_modification,
+               (sum(bytes))                       as disk_size,
+               (sum(primary_key_bytes_in_memory)) as primary_keys_size,
+               any(engine)                                          as engine,
+               sum(bytes)                                           as bytes_size
+        from system.parts
+        where table like 'mqtt_%'
+        group by database, table
+    ) parts on ( columns.database = parts.database and columns.table = parts.table )
+    order by parts.bytes_size desc;
+    """)
+            for database, table, rows, modtime, disk_size, primary_keys_size, engine, bytes_size, compressed_size, uncompressed_size, ratio in r:
+                prefix = 'sys/db/%s/%s/' % (database,table)
+                print(prefix)
+                mqtt.publish( prefix + "rows"               , str(rows)             , qos=0 )
+                mqtt.publish( prefix + "compressed_size"    , str(compressed_size)  , qos=0 )
+                mqtt.publish( prefix + "uncompressed_size"  , str(uncompressed_size), qos=0 )
+                if compressed_size:
+                    mqtt.publish( prefix + "compression_ratio"  , str(uncompressed_size/compressed_size), qos=0 )
+
+            await asyncio.sleep( 3600 )        
 
 db = DB()
 
@@ -215,86 +271,6 @@ def on_subscribe(mqtt, mid, qos, properties):
     print('SUBSCRIBED')
 
 #
-#   log database size once in a while
-#
-# async def database_rollup( mqtt ):
-#     tick = grubgus.Metronome( 60 )
-#     rows = clickhouse.execute( "SELECT max(ts) FROM mqtt_minute_float" )
-#     if not rows:
-#         last_ts = rows[0][0]
-#     else:
-#         last_ts = None
-
-#     while True:
-#         if last_ts:
-#             # we processed up to the minute starting at last_ts, so add a minute
-#             last_ts += datetime.timedelta( seconds=60 )
-#             cur_ts = clickhouse.execute( "SELECT toStartOfMinute(now())")
-#             print( last_ts )
-#             clickhouse.execute( """
-#                 INSERT INTO mqtt_minute_float (topic,ts,favg,fmin,fmax)
-#                 SELECT topic, toStartOfMinute(ts) ts_min, avg(value), max(value), min(value) 
-#                 FROM mqtt_float
-#                 WHERE ts >= %s AND ts < toStartOfMinute(now())
-#                 GROUP BY topic, ts_min
-#                 """, (last_ts,) )
-
-#         await tick.wait()
-
-#
-#   log database size once in a while
-#
-async def database_size( mqtt ):
-    while True:
-        r = clickhouse.execute( """
-    select
-    parts.*,
-    columns.compressed_size,
-    columns.uncompressed_size,
-    columns.ratio
-from (
-    select database,
-        table,
-        (sum(data_uncompressed_bytes))          AS uncompressed_size,
-        (sum(data_compressed_bytes))            AS compressed_size,
-        sum(data_compressed_bytes) / sum(data_uncompressed_bytes) AS ratio
-    from system.columns
-    group by database, table
-) columns right join (
-    select database,
-           table,
-           sum(rows)                                            as rows,
-           max(modification_time)                               as latest_modification,
-           (sum(bytes))                       as disk_size,
-           (sum(primary_key_bytes_in_memory)) as primary_keys_size,
-           any(engine)                                          as engine,
-           sum(bytes)                                           as bytes_size
-    from system.parts
-    where table like 'mqtt_%'
-    group by database, table
-) parts on ( columns.database = parts.database and columns.table = parts.table )
-order by parts.bytes_size desc;
-""")
-        for database, table, rows, modtime, disk_size, primary_keys_size, engine, bytes_size, compressed_size, uncompressed_size, ratio in r:
-            prefix = 'sys/db/%s/%s/' % (database,table)
-            print(prefix)
-            mqtt.publish( prefix + "rows"               , str(rows)             , qos=0 )
-            mqtt.publish( prefix + "compressed_size"    , str(compressed_size)  , qos=0 )
-            mqtt.publish( prefix + "uncompressed_size"  , str(uncompressed_size), qos=0 )
-            if compressed_size:
-                mqtt.publish( prefix + "compression_ratio"  , str(uncompressed_size/compressed_size), qos=0 )
-
-        await asyncio.sleep( 3600 )
-
-
-async def cleanup():
-    while True:
-        for table in "system.trace_log", "system.metric_log", "system.asynchronous_metric_log", "system.session_log":
-            print("Cleanup", table, clickhouse.execute("SELECT count(*) FROM "+table ))
-            clickhouse.execute( "TRUNCATE TABLE "+table )
-            await asyncio.sleep(20)
-
-#
 #   event for exiting (we run forever)
 #
 STOP = asyncio.Event()
@@ -315,8 +291,9 @@ async def main( ):
     mqtt.set_auth_credentials( config.MQTT_USER,config.MQTT_PASSWORD )
     await mqtt.connect( config.MQTT_BROKER )
 
-    asyncio.create_task( database_size( mqtt ) )
-    asyncio.create_task( cleanup( ) )
+    asyncio.create_task( db.database_size_coroutine( mqtt ) )
+    asyncio.create_task( db.cleanup_coroutine() )
+    asyncio.create_task( db.insert_coroutine() )
 
     await STOP.wait()
     await mqtt.disconnect()
