@@ -301,20 +301,20 @@ class SlaveDevice( DeviceBase ):
                     if fcode==1:     # we're dealing with bools (force coil)
                         if len(reg_data) == 1:    
                             fcode = 5   # force single coil
-                            print( "write_coil", fcode, start_addr, reg_data )
+                            # print( "write_coil", fcode, start_addr, reg_data )
                             await self.modbus.write_coil( start_addr, reg_data[0], self.bus_address )
                         else:                     
                             fcode = 15  # force multiple coils
-                            print( "write_coils", fcode, start_addr, reg_data )
+                            # print( "write_coils", fcode, start_addr, reg_data )
                             await self.modbus.write_coils( start_addr, reg_data, self.bus_address )
                     elif fcode==3:   # we're dealing with words (registers)
                         if len(reg_data) == 1:    
                             fcode = 6   # force single register
-                            print( "write_register", fcode, start_addr, reg_data )
+                            # print( "write_register", fcode, start_addr, reg_data )
                             await self.modbus.write_register( start_addr, reg_data[0], self.bus_address )
                         else:                     
                             fcode = 16  # force multiple registers
-                            print( "write_registers", fcode, start_addr, reg_data )
+                            # print( "write_registers", fcode, start_addr, reg_data )
                             await self.modbus.write_registers( start_addr, reg_data, self.bus_address )
                     else:
                         raise ValueError( "wrong function code in write_regs()" )

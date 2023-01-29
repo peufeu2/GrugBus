@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-import os, pprint, time, sys, serial, socket, traceback, struct, datetime, logging, math, traceback
+import os, pprint, time, sys, serial, socket, traceback, struct, datetime, logging, math, traceback, shutil
 
 # Modbus stuff
 import pymodbus, asyncio, signal
@@ -108,15 +108,6 @@ if 0:
     stop
 
 #
-#   Blink LEDs on RS485 dongles in turn so I know which is which
-#
-# for name in "COM_PORT_SOLIS","COM_PORT_FAKE_METER", "COM_PORT_METER":
-#     print(name)
-#     with serial.Serial( port=globals()[name] ) as ser:
-#         ser.write( b"x"*1000 )
-#     input()
-
-#
 #   Housekeeping
 #
 STILL_ALIVE = True
@@ -146,13 +137,25 @@ class MQTT():
         self.published_data = {}
 
     def on_connect(self, client, flags, rc, properties):
-        pass
+        self.mqtt.subscribe('cmd/pv/#', qos=0)
 
     def on_disconnect(self, client, packet, exc=None):
         pass
 
-    def on_message(self, client, topic, payload, qos, properties):
-        print( "MQTT", payload )
+    async def on_message(self, client, topic, payload, qos, properties):
+        print( "MQTT", topic, payload )
+        if topic=="cmd/pv/backup_output_enabled":
+            v = bool(int( payload ))
+            reg = mgr.solis1.rwr_backup_power_enable_setting
+            await reg.read()
+            print( reg.key, reg.value, "->", v )
+            await reg.write( v )
+        elif topic=="cmd/pv/power_on":
+            v = (0xDE,0xBE) [bool(int( payload ))]
+            reg = mgr.solis1.rwr_power_on_off
+            await reg.read()
+            print( reg.key, reg.value, "->", v )
+            await reg.write( v )
 
     def on_subscribe(self, client, mid, qos, properties):
         print('MQTT SUBSCRIBED')
@@ -600,8 +603,6 @@ class Solis( grugbus.SlaveDevice ):
             self.rwr_battery_discharge_current_maximum_setting,
             self.rwr_battery_charge_current_maximum_setting,
 
-            self.rwr_real_time_clock_seconds,
-
             # self.meter_ac_voltage_a                           ,
             # self.meter_ac_current_a                           ,
             # self.meter_ac_voltage_b                           ,
@@ -673,12 +674,14 @@ class Solis( grugbus.SlaveDevice ):
             await tick.wait()
 
     async def read_inverter_coroutine( self ):
+        async with self.modbus._async_mutex:
+            if not self.modbus.connected:
+                await self.modbus.connect()
+
+        await self.adjust_time()
         tick = grugbus.Metronome( config.POLL_PERIOD_SOLIS )
         on_timer = off_timer = 0
         while STILL_ALIVE:
-            async with self.modbus._async_mutex:
-                if not self.modbus.connected:
-                    await self.modbus.connect()
             try:
                 regs = await self.read_regs( self.regs_to_read )
 
@@ -748,6 +751,42 @@ class Solis( grugbus.SlaveDevice ):
                 mqtt.mqtt.publish( "pv/exception", s )
             await tick.wait()
 
+    def get_time_regs( self ):
+        return ( self.rwr_real_time_clock_year, self.rwr_real_time_clock_month,  self.rwr_real_time_clock_day,
+         self.rwr_real_time_clock_hour, self.rwr_real_time_clock_minute, self.rwr_real_time_clock_seconds )
+
+    async def get_time( self ):
+        regs = self.get_time_regs()
+        await self.read_regs( regs )
+        dt = [ reg.value for reg in regs ]
+        dt[0] += 2000
+        return datetime.datetime( *dt )
+
+    async def set_time( self, dt  ):
+        self.rwr_real_time_clock_year   .value = dt.year - 2000   
+        self.rwr_real_time_clock_month  .value = dt.month   
+        self.rwr_real_time_clock_day    .value = dt.day   
+        self.rwr_real_time_clock_hour   .value = dt.hour   
+        self.rwr_real_time_clock_minute .value = dt.minute   
+        self.rwr_real_time_clock_seconds.value = dt.second
+        await self.write_regs( self.get_time_regs() )
+
+    async def adjust_time( self ):
+        inverter_time = await self.get_time()
+        dt = datetime.datetime.now()
+        log.info( "Inverter time: %s, Pi time: %s" % (inverter_time.isoformat(), dt.isoformat()))
+        deltat = abs( dt-inverter_time )
+        if deltat < datetime.timedelta( seconds=2 ):
+            log.info( "Inverter time is OK, we won't set it." )
+        else:
+            if deltat > datetime.timedelta( seconds=1000 ):
+                log.info( "Pi time seems old, is NTP active?")
+            else:
+                log.info( "Setting inverter time to Pi time" )
+                await self.set_time( dt )
+                inverter_time = await self.get_time()
+                log.info( "Inverter time: %s, Pi time: %s" % (inverter_time.isoformat(), dt.isoformat()))
+
 
 ########################################################################################
 #
@@ -776,7 +815,7 @@ class SolisManager():
         self.solis1 = Solis( "solis1", "Solis 1", 
             modbus_addr = 1, 
             meter = grugbus.SlaveDevice( lmport, 3, "ms1", "SDM120 Smartmeter on Solis 1", Eastron_SDM120.MakeRegisters() ),
-            fakemeter = FakeSmartmeter( config.COM_PORT_FAKE_METER, "fake_meter_1", "Fake SDM120 for Inverter 1" )
+            fakemeter = FakeSmartmeter( config.COM_PORT_FAKE_METER1, "fake_meter_1", "Fake SDM120 for Inverter 1" )
         )
 
         self.fronius = Fronius( '192.168.0.17', 1 )
@@ -806,6 +845,7 @@ class SolisManager():
         asyncio.create_task( abort_on_exit( self.fronius.read_coroutine() ))
         asyncio.create_task( abort_on_exit( self.solis1.read_inverter_coroutine() ))
         asyncio.create_task( abort_on_exit( self.solis1.read_meter_coroutine() ))
+        asyncio.create_task( abort_on_exit( self.sysinfo_coroutine() ))
         asyncio.create_task( self.display_coroutine() )
         asyncio.create_task( self.mqtt_start() )
 
@@ -814,6 +854,35 @@ class SolisManager():
 
     async def mqtt_start( self ):
         await mqtt.mqtt.connect( config.MQTT_BROKER )
+
+    ########################################################################################
+    #   System info
+    ########################################################################################
+
+    async def sysinfo_coroutine( self ):
+        prev_cpu_timings = None
+        while STILL_ALIVE:
+            try:
+                pub = {}
+                with open("/proc/stat") as f:
+                    cpu_timings = [ int(_) for _ in f.readline().split()[1:] ]
+                    cpu_timings = cpu_timings[3], sum(cpu_timings)  # idle time, total time
+                    if prev_cpu_timings:
+                        pub["cpu_load_percent"] = round( 100.0*( 1.0-(cpu_timings[0]-prev_cpu_timings[0])/(cpu_timings[1]-prev_cpu_timings[1]) ), 1 )
+                    prev_cpu_timings = cpu_timings
+
+                with open("/sys/devices/virtual/thermal/thermal_zone0/temp") as f:
+                    pub["cpu_temp_c"] = round( int(f.read())*0.001, 1 )
+
+                total, used, free = shutil.disk_usage("/")
+                pub["disk_space_gb"] = round( free/2**30, 2 )
+                mqtt.publish( "pv/", pub )
+
+                await asyncio.sleep(10)
+            except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
+                return abort()
+            except:
+                log.error(traceback.format_exc())
 
     ########################################################################################
     #   Local display
@@ -869,8 +938,6 @@ class SolisManager():
                     solis.rwr_power_on_off,          
 
                     solis.energy_generated_today,
-
-                    solis.rwr_real_time_clock_seconds,
 
                     "",
 
