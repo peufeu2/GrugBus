@@ -21,6 +21,8 @@ def MakeRegisters():
         reg.__class__ = U16Bitfield
         reg.init_bits_n( bits )
 
+    #   These strings are used as dictionary keys elsewhere, so don't change
+    #
     setup_bitfield( "operating_status", (
             ( 0, True , "Normal Operation" ),
             ( 1, True , "Initializing" ),
@@ -129,14 +131,19 @@ def MakeRegisters():
             ( 5, True , "Failsafe Switch " ),
         ))
 
-    setup_bitfield( "energy_storage_mode", (
-            ( 0, True , "Self use mode" ),
+    storage_bits = (
+            ( 0, True , "Self use" ),
             ( 1, True , "Time-charging optimized revenue mode" ),
-            ( 2, True , "Off-grid mode" ),
+            ( 2, True , "Off grid" ),
             ( 3, True , "Battery wakeup enable" ),
-            ( 4, True , "Reserve battery mode" ),
-            ( 5, False, "Allow battery charge from grid" ),
-        ))
+            ( 4, True , "Backup" ),
+            ( 5, True , "Allow charge from grid" ),
+        )
+    setup_bitfield( "energy_storage_mode", storage_bits )
+    setup_bitfield( "rwr_energy_storage_mode", storage_bits )
+
+    r["rwr_power_on_off"].value_off = 0xDE
+    r["rwr_power_on_off"].value_on  = 0xBE
 
     return regs
 

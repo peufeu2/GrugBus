@@ -183,6 +183,17 @@ Args:
         # Use the range read operation to read this register, to avoid code duplication
         return await self.device.write_regs( (self,) )
 
+    async def write_if_changed( self, value ):
+        """
+        Writes this register to the remote server. 
+        This requires this object to be linked to the device it is physically in via DeviceBase::__init__()
+        """
+        if value == self.value:
+            return
+        self.value = value
+        # Use the range read operation to read this register, to avoid code duplication
+        return await self.device.write_regs( (self,) )
+
     ########################################################
     #   Local server functions
     #   These handle setting the local register value
@@ -449,8 +460,13 @@ class BitfieldMixin():
                 r.add( bit_name )
         return r
 
-    def get_bit( self, bit_name ):
-        return self.value & (1<<self.bits[bit_name])
+    def get_bit_value( self, bit_name ):
+        bit_bit,active_high = self.bits[bit_name]
+        return bool( self.value & (1<<bit_bit) )
+
+    def bit_is_active( self, bit_name ):
+        bit_bit,active_high = self.bits[bit_name]
+        return bool( self.value & (1<<bit_bit) ) == active_high
 
 
 ########################################################

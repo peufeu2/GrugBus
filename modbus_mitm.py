@@ -391,7 +391,7 @@ class MainSmartmeter( grugbus.SlaveDevice ):
             AsyncModbusSerialClient(
                 port            = config.COM_PORT_METER,
                 timeout         = 0.3,
-                retries         = config.MODBUS_RETRIES_METER,
+                retries         = config.MODBUS_RETRIES_SOLIS,
                 retry_on_empty  = True,
                 baudrate        = 19200,
                 bytesize        = 8,
@@ -593,15 +593,19 @@ class Solis( grugbus.SlaveDevice ):
             self.inverter_status                  ,
             self.operating_status                 ,
             self.energy_storage_mode              ,
+            # self.rwr_energy_storage_mode              ,
             self.bms_battery_fault_information_01 ,
             self.bms_battery_fault_information_02 ,
-            self.backup_ac_voltage                ,
+            self.backup_voltage                   ,
             self.backup_output_enabled            ,
             self.battery_max_charge_current       ,
             self.battery_max_discharge_current    ,
 
             self.rwr_battery_discharge_current_maximum_setting,
             self.rwr_battery_charge_current_maximum_setting,
+
+            self.phase_a_voltage,
+            self.rwr_backup_output_enabled,
 
             # self.meter_ac_voltage_a                           ,
             # self.meter_ac_current_a                           ,
@@ -680,7 +684,10 @@ class Solis( grugbus.SlaveDevice ):
 
         await self.adjust_time()
         tick = grugbus.Metronome( config.POLL_PERIOD_SOLIS )
-        on_timer = off_timer = 0
+        timeout_power_on  = grugbus.Timeout( 60, expired=True )
+        timeout_power_off = grugbus.Timeout( 600 )
+        timeout_blackout  = grugbus.Timeout( 1000, expired=True )
+        power_reg = self.rwr_power_on_off
         while STILL_ALIVE:
             try:
                 regs = await self.read_regs( self.regs_to_read )
@@ -703,43 +710,57 @@ class Solis( grugbus.SlaveDevice ):
                 pub["mppt1_power"] = int( self.mppt1_current.value*self.mppt1_voltage.value )
                 pub["mppt2_power"] = int( self.mppt2_current.value*self.mppt2_voltage.value )
                 pub["is_online"]   = int( self.is_online )
-                mqtt.publish( "pv/%s/"%self.key, pub, add_heartbeat=True )
 
-                # Auto on/off: turn it off at night when the batery is below specified SOC
-                # so it doesn't keep draining it while doing nothing useful
-                if ( max( self.mppt1_voltage.value, self.mppt2_voltage.value ) < config.SOLIS_TURNOFF_MPPT_VOLTAGE 
-                    and self.bms_battery_soc.value <= config.SOLIS_TURNOFF_BATTERY_SOC ):
-                    off_timer += 1
+                # Blackout logic: enable backup output in case of blackout
+                blackout = self.fault_status_1_grid.bit_is_active( "No grid" ) and self.phase_a_voltage.value < 100
+                if blackout:
+                    log.info( "Blackout" )
+                    await self.rwr_backup_output_enabled.write_if_changed( 1 )      # enable backup output
+                    await self.rwr_power_on_off         .write_if_changed( self.rwr_power_on_off.value_on )   # Turn inverter on (if it was off)
+                    await self.rwr_energy_storage_mode  .write_if_changed( 0x32 )   # mode = Backup, optimal revenue, charge from grid
+                    timeout_blackout.reset()
+                elif not timeout_blackout.expired():        # stay in backup mode with backup output enabled for a while
+                    log.info( "Remain in backup mode for %d s", timeout_blackout.remain() )
+                    timeout_power_on.reset()
+                    timeout_power_off.reset()
                 else:
-                    off_timer = 0
+                    await self.rwr_backup_output_enabled.write_if_changed( 0 )      # disable backup output
+                    await self.rwr_energy_storage_mode  .write_if_changed( 0x23 )   # Self use, optimal revenue, charge from grid
 
-                if max( self.mppt1_voltage.value, self.mppt2_voltage.value ) > config.SOLIS_TURNON_MPPT_VOLTAGE:
-                    on_timer += 1
-                else:
-                    on_timer = 0
-
-                inverter_is_on = self.rwr_power_on_off.value == 0xBE
-                if inverter_is_on:
-                    on_timer = 0
-                    if off_timer > 500:
-                        self.rwr_power_on_off.value = 0xDE     # power off
-                        log.info("Powering OFF %s"%self.key)
-                        await self.rwr_power_on_off.write()
-                else:   # it is OFF
-                    # print("OFF",on_timer)
-                    off_timer = 0
-                    if on_timer > 30:
-                        self.rwr_power_on_off.value = 0xBE     # power on
-                        log.info("Powering ON %s"%self.key)
-                        await self.rwr_power_on_off.write()
+                    # Auto on/off: turn it off at night when the batery is below specified SOC
+                    # so it doesn't keep draining it while doing nothing useful
+                    inverter_is_on = power_reg.value == power_reg.value_on
+                    if inverter_is_on:
+                        if ( min( self.mppt1_voltage.value, self.mppt2_voltage.value ) < config.SOLIS_TURNOFF_MPPT_VOLTAGE 
+                            and self.bms_battery_soc.value <= config.SOLIS_TURNOFF_BATTERY_SOC ):
+                            timeout_power_on.reset()
+                            if timeout_power_off.expired():
+                                log.info("Powering OFF %s"%self.key)
+                                await power_reg.write_if_changed( power_reg.value_off )
+                            else:
+                                log.info( "Power off %s in %d s", self.key, timeout_power_off.remain() )
+                        else:
+                            timeout_power_off.reset()
+                    else:
+                        if max( self.mppt1_voltage.value, self.mppt2_voltage.value ) > config.SOLIS_TURNON_MPPT_VOLTAGE:                        
+                            timeout_power_off.reset()
+                            if timeout_power_on.expired():
+                                log.info("Powering ON %s"%self.key)
+                                await power_reg.write_if_changed( power_reg.value_on )
+                            else:
+                                log.info( "Power on %s in %d s", self.key, timeout_power_on.remain() )
+                        else:
+                            timeout_power_on.reset()
 
                 ######################################
                 # Battery discharge management
                 # Avoid short battery cycles 
-                inverter_is_on = self.rwr_power_on_off.value == 0xBE       # in case it was changed by write above
+                inverter_is_on = power_reg.value == power_reg.value_on       # in case it was changed by write above
 
                 # self.rwr_battery_discharge_current_maximum_setting.set_value( 50 )
                 # await self.rwr_battery_discharge_current_maximum_setting.write()
+
+                mqtt.publish( "pv/%s/"%self.key, pub, add_heartbeat=True )
 
             except asyncio.exceptions.TimeoutError:
                 pass # This also covers register writes above, not just the first read, so do not move
@@ -905,6 +926,8 @@ class SolisManager():
                     solis.fault_status_5_inverter          ,
                     # solis.inverter_status                  ,
                     solis.operating_status                 ,
+                    # solis.energy_storage_mode              ,
+                    solis.rwr_energy_storage_mode          ,
                 ):
                     r.extend( reg.get_on_bits() )
 
@@ -913,12 +936,11 @@ class SolisManager():
                     meter.phase_1_power                    ,
                     meter.phase_2_power                    ,
                     meter.phase_3_power                    ,
-                    meter.total_power               ,
                     "",
+                    meter.total_power               ,
                     solis.pv_power,      
                     solis.battery_power,                      
                     self.fronius.grid_port_power,
-                    solis.grid_port_power,        
                     ms1.active_power,
                     # solis.house_load_power,                   
                     solis.backup_load_power,                  
@@ -938,6 +960,8 @@ class SolisManager():
                     solis.rwr_power_on_off,          
 
                     solis.energy_generated_today,
+
+                    solis.phase_a_voltage,
 
                     "",
 
@@ -970,7 +994,7 @@ class SolisManager():
                         r.append(reg)
                     else:
                         if reg.value != None:
-                            r.append( "%15s %40s %10s" % (reg.device.key, reg.key, reg.format_value() ) )
+                            r.append( "%40s %10s %10s" % (reg.key, reg.device.key, reg.format_value() ) )
 
                 print( "\n".join(r) )
             except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
