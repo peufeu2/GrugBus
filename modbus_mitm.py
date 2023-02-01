@@ -874,7 +874,7 @@ class SolisManager():
         await mqtt.mqtt.disconnect()
 
     async def mqtt_start( self ):
-        await mqtt.mqtt.connect( config.MQTT_BROKER )
+        await mqtt.mqtt.connect( config.MQTT_BROKER_LOCAL )
 
     ########################################################################################
     #   System info

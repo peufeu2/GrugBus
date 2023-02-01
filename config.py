@@ -2,9 +2,9 @@
 # -*- coding: utf-8 -*-
 
 # MQTT
-MQTT_USER       = "peufeu"
-MQTT_PASSWORD   = "lmao"
-MQTT_BROKER     = "192.168.0.27"
+# MQTT_USER       = "peufeu"
+# MQTT_PASSWORD   = "lmao"
+# MQTT_BROKER     = "192.168.0.27"
 
 MQTT_BUFFER_PATH = "/home/peufeu/mqtt_buffer"
 

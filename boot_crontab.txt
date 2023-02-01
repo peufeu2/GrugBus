@@ -1,0 +1,9 @@
+# put this in crontab
+
+# launch boot startup script
+@reboot /home/peufeu/solaire/boot_startup.sh
+
+# try to reconnect network share if it was down
+0 * * * * mount -a
+
+
