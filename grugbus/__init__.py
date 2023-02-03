@@ -33,6 +33,12 @@ class Metronome():
         if delay>0.01:
             await asyncio.sleep(delay)
 
+    def elapsed( self ):
+        ct = time.time()
+        if self.next_tick < ct:
+            self.next_tick += self.tick * math.ceil((ct-self.next_tick)/self.tick)
+            return True
+
 class Timeout():
     """
         Simple class to periodically trigger an event

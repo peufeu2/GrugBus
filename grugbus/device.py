@@ -53,6 +53,7 @@ class DeviceBase( ):
         self.registers  = []
         self.regs_by_key = {}
         self.addr_belongs_to_reg = {}
+        self.regs_by_addr = {}
 
         #
         #   Will be set to True if we have successful communication with the device,
@@ -90,7 +91,7 @@ class DeviceBase( ):
                     # c = (fcode,reg.addr)
                     # assert c not in self.regs_by_fcode_addr     # must be unique
                     # self.regs_by_fcode_addr[c] = reg
-
+                self.regs_by_addr[reg.addr] = reg
                 fcode = reg.fcodes[0]
                 for a in range(reg.word_length):
                     k = (fcode,reg.addr+a)

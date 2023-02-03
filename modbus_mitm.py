@@ -4,8 +4,8 @@
 import os, pprint, time, sys, serial, socket, traceback, struct, datetime, logging, math, traceback, shutil
 
 # Modbus stuff
-import pymodbus, asyncio, signal
-# import uvloop
+import pymodbus, asyncio, signal, uvloop
+from path import Path
 from pymodbus.client import AsyncModbusSerialClient, AsyncModbusTcpClient
 from pymodbus.datastore import ModbusServerContext, ModbusSlaveContext, ModbusSequentialDataBlock
 from pymodbus.server import StartAsyncSerialServer
@@ -22,7 +22,7 @@ import config
 logging.basicConfig( encoding='utf-8', 
                      level=logging.INFO,
                      format='[%(asctime)s] %(levelname)s:%(message)s',
-                     handlers=[logging.FileHandler(filename='modbus_mitm.log'), 
+                     handlers=[logging.FileHandler(filename=Path(__file__).stem+'.log'), 
                             logging.StreamHandler(stream=sys.stdout)])
 log = logging.getLogger(__name__)
 
@@ -156,6 +156,33 @@ class MQTT():
             await reg.read()
             print( reg.key, reg.value, "->", v )
             await reg.write( v )
+        elif topic=="cmd/pv/write":
+            addr,value = payload.split(b" ",1)
+            addr = int(addr)
+            value = int(value)
+            reg = mgr.solis1.regs_by_addr.get(addr)
+            if not reg:
+                print("Unknown register", addr)
+            await reg.read()
+            print( reg.key, reg.value, "->", value )
+            await reg.write( value )
+            print( reg.key, reg.value )
+        elif topic=="cmd/pv/read":
+            addr = int(payload)
+            reg = mgr.solis1.regs_by_addr.get(addr)
+            if not reg:
+                print("Unknown register", addr)
+            await reg.read()
+            print( reg.key, reg.value )
+        elif topic=="cmd/pv/offset":
+            v = int(payload)
+            print("power_offset", v)
+            mgr.solis1.fake_meter.power_offset = v
+        elif topic=="cmd/pv/elimit":
+            v = int(payload)
+            print("elimit", v)
+            mgr.solis1.fake_meter.power_elimit = v
+
 
     def on_subscribe(self, client, mid, qos, properties):
         print('MQTT SUBSCRIBED')
@@ -324,6 +351,9 @@ class FakeSmartmeter( grugbus.LocalServer ):
         super().__init__( self.slave_ctx, 1, key, name, Acrel_1_Phase.MakeRegisters() ) # build our registers
         self.last_request_time = time.time()    # for stats
         self.data_request_timestamp = 0
+        self.power_offset = 0
+        self.power_elimit = 2000
+        self.export_mode = 0
 
     # This is called when the inverter sends a request to this server
     def _on_getValues( self, fc_as_hex, address, count ):
@@ -335,13 +365,44 @@ class FakeSmartmeter( grugbus.LocalServer ):
         try:    # Fill our registers with up-to-date data
             self.voltage                .value = meter.phase_1_line_to_neutral_volts .value
             self.current                .value = meter.phase_1_current               .value
-            self.active_power           .value = meter.total_power                   .value
             self.apparent_power         .value = meter.total_volt_amps               .value
             self.reactive_power         .value = meter.total_var                     .value
             self.power_factor           .value = (meter.total_power_factor            .value) % 1.0
             self.frequency              .value = meter.frequency                     .value
             self.import_active_energy   .value = meter.total_import_kwh              .value
             self.export_active_energy   .value = meter.total_export_kwh              .value
+            # self.active_power           .value = max( meter.total_power                   .value + self.power_offset, -self.power_elimit ) + (time.time()%2)
+            self.active_power           .value = meter.total_power                   .value
+
+            # Compute power exported by house due to Solis only (negative if exported)
+            # house_power =   (mgr.meter.total_power.value or 0)
+                          # - (mgr.solis1.local_meter.active_power.value or 0)
+                          # - (mgr.fronius.grid_port_power.value or 0)
+
+            # if mgr.meter.total_power.value > 100:
+                # self.export_mode
+            # elif mgr.meter.total_power.value
+
+            # exp_solis_only = mgr.meter.total_power.value - (mgr.fronius.grid_port_power.value or 0)
+            # if exp_solis_only >= 0:
+            #     pass    # solis is not causing any export, use normal logic
+            #     self.power_offset -= 100
+            # else:
+            #     # solis is causing export, reduce its power
+            #     self.power_offset += 100
+            # self.power_offset -= mgr.meter.total_power.value * 0.3
+            # self.power_offset = max( 0, min( 3000, self.power_offset ))
+
+
+            print( self.power_offset, self.active_power.value )
+            self.active_power.value = meter.total_power.value - self.power_offset
+            # self.active_power.value = 500
+            # 
+            # rwr_epm_export_power_limit
+            # meter_pub["house_power"] = float(int(  (mgr.meter.total_power.value or 0)
+            #                             - (self.local_meter.active_power.value or 0)
+            #                             - (mgr.fronius.grid_port_power.value or 0) ))
+
         except TypeError:   # if one of the registers was None because it wasn't read yet
             log.warning( "FakeSmartmeter cannot reply to client: real smartmeter missing fields" )
             return
@@ -356,7 +417,8 @@ class FakeSmartmeter( grugbus.LocalServer ):
         if meter.data_timestamp:    # how fresh is this data?
             mqtt.publish( "pv/solis1/fakemeter/", {
                 "lag": round( t-meter.data_timestamp, 2 ), # lag between getting data from the real meter and forwarding it to the inverter
-                self.active_power.key: self.active_power.format_value() # log what we sent to the inverter
+                self.active_power.key: self.active_power.format_value(), # log what we sent to the inverter
+                "offset": int(self.power_offset)
                 })
         return True
 
@@ -494,6 +556,7 @@ class MainSmartmeter( grugbus.SlaveDevice ):
                 s = traceback.format_exc()
                 log.error(s)
                 mqtt.mqtt.publish( "pv/exception", s )
+                await asyncio.sleep(0.5)
             await tick.wait()
 
 ########################################################################################
@@ -538,6 +601,7 @@ class Fronius( grugbus.SlaveDevice ):
                 s = traceback.format_exc()
                 log.error(s)
                 mqtt.mqtt.publish( "pv/exception", s )
+                await asyncio.sleep(0.5)
 
 ########################################################################################
 #
@@ -606,6 +670,8 @@ class Solis( grugbus.SlaveDevice ):
 
             self.phase_a_voltage,
             self.rwr_backup_output_enabled,
+
+            self.rwr_epm_export_power_limit,
 
             # self.meter_ac_voltage_a                           ,
             # self.meter_ac_current_a                           ,
@@ -710,6 +776,7 @@ class Solis( grugbus.SlaveDevice ):
                 pub["mppt1_power"] = int( self.mppt1_current.value*self.mppt1_voltage.value )
                 pub["mppt2_power"] = int( self.mppt2_current.value*self.mppt2_voltage.value )
                 pub["is_online"]   = int( self.is_online )
+                pub["bms_battery_power"] = int( self.bms_battery_current.value * self.bms_battery_voltage.value )
 
                 # Blackout logic: enable backup output in case of blackout
                 blackout = self.fault_status_1_grid.bit_is_active( "No grid" ) and self.phase_a_voltage.value < 100
@@ -770,6 +837,7 @@ class Solis( grugbus.SlaveDevice ):
                 s = traceback.format_exc()
                 log.error(s)
                 mqtt.mqtt.publish( "pv/exception", s )
+                await asyncio.sleep(0.5)
             await tick.wait()
 
     def get_time_regs( self ):
@@ -847,8 +915,8 @@ class SolisManager():
 
     def start( self ):
         if sys.version_info >= (3, 11):
-            # with asyncio.Runner(loop_factory=uvloop.new_event_loop) as runner:
-            with asyncio.Runner() as runner:
+            with asyncio.Runner(loop_factory=uvloop.new_event_loop) as runner:
+            # with asyncio.Runner() as runner:
                 runner.run(self.astart())
         else:
             uvloop.install()
@@ -959,9 +1027,12 @@ class SolisManager():
                     solis.bms_battery_health_soh,   
                     solis.rwr_power_on_off,          
 
-                    solis.energy_generated_today,
+            #         solis.energy_generated_today,
 
-                    solis.phase_a_voltage,
+            #         solis.phase_a_voltage,
+
+            # solis.rwr_power_limit_switch,
+            # solis.rwr_actual_power_limit_adjustment_value,
 
                     "",
 
@@ -996,7 +1067,7 @@ class SolisManager():
                         if reg.value != None:
                             r.append( "%40s %10s %10s" % (reg.key, reg.device.key, reg.format_value() ) )
 
-                print( "\n".join(r) )
+                # print( "\n".join(r) )
             except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
                 return abort()
             except:

@@ -1,9 +1,27 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-import asyncio, os, time, clickhouse_driver, datetime, pprint, math, traceback
+import asyncio, os, time, clickhouse_driver, datetime, math, traceback, subprocess, logging, sys, uvloop
+import orjson, socket
+import numpy as np
 from gmqtt import Client as MQTTClient
-import config
+from path import Path
+from xopen import xopen
+import config, grugbus
+
+#
+#   This imports MQTT log files and inserts them into clickhouse
+#   Use if the machine with clickhouse was down to catch up
+#   on real time data.
+#   Also launch it periodically to 
+#
+logging.basicConfig( #encoding='utf-8', 
+                     level=logging.INFO,
+                     format='[%(asctime)s] %(levelname)s:%(message)s',
+                     handlers=[logging.FileHandler(filename=Path(__file__).stem+'.log'), 
+                            logging.StreamHandler(stream=sys.stdout)])
+log = logging.getLogger(__name__)
+
 
 
 #
@@ -54,6 +72,7 @@ SET trace_profile_events=0;
 SET log_queries_probability=0;
 SET wait_for_async_insert=0;""".split("\n"):
     clickhouse.execute( line )
+
 
 #
 #   Setup clickhouse database
@@ -119,28 +138,31 @@ FROM mqtt_float
 GROUP BY topic,ts
 """ )
 
-print("run")
-"""
-SELECT
-table, name, compression_codec,
-sum(data_uncompressed_bytes) uncompressed, 
-sum(data_compressed_bytes) compressed, 
-round(uncompressed/compressed,1) ratio
-from system.columns 
-group by table, name, compression_codec
-having uncompressed != 0
-order by table, name;
-"""
+STILL_ALIVE = True
+STOP = asyncio.Event()
+def abort():
+    STOP.set()
+    global STILL_ALIVE
+    STILL_ALIVE = False
+
+# No zombie coroutines allowed
+async def abort_on_exit( awaitable ):
+    await awaitable
+    log.info("*** Exited: %s", awaitable)
+    return abort()
+
 
 #
-#   Accumulate data until we have enough rows then insert
+#   Gathers inserts into one large operation
 #
-class DB():
+class InsertPooler():
+    table_float = "mqtt_float"
+    table_str   = "mqtt_str"
+
     def __init__( self ):
         self.start_ts = None
         self.reset()
         self.begin_ts = time.time()
-        self.topic_stats = {}
         self.insert_floats = []
         self.insert_str    = []
 
@@ -154,17 +176,16 @@ class DB():
         self.start_ts = t
         return r
 
-    def insert( self, k, v ):
-        v = v.decode( "utf-8" )
-        st = time.time()
-        ts = int(st*100)
+
+    def add( self, ts, k, v ):
+        ts = int(ts*100)
         try:
             # Try to convert to int, will fail if it's a float
             self.insert_floats.append((k,ts,1,int(v)))                
         except:
             try:
                 # try float...
-                f=float(v)
+                f = float(v)
                 if math.isfinite(f):
                     self.insert_floats.append((k,ts,0,f))  
                 else:
@@ -172,70 +193,69 @@ class DB():
             except:
                 # it's a string then
                 self.insert_str.append((k,ts,k.endswith("/exception"),v))
-        self.topic_stats[k] = self.topic_stats.get(k,0) + 1
 
-    async def insert_coroutine( self ):
-        while True:
-            await asyncio.sleep( config.CLICKHOUSE_INSERT_PERIOD_SECONDS )
-            st = time.time()
+    def flush( self ):
+        st = time.time()
+        l = len(self.insert_str)+len(self.insert_floats)
+        try:
+            if self.insert_floats:
+                clickhouse.execute( "INSERT INTO %s (topic,ts,is_int,value) VALUES"%self.table_float, self.insert_floats )
+                self.insert_floats = []
+            if self.insert_str:
+                clickhouse.execute( "INSERT INTO %s (topic,ts,is_exception,value) VALUES"%self.table_str, self.insert_str )
+                self.insert_str    = []
+        except Exception as e:
+            print( "Lost connection to Clickhouse, %d rows pending" % l )
+        else:
+            r = self.reset( l, st )
+            print( "INSERT %f ms %s" % ((time.time()-st)*1000, r ))
 
-            l = len(self.insert_str)+len(self.insert_floats)
-            try:
-                if self.insert_floats:
-                    self.insert_floats = sorted( self.insert_floats )
-                    clickhouse.execute( "INSERT INTO mqtt_float (topic,ts,is_int,value) VALUES", self.insert_floats )
-                    self.insert_floats = []
-                if self.insert_str:
-                    clickhouse.execute( "INSERT INTO mqtt_str (topic,ts,is_exception,value) VALUES", self.insert_str )
-                    self.insert_str    = []
-            except Exception as e:
-                print( "Lost connection to Clickhouse, %d rows pending" % l )
-            else:
-                r = self.reset( l, st )
-                print( "INSERT %f ms %s" % ((time.time()-st)*1000, r ))
-            # for k,v in sorted( self.topic_stats.items(), key=lambda x:x[1] ):
-            #     f = v/(st-self.begin_ts)
-            #     if f > 0.1:
-            #         print( "%4.1f/s %s" % (f,k))
 
-    async def cleanup_coroutine( self ):
-        while True:
+async def cleanup_coroutine( ):
+    while True:
+        try:
             for table in "system.trace_log", "system.metric_log", "system.asynchronous_metric_log", "system.session_log":
                 print("Cleanup", table, clickhouse.execute("SELECT count(*) FROM "+table ))
                 clickhouse.execute( "TRUNCATE TABLE "+table )
                 await asyncio.sleep(20)
+        except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
+            return abort()
+        except:
+            log.error( "Exception: %s", traceback.format_exc() )
+            await asyncio.sleep(10)
 
-    async def database_size_coroutine( self, mqtt ):
-        while True:
+async def database_size_coroutine( mqtt ):
+    while True:
+        try:
             r = clickhouse.execute( """
-        select
-        parts.*,
-        columns.compressed_size,
-        columns.uncompressed_size,
-        columns.ratio
-    from (
-        select database,
-            table,
-            (sum(data_uncompressed_bytes))          AS uncompressed_size,
-            (sum(data_compressed_bytes))            AS compressed_size,
-            sum(data_compressed_bytes) / sum(data_uncompressed_bytes) AS ratio
-        from system.columns
-        group by database, table
-    ) columns right join (
-        select database,
-               table,
-               sum(rows)                                            as rows,
-               max(modification_time)                               as latest_modification,
-               (sum(bytes))                       as disk_size,
-               (sum(primary_key_bytes_in_memory)) as primary_keys_size,
-               any(engine)                                          as engine,
-               sum(bytes)                                           as bytes_size
-        from system.parts
-        where table like 'mqtt_%'
-        group by database, table
-    ) parts on ( columns.database = parts.database and columns.table = parts.table )
-    order by parts.bytes_size desc;
-    """)
+    select
+    parts.*,
+    columns.compressed_size,
+    columns.uncompressed_size,
+    columns.ratio
+from (
+    select database,
+        table,
+        (sum(data_uncompressed_bytes))          AS uncompressed_size,
+        (sum(data_compressed_bytes))            AS compressed_size,
+        sum(data_compressed_bytes) / sum(data_uncompressed_bytes) AS ratio
+    from system.columns
+    group by database, table
+) columns right join (
+    select database,
+           table,
+           sum(rows)                                            as rows,
+           max(modification_time)                               as latest_modification,
+           (sum(bytes))                       as disk_size,
+           (sum(primary_key_bytes_in_memory)) as primary_keys_size,
+           any(engine)                                          as engine,
+           sum(bytes)                                           as bytes_size
+    from system.parts
+    where table like 'mqtt_%'
+    group by database, table
+) parts on ( columns.database = parts.database and columns.table = parts.table )
+order by parts.bytes_size desc;
+""")
             for database, table, rows, modtime, disk_size, primary_keys_size, engine, bytes_size, compressed_size, uncompressed_size, ratio in r:
                 prefix = 'sys/db/%s/%s/' % (database,table)
                 print(prefix)
@@ -244,64 +264,98 @@ class DB():
                 mqtt.publish( prefix + "uncompressed_size"  , str(uncompressed_size), qos=0 )
                 if compressed_size:
                     mqtt.publish( prefix + "compression_ratio"  , str(uncompressed_size/compressed_size), qos=0 )
+            await asyncio.sleep( 3600 )      
+        except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
+            return abort()
+        except:
+            log.error( "Exception: %s", traceback.format_exc() )
+            await asyncio.sleep(10)
 
-            await asyncio.sleep( 3600 )        
 
-db = DB()
-
-#
-#   Subscribe to everything that should be logged to database
-#
-def on_connect(mqtt, flags, rc, properties):
-    print('Connected')
-    mqtt.subscribe('pv/#', qos=0)
-    mqtt.subscribe('sys/#', qos=0)
-
-#
-#   Get a message and log it
-#
-def on_message(mqtt, topic, payload, qos, properties):
-    # print("%30s %s" % (time.time(), payload))
-    db.insert( topic, payload )
-
-def on_disconnect(mqtt, packet, exc=None):
-    print('Disconnected')
-
-def on_subscribe(mqtt, mid, qos, properties):
-    print('SUBSCRIBED')
-
-#
-#   event for exiting (we run forever)
-#
-STOP = asyncio.Event()
-def ask_exit(*args):
-    STOP.set()
-
-#
-#   connect to broker and start
-#
-async def main( ):
-    mqtt = MQTTClient("clickhouse_logger")
-
-    mqtt.on_connect = on_connect
-    mqtt.on_message = on_message
-    mqtt.on_disconnect = on_disconnect
-    mqtt.on_subscribe = on_subscribe
-
+async def astart():
+    mqtt = MQTTClient("clickhouse_logger_v2")
     mqtt.set_auth_credentials( config.MQTT_USER,config.MQTT_PASSWORD )
     await mqtt.connect( config.MQTT_BROKER )
 
-    asyncio.create_task( db.database_size_coroutine( mqtt ) )
-    asyncio.create_task( db.cleanup_coroutine() )
-    asyncio.create_task( db.insert_coroutine() )
+    asyncio.create_task( database_size_coroutine( mqtt ) )
+    asyncio.create_task( cleanup_coroutine() )
 
-    await STOP.wait()
-    await mqtt.disconnect()
+    while True:
+        try:
+            await transfer_data( mqtt )
+        except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
+            return abort()
+        except:
+            log.error( "Exception: %s", traceback.format_exc() )
+            await asyncio.sleep(1)
 
-if __name__ == '__main__':
-    asyncio.run(main( ))
 
 
-# gmqtt also compatibility with uvloop  
-# import uvloop
-# asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+async def transfer_data( mqtt ):
+    # setup local
+    tmp_dir = Path( config.MQTT_BUFFER_TEMP )
+    tmp_dir.makedirs_p()
+
+    r = clickhouse.execute( "SELECT toUInt64(max(ts)) FROM mqtt_float ")
+    start_timestamp = r[0][0]
+    log.info("Start timestamp: %d", start_timestamp)
+
+    # connect to log server
+    log.info("Connecting to log server")
+    rsock,wsock = await asyncio.open_connection( config.MQTT_BUFFER_IP, config.MQTT_BUFFER_PORT )
+    wsock.write(b"%d\n" % start_timestamp)        # send timestamp
+
+    pool = InsertPooler()
+    st = time.time()
+    length2 = 0.
+    while True:
+        line = (await rsock.readline()).split()
+        file_ts = float(line[0])
+        length  = int(line[1])            
+        log.debug("Got length:%d", length)
+        if length == 0:
+            continue
+        if length > 0:
+            #   We could stream decompress... but if there's an error, we'll have to
+            #   make sure we read up to the next chunk, too complicated!
+            #   just use temp file
+            try:
+                with open( tmp_path := tmp_dir/("%2f.json.zst"%file_ts), "wb" ) as zf:
+                    length2 += length/1024
+                    while length>0:
+                        data = await rsock.read( min(length,65536) )
+                        zf.write( data )
+                        length -= len( data )
+                log.debug( "Recv: %6d kB, %6d kB/s", length2, length2/(time.time()-st) )
+                for n,line in enumerate( xopen( tmp_path ) ):
+                    j = orjson.loads( line )
+                    if j[0] > start_timestamp:
+                        pool.add( *orjson.loads( line ) )
+                        if not (n&0x3FFFF):
+                            pool.flush()
+            finally:
+                pass
+                # tmp_path.unlink()
+        else:
+            #   Get real time data
+            #
+            timer = grugbus.Metronome( config.CLICKHOUSE_INSERT_PERIOD_SECONDS )
+            while True:
+                pool.add( *orjson.loads( await rsock.readline() ) )
+                # print( len( pool.insert_floats ))
+                if timer.elapsed():
+                    pool.flush()
+
+
+if sys.version_info >= (3, 11):
+    with asyncio.Runner(loop_factory=uvloop.new_event_loop) as runner:
+    # with asyncio.Runner() as runner:
+        runner.run(astart())
+else:
+    uvloop.install()
+    asyncio.run(astart())
+
+
+
+
+
