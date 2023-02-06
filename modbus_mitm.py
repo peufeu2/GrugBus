@@ -226,7 +226,7 @@ mqtt = MQTT()
 #
 class HookModbusSlaveContext(ModbusSlaveContext):
     def getValues(self, fc_as_hex, address, count=1):
-        if self._on_getValues( fc_as_hex, address, count ):
+        if self._on_getValues( fc_as_hex, address, count, self ):
             return super().getValues( fc_as_hex, address, count )
 
 # #   Eastron SDM120 ; reads fcode 4 addr 342 count 2, then 4 0 76
@@ -245,22 +245,29 @@ class HookModbusSlaveContext(ModbusSlaveContext):
 class FakeSmartmeter( grugbus.LocalServer ):
     def __init__( self, port, key, name, smartmeter_modbus_address=1 ):
         self.port = port
-        self.data_store = ModbusSequentialDataBlock( 0, [0]*350 )   # Create datastore corresponding to registers available in Eastron SDM120 smartmeter
 
         # Create slave context for our local server
-        self.slave_ctx = HookModbusSlaveContext(
-            zero_mode = True,   # addresses start at zero
-            di = ModbusSequentialDataBlock( 0, [0] ), # Discrete Inputs  (not used, so just one zero register)
-            co = ModbusSequentialDataBlock( 0, [0] ), # Coils            (not used, so just one zero register)
-            hr = self.data_store, # Holding Registers, we will write fake values to this datastore
-            ir = self.data_store  # Input Registers (use the same datastore, so we don't have to check the opcode)
-            )
-        self.slave_ctx._on_getValues = self._on_getValues # hook
+        slave_ctxs = {}
+        for modbus_address in (1,):#2:
+            data_store = ModbusSequentialDataBlock( 0, [0]*350 )   # Create datastore corresponding to registers available in Eastron SDM120 smartmeter
+            slave_ctx = HookModbusSlaveContext(
+                zero_mode = True,   # addresses start at zero
+                di = ModbusSequentialDataBlock( 0, [0] ), # Discrete Inputs  (not used, so just one zero register)
+                co = ModbusSequentialDataBlock( 0, [0] ), # Coils            (not used, so just one zero register)
+                hr = data_store, # Holding Registers, we will write fake values to this datastore
+                ir = data_store  # Input Registers (use the same datastore, so we don't have to check the opcode)
+                )
+            slave_ctx._on_getValues = self._on_getValues # hook
+            slave_ctx.modbus_address = modbus_address
+            slave_ctxs[modbus_address] = slave_ctx
 
         # Create Server context and assign previously created datastore to smartmeter_modbus_address, this means our 
         # local server will respond to requests to this address with the contents of this datastore
-        self.server_ctx = ModbusServerContext( { smartmeter_modbus_address: self.slave_ctx }, single=False )
-        super().__init__( self.slave_ctx, 1, key, name, Acrel_1_Phase.MakeRegisters() ) # build our registers
+        self.server_ctx = ModbusServerContext( slave_ctxs, single=False )
+        super().__init__( slave_ctxs[1],   # dummy parameter, address is not actually used
+              1, key, name, 
+            Acrel_1_Phase.MakeRegisters() ) # build our registers
+            # Eastron_SDM120.MakeRegisters() ) # build our registers
         self.last_request_time = time.time()    # for stats
         self.data_request_timestamp = 0
         self.power_offset = 0
@@ -268,7 +275,7 @@ class FakeSmartmeter( grugbus.LocalServer ):
         self.export_mode = 0
 
     # This is called when the inverter sends a request to this server
-    def _on_getValues( self, fc_as_hex, address, count ):
+    def _on_getValues( self, fc_as_hex, address, count, ctx ):
         meter = mgr.meter
         if not meter.is_online:
             log.warning( "FakeSmartmeter cannot reply to client: real smartmeter offline" )
@@ -288,7 +295,14 @@ class FakeSmartmeter( grugbus.LocalServer ):
             self.active_power           .value = meter.total_power                   .value
 
             # meter placement: load
-            # self.active_power           .value = -(meter.total_power.value - mgr.solis1.local_meter.active_power.value)
+            # self.active_power           .value = max(0, meter.total_power.value - mgr.solis1.local_meter.active_power.value)
+
+            # meter placement: PV+grid (needs Eastron) -- in this case PV is on the OTHER inverter
+            # this only updates power every 4s, very slow
+            # if ctx.modbus_address == 1:
+            #     self.active_power           .value = meter.total_power.value-self.power_offset
+            # else:
+            #     self.active_power           .value = mgr.fronius.grid_port_power.value-self.power_offset
 
             # Compute power exported by house due to Solis only (negative if exported)
             # house_power =   (mgr.meter.total_power.value or 0)
@@ -322,6 +336,8 @@ class FakeSmartmeter( grugbus.LocalServer ):
             # meter_pub["house_power"] = float(int(  (mgr.meter.total_power.value or 0)
             #                             - (self.local_meter.active_power.value or 0)
             #                             - (mgr.fronius.grid_port_power.value or 0) ))
+
+            # print( "FakeSmartmeter:", ctx.modbus_address, address, count, self.active_power.value )
 
         except TypeError:   # if one of the registers was None because it wasn't read yet
             log.warning( "FakeSmartmeter cannot reply to client: real smartmeter missing fields" )
@@ -466,7 +482,9 @@ class MainSmartmeter( grugbus.SlaveDevice ):
                 else:
                     self.data_timestamp = data_request_timestamp
                     pub = { reg.key: reg.format_value() for reg in regs_to_publish.intersection(regs) }      # do not publish ALL registers on mqtt
-
+                dt = time.time()-tick.next_tick
+                if dt>0.1:
+                    print( dt, self.total_power.value )
                 pub[ "is_online" ]    = int( self.is_online )
                 pub[ "req_time" ]     = round(time.time()-data_request_timestamp,2)   # log modbus request time, round it for better compression
                 mqtt.publish( "pv/meter/", pub, add_heartbeat=True )
@@ -503,7 +521,9 @@ class Fronius( grugbus.SlaveDevice ):
             try:
                 await tick.wait()
                 try:
+                    # t = time.time()
                     await self.grid_port_power.read()
+                    # print("Fronius", time.time()-t, self.grid_port_power.value)
                 except (asyncio.exceptions.TimeoutError, pymodbus.exceptions.ConnectionException):
                     self.grid_port_power.value = 0.
                     pub = {}
@@ -860,7 +880,7 @@ class SolisManager():
 
         app = aiohttp.web.Application()
         app.add_routes([aiohttp.web.get('/', self.webresponse), aiohttp.web.get('/solar_api/v1/GetInverterRealtimeData.cgi', self.webresponse)])
-        runner = aiohttp.web.AppRunner(app)
+        runner = aiohttp.web.AppRunner(app, access_log=False)
         await runner.setup()
         site = aiohttp.web.TCPSite(runner,host=config.SOLARPI_IP,port=8080)
         await site.start()

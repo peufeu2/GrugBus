@@ -298,7 +298,7 @@ async def transfer_data( mqtt ):
     tmp_dir.makedirs_p()
 
     r = clickhouse.execute( "SELECT toUInt64(max(ts)) FROM mqtt_float ")
-    start_timestamp = r[0][0]
+    start_timestamp = r[0][0] - 3600
     log.info("Start timestamp: %d", start_timestamp)
 
     # connect to log server
@@ -309,6 +309,7 @@ async def transfer_data( mqtt ):
     pool = InsertPooler()
     st = time.time()
     length2 = 0.
+    total_rows = 0
     while True:
         line = (await rsock.readline()).split()
         file_ts = float(line[0])
@@ -327,9 +328,10 @@ async def transfer_data( mqtt ):
                         data = await rsock.read( min(length,65536) )
                         zf.write( data )
                         length -= len( data )
-                log.debug( "Recv: %6d kB, %6d kB/s", length2, length2/(time.time()-st) )
+                log.info( "Recv: %6d kB, %6d kB/s, %d rows", length2, length2/(time.time()-st), total_rows )
                 for n,line in enumerate( xopen( tmp_path ) ):
                     j = orjson.loads( line )
+                    total_rows += 1
                     if j[0] > start_timestamp:
                         pool.add( *orjson.loads( line ) )
                         if not (n&0x3FFFF):
@@ -344,7 +346,7 @@ async def transfer_data( mqtt ):
             while True:
                 pool.add( *orjson.loads( await rsock.readline() ) )
                 # print( len( pool.insert_floats ))
-                if timer.elapsed():
+                if timer.ticked():
                     pool.flush()
 
 

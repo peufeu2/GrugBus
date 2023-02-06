@@ -37,6 +37,7 @@ class DataStream( object ):
         x,y = self.get( time.time()-PLOT_LENGTH )
         self.x = collections.deque( x )
         self.y = collections.deque( y )
+        print( "Loaded %d for %s" % (len(self.x), topic))
 
     def get( self, tstart, tend=None, lod_length=3600 ):
         # All times in database are in UTC. Clickhouse treats integer timestamps as UTC too,
@@ -67,6 +68,9 @@ class DataStream( object ):
         else:
             r = clickhouse.execute( "SELECT toStartOfInterval(ts, INTERVAL %(lodm)d MINUTE) tsi, avg(favg) FROM mqtt.mqtt_minute"+where+"GROUP BY tsi ORDER BY tsi", args, **kwargs )
 
+        if not r:  # no data, get latest available row
+            r = clickhouse.execute( "SELECT ts, value FROM mqtt.mqtt_float WHERE topic=%(topic)s ORDER BY ts DESC LIMIT 1", args, **kwargs )                
+            
         if r:
             x,y = r
             print( "LOD: %s LEN %s %.01f ms %s" % (lod,len(x),(time.time()-t)*1000,self.topic))
@@ -106,10 +110,6 @@ class BokehApp():
         self.server.start()
         self.server.show('/myapp')
 
-        for topic in DATA.keys():
-            DATA[topic] = get_one( topic )
-        print( DATA )
-
         self.mqtt = MQTTClient("plotter")
         self.mqtt.on_connect    = self.mqtt_on_connect
         self.mqtt.on_message    = self.mqtt_on_message
@@ -124,15 +124,16 @@ class BokehApp():
 
     def mqtt_on_connect(self, client, flags, rc, properties):
         print("MQTT On Connect")
-        for topic in list(PLOTS.keys())+list(DATA.keys()):
+        # for topic in list(PLOTS.keys())+list(DATA.keys()):
+        for topic in PLOTS.keys():
             print( "subscribe", topic )
             self.mqtt.subscribe( topic, qos=0 )
 
     def mqtt_on_message(self, client, topic, payload, qos, properties):
         p = PLOTS.get(topic)
         y = float(payload)
-        if topic in DATA:
-            DATA[topic][1] = y
+        # if topic in DATA:
+            # DATA[topic][1] = y
         if p:
             y*=p.scale
             t = np.datetime64(int(time.time()*1000),"ms")
@@ -164,7 +165,8 @@ class PVDashboard():
             p.key    = key
             p.stream = stream
             p.plot   = fig.line( [], [], legend_label=stream.label, color=stream.color, line_width=3 )
-            p.last_update = stream.x[-1]
+            if stream.x:    # it can be empty if there is no data for the requested range
+                p.last_update = stream.x[-1]
             self.plots[key] = p
 
         fig.x_range.follow="end"
@@ -176,6 +178,8 @@ class PVDashboard():
         self.tick = Metronome( 0.1 )
         self.prev_trange = None
 
+        self.update_title()
+
         fig.on_event( bokeh.events.Reset,        self.event_reset )
         fig.on_event( bokeh.events.LODStart,     self.event_lod_start )
         fig.on_event( bokeh.events.LODEnd,       self.event_lod_end )
@@ -184,7 +188,8 @@ class PVDashboard():
         fig.on_event( bokeh.events.Pan,          self.event_generic )
 
         doc.add_root(fig)
-        doc.add_periodic_callback( self.update, 1000 )
+        doc.add_periodic_callback( self.update, 500 )
+        doc.add_periodic_callback( self.update_title, 10000 )
 
     def get_t_range( self ):
         t1 = self.fig.x_range.start
@@ -241,18 +246,24 @@ class PVDashboard():
     def event_generic( self, event ):
         self.redraw( event )
 
-    def update( self ):
-        if not self.streaming:
-            return
+    def update_title( self ):
+        for topic in DATA.keys():
+            DATA[topic] = get_one( topic )
         self.fig.title.text = "PV: Batt %d%% Import %.03f Export %.03f Total %.03f kWh" % (
                 DATA["pv/solis1/bms_battery_soc"][1],
                 DATA["pv/meter/total_import_kwh"][1]-DATA["pv/meter/total_import_kwh"][0],
                 DATA["pv/meter/total_export_kwh"][1]-DATA["pv/meter/total_export_kwh"][0],
                 DATA["pv/meter/total_import_kwh"][1]-DATA["pv/meter/total_import_kwh"][0]-(DATA["pv/meter/total_export_kwh"][1]-DATA["pv/meter/total_export_kwh"][0])
             )
+
+    def update( self ):
+        if not self.streaming:
+            return
         for k,ph in self.plots.items():
             ds = ph.plot.data_source
             s  = ph.stream
+            if not s.x: # is there data?
+                continue
             if ph.last_update == s.x[-1]:
                 continue
             ph.last_update = s.x[-1]
