@@ -6,7 +6,8 @@ import collections
 from xopen import xopen
 from path import Path
 from gmqtt import Client as MQTTClient
-import config, grugbus
+import config
+from misc import *
 
 """
     To log MQTT traffic into a database, we need a computer that runs a database.
@@ -70,9 +71,9 @@ class Buffer():
         self.all_files = collections.deque( self.get_existing_files() )
         self.files_to_send = collections.deque()
         self.curfile = None
-        self.flush_timeout = grugbus.Timeout( 60 )
-        self.new_file_timeout = grugbus.Timeout( config.MQTT_BUFFER_FILE_DURATION )
-        self.force_new_file_timeout = grugbus.Timeout( 3, expired=True )
+        self.flush_timeout = Timeout( 60 )
+        self.new_file_timeout = Timeout( config.MQTT_BUFFER_FILE_DURATION )
+        self.force_new_file_timeout = Timeout( 3, expired=True )
         # compression levels 
         #   10 uses 30MB RAM compress ratio 10.88x
         #    7       9MB RAM                10.16x  <- best compromise
@@ -241,7 +242,7 @@ class Buffer():
             # Now forward real time data
             log.info("Send real time, queue %d", len(self.queue_socket))
             writer.write( b"-1 -1\n" )
-            timer = grugbus.Metronome(2)
+            timer = Metronome(2)
             while True:
                 if timer.elapsed():
                     print("Queue %d" % len(self.queue_socket))

@@ -4,7 +4,7 @@
 4,13,,"S16","W","Active Power ",,"float",0,
 4,15,,"S16","VA","Apparent Power ",,"float",0,
 4,14,,"S16","VAr ","Reactive Power ",,"float",0,
-4,16,,"U16","0,01","Power Factor ",,"float",2,
+4,16,,"S16","0,01","Power Factor ",,"float",2,
 4,17,,"U16","0,01Hz ","Frequency ",,"float",2,
 4,60,,"S32","0,01kWh","Import Active Energy ",,"float",2,
 4,62,,"S32","0,01kWh","Export Active Energy ",,"float",2,

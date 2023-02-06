@@ -7,7 +7,8 @@ import numpy as np
 from gmqtt import Client as MQTTClient
 from path import Path
 from xopen import xopen
-import config, grugbus
+import config
+from misc import *
 
 #
 #   This imports MQTT log files and inserts them into clickhouse
@@ -93,7 +94,7 @@ SET wait_for_async_insert=0;""".split("\n"):
 clickhouse.execute( """
     CREATE TABLE IF NOT EXISTS mqtt_float_store( 
         topic   LowCardinality( String ) NOT NULL                     CODEC(ZSTD(9)), 
-        ts      DateTime64(2,'Europe/Paris') NOT NULL DEFAULT now()   CODEC(Delta,ZSTD(9)),   -- ts with millisecond precision
+        ts      DateTime64(2,'UTC') NOT NULL DEFAULT now()   CODEC(Delta,ZSTD(9)),   -- ts with millisecond precision
         is_int  UInt8   NOT NULL                                      CODEC(ZSTD(9)),         -- 0:float 1:int/bitfield
         value   Float64 NOT NULL                                      CODEC(Delta,ZSTD(9)),
     )   ENGINE=ReplacingMergeTree -- eliminates duplicates with same (topic,ts) which should not occur
@@ -105,7 +106,7 @@ clickhouse.execute( """
 clickhouse.execute( """
     CREATE TABLE IF NOT EXISTS mqtt_float( 
         topic   LowCardinality( String ) NOT NULL, 
-        ts      DateTime64(2,'Europe/Paris') NOT NULL DEFAULT now(),   -- ts with millisecond precision
+        ts      DateTime64(2,'UTC') NOT NULL DEFAULT now(),   -- ts with millisecond precision
         is_int  UInt8   NOT NULL,         -- 0:float 1:int/bitfield
         value   Float64 NOT NULL,
     ) ENGINE=Buffer(mqtt, mqtt_float_store, 1, 60, 120, 100, 1000, 65536, 1048576 );
@@ -115,7 +116,7 @@ clickhouse.execute( """
 clickhouse.execute( """
     CREATE TABLE IF NOT EXISTS mqtt_str( 
         topic   LowCardinality( String ) NOT NULL       CODEC(ZSTD(9)),     
-        ts      DateTime64(2,'Europe/Paris') NOT NULL DEFAULT now()  CODEC(Delta,ZSTD(9)),
+        ts      DateTime64(2,'UTC') NOT NULL DEFAULT now()  CODEC(Delta,ZSTD(9)),
         is_exception UInt8   NOT NULL                                      CODEC(ZSTD(9)),
         value   String NOT NULL                         CODEC(ZSTD(9)),
     )   ENGINE=ReplacingMergeTree
@@ -339,7 +340,7 @@ async def transfer_data( mqtt ):
         else:
             #   Get real time data
             #
-            timer = grugbus.Metronome( config.CLICKHOUSE_INSERT_PERIOD_SECONDS )
+            timer = Metronome( config.CLICKHOUSE_INSERT_PERIOD_SECONDS )
             while True:
                 pool.add( *orjson.loads( await rsock.readline() ) )
                 # print( len( pool.insert_floats ))

@@ -11,10 +11,13 @@ from pymodbus.datastore import ModbusServerContext, ModbusSlaveContext, ModbusSe
 from pymodbus.server import StartAsyncSerialServer
 from pymodbus.transaction import ModbusRtuFramer
 
+import aiohttp
+
 from gmqtt import Client as MQTTClient
 
 # Device wrappers
 import grugbus
+from misc import *
 from grugbus.devices import Eastron_SDM120, Solis_S5_EH1P_6K_2020_Extras, Eastron_SDM630, Acrel_1_Phase
 import config
 
@@ -228,97 +231,6 @@ class HookModbusSlaveContext(ModbusSlaveContext):
 
 # #   Eastron SDM120 ; reads fcode 4 addr 342 count 2, then 4 0 76
 # #   Solis does one read per second, so active_power is only updated every second
-# class FakeSmartmeter( grugbus.LocalServer ):
-#     def __init__( self, port, key, name, smartmeter_modbus_address=1 ):
-#         self.port = port
-#         # Create datastore corresponding to registers available in Eastron SDM120 smartmeter
-#         self.data_store = ModbusSequentialDataBlock( 0, [0]*350 )
-
-#         # Create slave context for our local server
-#         self.slave_ctx = HookModbusSlaveContext(
-#             zero_mode = True,   # addresses start at zero
-#             di = ModbusSequentialDataBlock( 0, [0] ), # Discrete Inputs  (not used, so just one zero register)
-#             co = ModbusSequentialDataBlock( 0, [0] ), # Coils            (not used, so just one zero register)
-#             hr = self.data_store, # Holding Registers, we will write fake values to this datastore
-#             ir = self.data_store  # Input Registers (use the same one, SDM120 doesn't care)
-#             )
-#         self.slave_ctx._on_getValues = self._on_getValues
-
-#         # Create Server context and assign previously created datastore to address 1, this means our local server 
-#         # will respond to requests to this address with the contents of this datastore
-#         self.server_ctx = ModbusServerContext( { smartmeter_modbus_address: self.slave_ctx }, single=False )
-
-#         # build our registers
-#         super().__init__( self.slave_ctx, 1, key, name, Eastron_SDM120.MakeRegisters() )
-#         self.last_request_time = time.time()
-
-#         self.data_request_timestamp = 0
-
-#     # This is called when the inverter sends a request to this server
-#     # Solis S5-EH1P requests 4,342,2 and 4,0,76 in turn every second, so it gets a power update
-#     # only every 2 seconds.
-#     def _on_getValues( self, fc_as_hex, address, count ):
-
-#         meter = mgr.meter
-#         if not meter.is_online:
-#             print( "FakeSmartmeter cannot reply to client: real smartmeter offline" )
-#             return []
-
-#         # forward these registers to the fakemeter
-#         try:
-#             self.voltage                .value = meter.phase_1_line_to_neutral_volts .value
-#             self.current                .value = meter.phase_1_current               .value
-#             self.active_power           .value = meter.total_power                   .value
-#             self.apparent_power         .value = meter.total_volt_amps               .value
-#             self.reactive_power         .value = meter.total_var                     .value
-#             self.power_factor           .value = meter.total_power_factor            .value
-#             self.phase_angle            .value = meter.total_phase_angle             .value
-#             self.frequency              .value = meter.frequency                     .value
-#             self.import_active_energy   .value = meter.total_import_kwh              .value
-#             self.export_active_energy   .value = meter.total_export_kwh              .value
-#             self.import_reactive_energy .value = meter.total_import_kvarh            .value
-#             self.export_reactive_energy .value = meter.total_export_kvarh            .value
-#             self.total_active_energy    .value = meter.total_kwh                     .value
-#             self.total_reactive_energy  .value = meter.total_kvarh                   .value
-#         except TypeError:
-#             print( "FakeSmartmeter cannot reply to client: real smartmeter missing fields" )
-#             return []
-
-#         self.write_regs_to_context() # write data to modbus server context, so it can be served to inverter when it requests it.
-
-#         t = time.time()
-#         # s = "query _on_getValues fc %3d addr %5d count %3d dt %d" % (fc_as_hex, address, count, t-self.last_request_time)
-#         # print(s)
-#         # mqtt.mqtt.publish("pv/query", s)
-#         self.last_request_time = t
-
-#         if meter.data_timestamp:
-#             mqtt.publish( "pv/solis1/fakemeter/", {
-#                 "lag": round( t-meter.data_timestamp, 2 ),
-#                 self.active_power.key: self.active_power.format_value()
-#                 })
-
-#         return True
-
-#     # This function starts and runs the modbus server, and never returns as long as the server is running.
-#     # Before starting it, communication with the real meter should be initiated, registers read,
-#     # dummy registers in this object populated with correct values, and write_regs_to_context() called
-#     # to setup the server context, so that we serve correct value to the inverter when it makes a request.
-#     async def start_server( self ):
-#         self.server = await StartAsyncSerialServer( context=self.server_ctx, 
-#             framer          = ModbusRtuFramer,
-#             ignore_missing_slaves = True,
-#             auto_reconnect = True,
-#             port            = self.port,
-#             timeout         = 0.3,      # parameters used by Solis inverter on meter port
-#             baudrate        = 9600,
-#             bytesize        = 8,
-#             parity          = "N",
-#             stopbits        = 1,
-#             strict = False,
-#             # response_manipulator = self.response_manipulator
-#             )
-#         await self.server.start()
 
 #   Meter setting on Solis: "Acrel 1 Phase" ; reads fcode 3 addr 0 count 65
 #   Note the Modbus manual for Acrel ACR10H corresponds to the wrong version of the meter.
@@ -367,12 +279,16 @@ class FakeSmartmeter( grugbus.LocalServer ):
             self.current                .value = meter.phase_1_current               .value
             self.apparent_power         .value = meter.total_volt_amps               .value
             self.reactive_power         .value = meter.total_var                     .value
-            self.power_factor           .value = (meter.total_power_factor            .value) % 1.0
+            self.power_factor           .value = (meter.total_power_factor            .value % 1.0)
             self.frequency              .value = meter.frequency                     .value
             self.import_active_energy   .value = meter.total_import_kwh              .value
             self.export_active_energy   .value = meter.total_export_kwh              .value
             # self.active_power           .value = max( meter.total_power                   .value + self.power_offset, -self.power_elimit ) + (time.time()%2)
+            # meter placement: grid
             self.active_power           .value = meter.total_power                   .value
+
+            # meter placement: load
+            # self.active_power           .value = -(meter.total_power.value - mgr.solis1.local_meter.active_power.value)
 
             # Compute power exported by house due to Solis only (negative if exported)
             # house_power =   (mgr.meter.total_power.value or 0)
@@ -393,9 +309,13 @@ class FakeSmartmeter( grugbus.LocalServer ):
             # self.power_offset -= mgr.meter.total_power.value * 0.3
             # self.power_offset = max( 0, min( 3000, self.power_offset ))
 
+            # if mgr.solis1.bms_battery_soc.value >= 98 and meter.total_power.value < 0:
+            #     offset = max(0, mgr.solis1.rwr_epm_export_power_limit.value - 200)
+            # else:
+            #     offset = 0
 
-            print( self.power_offset, self.active_power.value )
-            self.active_power.value = meter.total_power.value - self.power_offset
+            # print( self.power_offset, self.active_power.value )
+            # self.active_power.value = meter.total_power.value - offset - self.power_offset
             # self.active_power.value = 500
             # 
             # rwr_epm_export_power_limit
@@ -531,7 +451,7 @@ class MainSmartmeter( grugbus.SlaveDevice ):
 
                 ))
 
-        tick = grugbus.Metronome(config.POLL_PERIOD_METER)
+        tick = Metronome(config.POLL_PERIOD_METER)
         while STILL_ALIVE:
             try:
                 if not self.modbus.connected:
@@ -571,7 +491,7 @@ class Fronius( grugbus.SlaveDevice ):
             ] )
 
     async def read_coroutine( self ):
-        tick = grugbus.Metronome( config.POLL_PERIOD_FRONIUS )
+        tick = Metronome( config.POLL_PERIOD_FRONIUS )
         try:    # It powers down at night, which disconnects TCP. 
                 # pymodbus reconnects automatically, no need to put this in the while loop below
                 # otherwise it will leak sockets
@@ -716,7 +636,7 @@ class Solis( grugbus.SlaveDevice ):
                 )
 
     async def read_meter_coroutine( self ):
-        tick = grugbus.Metronome( config.POLL_PERIOD_SOLIS_METER )
+        tick = Metronome( config.POLL_PERIOD_SOLIS_METER )
         while STILL_ALIVE:
             async with self.modbus._async_mutex:
                 if not self.modbus.connected:
@@ -749,10 +669,10 @@ class Solis( grugbus.SlaveDevice ):
                 await self.modbus.connect()
 
         await self.adjust_time()
-        tick = grugbus.Metronome( config.POLL_PERIOD_SOLIS )
-        timeout_power_on  = grugbus.Timeout( 60, expired=True )
-        timeout_power_off = grugbus.Timeout( 600 )
-        timeout_blackout  = grugbus.Timeout( 1000, expired=True )
+        tick = Metronome( config.POLL_PERIOD_SOLIS )
+        timeout_power_on  = Timeout( 60, expired=True )
+        timeout_power_off = Timeout( 600 )
+        timeout_blackout  = Timeout( 1000, expired=True )
         power_reg = self.rwr_power_on_off
         while STILL_ALIVE:
             try:
@@ -938,8 +858,28 @@ class SolisManager():
         asyncio.create_task( self.display_coroutine() )
         asyncio.create_task( self.mqtt_start() )
 
+        app = aiohttp.web.Application()
+        app.add_routes([aiohttp.web.get('/', self.webresponse), aiohttp.web.get('/solar_api/v1/GetInverterRealtimeData.cgi', self.webresponse)])
+        runner = aiohttp.web.AppRunner(app)
+        await runner.setup()
+        site = aiohttp.web.TCPSite(runner,host=config.SOLARPI_IP,port=8080)
+        await site.start()
+
         await STOP.wait()
         await mqtt.mqtt.disconnect()
+
+    ########################################################################################
+    #   Web server
+    ########################################################################################
+
+    async def webresponse( self, request ):
+        p = (self.solis1.pv_power.value or 0) - (self.fronius.grid_port_power.value or 0)
+        p *= (self.solis1.bms_battery_soc.value or 0)*0.01
+        p += min(0, -self.meter.total_power.value)    # if export
+
+        p = (self.solis1.battery_power.value or 0) - (self.meter.total_power.value or 0)
+        print("HTTP Power:%d" % p)
+        return aiohttp.web.Response( text='{"Power" : %d}' % p )
 
     async def mqtt_start( self ):
         await mqtt.mqtt.connect( config.MQTT_BROKER_LOCAL )
