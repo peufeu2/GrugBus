@@ -27,6 +27,7 @@ CLICKHOUSE_INSERT_PERIOD_SECONDS = 5    # pool mqtt data and bulk insert into da
 # MQTT Buffer server
 MQTT_BUFFER_IP   = SOLARPI_IP
 MQTT_BUFFER_PORT = 15555
+MQTT_BUFFER_RETENTION = 24*3600*30  # how long to keep log files
 MQTT_BUFFER_FILE_DURATION = 3600	# number of seconds before new log file is created
 
 

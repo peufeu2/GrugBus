@@ -3,18 +3,22 @@ import asyncio, time, traceback, logging, sys, datetime
 import numpy as np
 
 from tornado.ioloop import IOLoop
-import bokeh.events
+import bokeh.events, bokeh.layouts
 from bokeh.server.server import Server
 from bokeh.application import Application
 from bokeh.application.handlers.function import FunctionHandler
 from bokeh.plotting import figure, ColumnDataSource, figure, curdoc
+from bokeh.io import show
+from bokeh.models import CustomJS, Slider
 
 from gmqtt import Client as MQTTClient
 
 import config
 from misc import *
 
-PLOT_LENGTH = 200    # seconds
+PLOT_LENGTH = 1000    # seconds
+PLOT_LENGTH_MIN = 200    # seconds
+PLOT_LENGTH_MAX = 3600    # seconds
 
 clickhouse = clickhouse_driver.Client('localhost', user=config.CLICKHOUSE_USER, password=config.CLICKHOUSE_PASSWORD )
 
@@ -29,15 +33,21 @@ def get_one( topic ):
         return [0,0]
 
 class DataStream( object ):
-    def __init__( self, topic, label, color, scale ):
+    def __init__( self, pane, topic, label, color, scale, extra_plot_args={}, mode="" ):
+        self.pane = pane
         self.topic = topic
         self.label = label
         self.color = color
         self.scale = scale
+        self.extra_args = extra_plot_args
+        self.mode = mode
+        self.load()
+
+    def load( self ):
         x,y = self.get( time.time()-PLOT_LENGTH )
         self.x = collections.deque( x )
         self.y = collections.deque( y )
-        print( "Loaded %d for %s" % (len(self.x), topic))
+        print( "Loaded %d for %s" % (len(self.x), self.topic))
 
     def get( self, tstart, tend=None, lod_length=3600 ):
         # All times in database are in UTC. Clickhouse treats integer timestamps as UTC too,
@@ -45,7 +55,7 @@ class DataStream( object ):
         if isinstance( tstart, datetime.datetime ):
             tstart = tstart.timestamp()
             if tend:
-                tstart = tend.timestamp()
+                tehd = tend.timestamp()
         span = (tend or time.time())-tstart
         assert span>=0
 
@@ -74,24 +84,35 @@ class DataStream( object ):
         if r:
             x,y = r
             print( "LOD: %s LEN %s %.01f ms %s" % (lod,len(x),(time.time()-t)*1000,self.topic))
-            return x, np.array(y)*self.scale
+            y = np.array(y)*self.scale
+            if "day" in self.mode:
+                y -= y[0]
+            return x, y
         else:
             return ((),())
 
 class PlotHolder():
     pass
 
-PLOTS = { p[0]:DataStream( *p ) for p in (
-    # ( "pv/solis1/pv_power"        , "Solis PV"   , "green" , 1.0 ),
-    ( "pv/fronius/grid_port_power", "Fronius PV" , "#00FF80"  , -1.0 ),
-    ( "pv/total_pv_power"         , "Total PV"   , "#00FF00" , 1.0 ),
-    ( "pv/meter/house_power"      , "House"      , "#8080FF" , 1.0 ),
-    ( "pv/solis1/battery_power"   , "Battery"    , "#FFC080", 1.0 ),
-    # ( "pv/solis1/bms_battery_power", "Battery BMS" , "yellow",1.0 ),
-    ( "pv/meter/total_power"      , "Grid"       , "#FF0000"   , 1.0 ),
-    # ( "pv/solis1/fakemeter/active_power", "Fakemeter"       , "blue"   , 1.0 ),
-    # ( "pv/solis1/fakemeter/offset", "Offset"       , "magenta"   , 1.0 ),
-    # ( "pv/solis1/meter/active_power" , "Solis"   , "cyan"  ,-1.0 ),
+PLOTS = { p[1]:DataStream( *p ) for p in (
+    ( 0, "pv/fronius/grid_port_power", "Fronius PV" , "#00FF80"  , -1.0             , {} ),
+    ( 0, "pv/total_pv_power"         , "Total PV"   , "#00FF00" , 1.0               , {} ),
+    ( 0, "pv/meter/house_power"      , "House"      , "#8080FF" , 1.0               , {} ),
+    ( 0, "pv/solis1/bms_battery_power"   , "Battery"    , "#FFC080", 1.0                , {} ),
+    ( 0, "pv/meter/total_power"      , "Grid"       , "#FF0000"   , 1.0             , {} ),
+    ( 0, "pv/solis1/meter/active_power" , "Solis"   , "cyan"  , 1.0                 , {} ),
+    # ( 0, "pv/solis1/pv_power"        , "Solis PV"   , "green" , 1.0               , {}    ),
+    # ( 0, "pv/solis1/bms_battery_power", "Battery BMS" , "yellow",1.0              , {}    ),
+    # ( 0, "pv/solis1/fakemeter/active_power", "Fakemeter"       , "blue"   , 1.0   , {}    ),
+    # ( 0, "pv/solis1/fakemeter/offset", "Offset"       , "magenta"   , 1.0         , {}    ),
+    # ( 1, "pv/solis1/temperature"     , "Temperature"     , "red"  ,1.0              , {"y_range_name":"temp"} ),
+    # ( 1, "pv/solis1/bms_battery_current" , "Battery current" , "#FFC080"  ,1.0      , {} ),
+    # ( 1, "pv/solis1/bms_battery_soc"     , "Battery SOC"   , "green"  ,1.0          , {} ),
+    ( 1, "pv/solis1/energy_generated_today"     , "Energy generated"   , "green"  ,1.0      , {} , "day" ),
+    ( 1, "pv/solis1/meter/import_active_energy"     , "Solis import"   , "#FFC000"  ,1.0    , {} , "day" ),
+    ( 1, "pv/solis1/meter/export_active_energy"     , "Solis export"   , "#00FF80"  ,1.0    , {} , "day" ),
+    ( 1, "pv/meter/total_import_kwh"     , "Grid import"   , "red"  ,1.0                    , {} , "day" ),
+    ( 1, "pv/meter/total_export_kwh"     , "Grid export"   , "cyan"  ,1.0                   , {} , "day" ),
 )}
 
 DATA = { k:None for k in (
@@ -108,7 +129,7 @@ class BokehApp():
         io_loop = IOLoop.current()
         self.server = Server(applications = {'/myapp': Application(FunctionHandler(self.make_document))}, io_loop = io_loop, port = 5001)
         self.server.start()
-        self.server.show('/myapp')
+        # self.server.show('/myapp')
 
         self.mqtt = MQTTClient("plotter")
         self.mqtt.on_connect    = self.mqtt_on_connect
@@ -151,7 +172,9 @@ class BokehApp():
 class PVDashboard():
     def __init__( self, doc ):
         doc.theme = 'dark_minimal'
-        fig = self.fig = figure(   title = 'PV', 
+
+        self.figs = { stream.pane:None for key,stream in PLOTS.items() }
+        self.figs[0] = figure(   title = 'PV', 
                         sizing_mode = 'stretch_both', 
                         x_axis_type="datetime",
                         tools="undo,redo,reset,save,hover,box_zoom,xwheel_zoom,xpan",
@@ -159,41 +182,88 @@ class PVDashboard():
                         # active_zoom = "xwheel_zoom"
                     )
 
+        if 1 in self.figs:
+            self.figs[1] = figure(   title = 'Inverter', 
+                            sizing_mode = 'stretch_both', 
+                            x_axis_type="datetime",
+                            tools="hover",
+                            # active_drag = "xpan",
+                        )
+
+            self.figs[1].extra_y_ranges = {"temp": bokeh.models.Range1d(start=50, end=70)}
+            self.figs[1].add_layout(bokeh.models.LinearAxis(y_range_name="temp"), 'right')
+
+        self.range_slider = Slider(start=PLOT_LENGTH_MIN, end=PLOT_LENGTH_MAX, value=PLOT_LENGTH, step=100, title="Range")
+        self.range_slider.on_change("value", self.range_slider_on_change)
+
+        self.lod_slider_value = 1
+        self.lod_slider = Slider(start=1, end=100, value=self.lod_slider_value, step=1, title="Smooth")
+        self.lod_slider.on_change("value", self.lod_slider_on_change)
+        self.lod_slider_value = 1
+
         self.plots = {}
         for key,stream in PLOTS.items():
             p = PlotHolder()
             p.key    = key
             p.stream = stream
-            p.plot   = fig.line( [], [], legend_label=stream.label, color=stream.color, line_width=3 )
+            p.plot   = self.figs[stream.pane].line( [], [], legend_label=stream.label, color=stream.color, line_width=3, **stream.extra_args )
             if stream.x:    # it can be empty if there is no data for the requested range
                 p.last_update = stream.x[-1]
             self.plots[key] = p
 
-        fig.x_range.follow="end"
-        fig.x_range.follow_interval = np.timedelta64( PLOT_LENGTH, 's' )
-        fig.x_range.range_padding=0
+        for fig in self.figs.values():
+            # fig.x_range.follow="end"
+            # fig.x_range.follow_interval = np.timedelta64( PLOT_LENGTH, 's' )
+            # fig.x_range.range_padding=0
+            fig.legend.location = "top_left"
+            fig.legend.click_policy="hide"
+
+            fig.on_event( bokeh.events.Reset,        self.event_reset )
+            fig.on_event( bokeh.events.LODStart,     self.event_lod_start )
+            fig.on_event( bokeh.events.LODEnd,       self.event_lod_end )
+            fig.on_event( bokeh.events.RangesUpdate, self.event_ranges_update )
+            fig.on_event( bokeh.events.MouseWheel,   self.event_generic )
+            fig.on_event( bokeh.events.Pan,          self.event_generic )
 
         self.lod_reduce = False
         self.streaming  = True
         self.tick = Metronome( 0.1 )
         self.prev_trange = None
-
         self.update_title()
 
-        fig.on_event( bokeh.events.Reset,        self.event_reset )
-        fig.on_event( bokeh.events.LODStart,     self.event_lod_start )
-        fig.on_event( bokeh.events.LODEnd,       self.event_lod_end )
-        fig.on_event( bokeh.events.RangesUpdate, self.event_ranges_update )
-        fig.on_event( bokeh.events.MouseWheel,   self.event_generic )
-        fig.on_event( bokeh.events.Pan,          self.event_generic )
+        # doc.add_root(fig)
 
-        doc.add_root(fig)
+        doc.add_root(
+            bokeh.layouts.column( 
+                *( list( self.figs.values() ) + [
+                # bokeh.layouts.row( self.range_slider )
+                bokeh.layouts.row( self.range_slider, self.lod_slider )]),
+                sizing_mode="stretch_both"
+                )
+        )
+
         doc.add_periodic_callback( self.update, 500 )
         doc.add_periodic_callback( self.update_title, 10000 )
 
+    def lod_slider_on_change( self, attr, oldvalue, value ):
+        self.lod_slider_value = value
+        if not self.streaming and self.tick.ticked():
+            self.redraw( attr, force=True )
+
+    def range_slider_on_change( self, attr, oldvalue, value ):
+        value = min(PLOT_LENGTH_MAX,max(PLOT_LENGTH_MIN,value))
+        global PLOT_LENGTH
+        PLOT_LENGTH = value
+        for key,stream in PLOTS.items():
+            stream.load()
+        for fig in self.figs.values():
+            fig.x_range.follow_interval = np.timedelta64( PLOT_LENGTH, 's' )
+        # self.redraw( attr )
+
     def get_t_range( self ):
-        t1 = self.fig.x_range.start
-        t2 = self.fig.x_range.end
+        fig = self.figs[0]
+        t1 = fig.x_range.start
+        t2 = fig.x_range.end
         if np.isnan(t1) or np.isnan(t2):
             return None
         return int(t1), int(t2)  # in milliseconds
@@ -206,9 +276,15 @@ class PVDashboard():
         self.prev_trange = trange
         if not (force or trange_change and self.tick.ticked()):
             return
+
+        # copy to other plot panes
+        for k, fig in self.figs.items():
+            if k!=0:
+                fig.x_range.start, fig.x_range.end = trange
+
         tstart = trange[0] * 0.001
         tend   = trange[1] * 0.001
-        lod_length=1000 if self.lod_reduce else 5000
+        lod_length=1000 if self.lod_reduce else int(5000 * 10/(10+self.lod_slider_value))
         print( tstart, tend, event, self.lod_reduce, lod_length )
         miny=[]
         maxy = []
@@ -221,8 +297,10 @@ class PVDashboard():
             ds.data = {"x":x, "y":y }
             ds.trigger('data', ds.data, ds.data )
         if miny:
-            self.fig.y_range.start = max(-4000,min(miny))
-            self.fig.y_range.end   = min(12000,max(maxy))
+            # for fig in self.figs.values():
+            fig = self.figs[0]
+            fig.y_range.start = max(-6500,min(miny))
+            fig.y_range.end   = min(12000,max(maxy))
         self.tick.ticked()
 
     def event_lod_start( self, event ):
@@ -249,7 +327,7 @@ class PVDashboard():
     def update_title( self ):
         for topic in DATA.keys():
             DATA[topic] = get_one( topic )
-        self.fig.title.text = "PV: Batt %d%% Import %.03f Export %.03f Total %.03f kWh" % (
+        self.figs[0].title.text = "PV: Batt %d%% Import %.03f Export %.03f Total %.03f kWh" % (
                 DATA["pv/solis1/bms_battery_soc"][1],
                 DATA["pv/meter/total_import_kwh"][1]-DATA["pv/meter/total_import_kwh"][0],
                 DATA["pv/meter/total_export_kwh"][1]-DATA["pv/meter/total_export_kwh"][0],

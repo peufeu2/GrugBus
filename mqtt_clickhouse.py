@@ -33,6 +33,17 @@ log = logging.getLogger(__name__)
 
 random queries
 
+compute energy integral
+create temporary table tt as select toStartOfHour(ts) h, v, (t-lagInFrame(t,1) over (order by ts)) dt from
+            (select ts, toFloat64(ts) t, value v from mqtt_float where topic='pv/meter/total_power' and ts > '2023-02-10' order by topic,ts) a;
+select h, sum(greatest(0,v)*dt)/3.6e6 from tt where dt<100 and h<'2023-02-11' group by h order by h;
+
+create temporary table tt as select toStartOfDay(ts) h, v, (t-lagInFrame(t,1) over (order by ts)) dt from
+            (select ts, toFloat64(ts) t, value v from mqtt_float where topic='chauffage/pompe' order by topic,ts) a;
+select h, sum(dt)/3600 from tt where v=1 group by h order by h;
+
+
+
 INSERT INTO mqtt_float (topic,ts,is_int,value)
 SELECT 'pv/total_pv_power', s.ts, 0, m.value-s.f AS Power
 FROM (
@@ -60,7 +71,8 @@ WHERE s.ts < '2023-01-18 13:27:49.866';
 """
 
 
-clickhouse = clickhouse_driver.Client('localhost', user=config.CLICKHOUSE_USER, password=config.CLICKHOUSE_PASSWORD )
+clickhouse = clickhouse_driver.Client('localhost', user=config.CLICKHOUSE_USER, 
+    password=config.CLICKHOUSE_PASSWORD )
 
 for line in """USE mqtt;
 SET log_queries=0;
@@ -200,7 +212,7 @@ class InsertPooler():
         l = len(self.insert_str)+len(self.insert_floats)
         try:
             if self.insert_floats:
-                clickhouse.execute( "INSERT INTO %s (topic,ts,is_int,value) VALUES"%self.table_float, self.insert_floats )
+                clickhouse.execute( "INSERT INTO %s (topic,ts,is_int,value) VALUES" % self.table_float, self.insert_floats )
                 self.insert_floats = []
             if self.insert_str:
                 clickhouse.execute( "INSERT INTO %s (topic,ts,is_exception,value) VALUES"%self.table_str, self.insert_str )

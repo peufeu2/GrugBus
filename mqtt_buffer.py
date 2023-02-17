@@ -71,9 +71,8 @@ class Buffer():
         self.all_files = collections.deque( self.get_existing_files() )
         self.files_to_send = collections.deque()
         self.curfile = None
-        self.flush_timeout = Timeout( 60 )
-        self.new_file_timeout = Timeout( config.MQTT_BUFFER_FILE_DURATION )
-        self.force_new_file_timeout = Timeout( 3, expired=True )
+        self.flush_tick = Metronome( 120 )
+        self.new_file_tick = Metronome( config.MQTT_BUFFER_FILE_DURATION )
         # compression levels 
         #   10 uses 30MB RAM compress ratio 10.88x
         #    7       9MB RAM                10.16x  <- best compromise
@@ -103,7 +102,8 @@ class Buffer():
             # If it connects once, it will reconnect automatically.
             await self.mqtt.connect( config.MQTT_BROKER_LOCAL ) 
 
-            server = await asyncio.start_server( self.handle_client, config.MQTT_BUFFER_IP, config.MQTT_BUFFER_PORT )
+            server = await asyncio.start_server( 
+                self.handle_client, config.MQTT_BUFFER_IP, config.MQTT_BUFFER_PORT )
             asyncio.create_task( server.serve_forever() )
             await STOP.wait()
         except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
@@ -124,13 +124,12 @@ class Buffer():
     async def on_message(self, client, topic, payload, qos, properties):
         # Encode MQTT message into json
         jl = orjson.dumps( [ round(time.time(),2), topic, payload.decode() ], option=orjson.OPT_APPEND_NEWLINE )
-
         # Queue it. deque() with maxlen is a ring buffer and will discard oldest items when full.
         self.queue_socket.append( jl )
         self.compressor.write( jl )
-        if self.flush_timeout.expired():
+        if self.flush_tick.ticked():
             self.compressor.flush()
-        if self.new_file_timeout.expired():
+        if self.new_file_tick.ticked():
             self.file_new()
 
     ########################################################
@@ -149,11 +148,10 @@ class Buffer():
         log.info( "New file %s", fname )
         self.curfile = open( fname, "wb" )
         self.compressor = self.cctx.stream_writer( self.curfile )
-        self.flush_timeout.reset()
-        self.new_file_timeout.reset()
 
     def file_close( self ):
         if self.curfile:
+            self.compressor.flush()
             self.compressor.close()
             log.info( "Close %s - %s", self.curfile.name.stem, self.get_ratio() )
             self.curfile.close()
@@ -162,14 +160,15 @@ class Buffer():
     def get_ratio( self ):
         bytes_in,bytes_consumed,bytes_out = self.cctx.frame_progression()
         if bytes_out:
-            return "Compress %d->%d %.02fx RAM %.02fMB" % (bytes_in,bytes_out,bytes_in/bytes_out,self.cctx.memory_size()/1048576)
+            return "Compress %d->%d %.02fx RAM %.02fMB" % (
+                bytes_in,bytes_out,bytes_in/bytes_out,self.cctx.memory_size()/1048576)
         else:
             return "no bytes written"
 
     def fname_to_timestamp( self, fname ):
         return float(fname.stem.split(".json")[0])
 
-    def clean_old_files( self, retention_delay=24*3600*30 ):
+    def clean_old_files( self, retention_delay=config.MQTT_BUFFER_RETENTION ):
         cutoff = time.time() - retention_delay
         while self.all_files:
             fname = self.all_files[0]
@@ -241,10 +240,11 @@ class Buffer():
 
             # Now forward real time data
             log.info("Send real time, queue %d", len(self.queue_socket))
+            await writer.drain()
             writer.write( b"-1 -1\n" )
             timer = Metronome(2)
             while True:
-                if timer.elapsed():
+                if timer.ticked():
                     print("Queue %d" % len(self.queue_socket))
                 while self.queue_socket:
                     writer.write( self.queue_socket.popleft() )
@@ -260,7 +260,10 @@ if __name__ == '__main__':
         buf = Buffer( config.MQTT_BUFFER_PATH )
         buf.start()
     finally:
-        logging.shutdown()
+        try:
+            buf.file_close()
+        finally:
+            logging.shutdown()
 
 # gmqtt also compatibility with uvloop  
 # import uvloop
