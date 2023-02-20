@@ -98,7 +98,13 @@ Shopping list:
 
 # Logging MQTT data to clickhouse
 
-A script is included, it's a bit raw but it does the job.
+Script included, a bit raw but it does the job. I didn't want to run the database on the Pi because it is too slow and the SD card is tiny. So I run the database on a desktop PC. That isn't always on, so I needed a way to store data on the Pi when the database PC is not available.
+
+mqtt_buffer.py: This runs on the Raspberry Pi and stores all mqtt traffic in compressed form. It also acts as a server, able to serve past data and stream current data.
+
+mqtt_clickhouse.py: On launch it will connect to the above server to retrieve past data and catch up with the current state. It inserts everything into clickhouse tables.
+
+bokeyplot.py: a [bokeh app to plot the data](https://www.youtube.com/watch?v=rZxsFkaUimE&lc=Ugz4bzv51YXSnqZ2K194AaABAg). Currently WIP.
 
 Clickhouse's major selling points for logging MQTT data are :
 
