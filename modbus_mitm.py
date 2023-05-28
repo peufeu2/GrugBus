@@ -50,7 +50,7 @@ pv/solis1/meter     Meter attached to inverter1 (because its internal grid port 
 pv/meter/           Meter for the whole house
 
 Reminder:
-git remote set-url origin https://<token>@github.com/peufeu2/pymodbus.git 
+git remote set-url origin https://<token>@github.com/peufeu2/GrugBus.git
 
 How to prevent USB serial ports from changing names: use /dev/serial/by-id/ names, not /dev/ttywhoknows
 
