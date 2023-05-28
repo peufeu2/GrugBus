@@ -798,7 +798,7 @@ Maximum: 70A，Default: 70A, Accuracy: 1A",,,,
 3,43128,,"U16",,"Reserved ",,"int",,,,,,
 3,43129,,"U16",,"Reserved ",,"int",,,,,,
 3,43130,,"U16",,"Reserved ",,"int",,,,,,
-3,43131,,"U16",,"Reserved ",,"int",,,,,,
+3,43131,,"U16",,"Reserved ",,"int",,"Maybe battery max discharge current https://diysolarforum.com/threads/modbus-register-backflow-power-for-solis-hybrid-inverter.60195/post-755016",,,,
 3,43132,,"U16",,"Reserved ",,"int",,"register mentioned in changelog but not documented 		43132-43136 address for RemoteControl and Force Battery Charge function
 Solis Storage control switch value
 https://community.openenergymonitor.org/t/getting-data-from-inverters-via-an-rs485-connection/8377/26",,,,

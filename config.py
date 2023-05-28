@@ -45,6 +45,7 @@ COM_PORT_METER       = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_54D2042112-
 COM_PORT_SOLIS       = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_54D2042115-if00"   # Local meters and inverters
 COM_PORT_FAKE_METER1 = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_54D2042257-if00"   # Solis1 fakemeter
 COM_PORT_FAKE_METER2 = "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A10NBG8C-if00-port0" # Solis2 fakemeter
+
 # not used
 # COM_PORT_METER       = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_54D2042261-if00"
 

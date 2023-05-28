@@ -354,6 +354,7 @@ async def transfer_data( mqtt ):
         else:
             #   Get real time data
             #
+            pool.flush()
             timer = Metronome( config.CLICKHOUSE_INSERT_PERIOD_SECONDS )
             while True:
                 pool.add( *orjson.loads( await rsock.readline() ) )

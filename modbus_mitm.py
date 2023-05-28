@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-import os, pprint, time, sys, serial, socket, traceback, struct, datetime, logging, math, traceback, shutil
+import os, pprint, time, sys, serial, socket, traceback, struct, datetime, logging, math, traceback, shutil, collections
 
 # Modbus stuff
 import pymodbus, asyncio, signal, uvloop
@@ -111,7 +111,9 @@ if 0:
     stop
 
 #
-#   Housekeeping
+#   Housekeeping for async multitasking:
+#   If one thread coroutine abort(), fire STOP event to allow program exit
+#   and set STILL_ALIVE to False to stop all other threads.
 #
 STILL_ALIVE = True
 STOP = asyncio.Event()
@@ -120,7 +122,7 @@ def abort():
     global STILL_ALIVE
     STILL_ALIVE = False
 
-# No zombie coroutines allowed
+# Helper to abort program when the coroutine passed as parameter exits
 async def abort_on_exit( awaitable ):
     await awaitable
     log.info("*** Exited: %s", awaitable)
@@ -222,18 +224,28 @@ mqtt = MQTT()
 #       Fake smartmeter
 #       Modbus server emulating a fake smartmeter to feed data to inverter via meter port
 #
+#       https://pymodbus.readthedocs.io/en/v1.3.2/examples/asynchronous-server.html
+#
 ###########################################################################################
 #
-#   ModbusSlaveContext with a hook in it to generate values on the fly when requested
+#   Modbus server is a slave (client is master)
+#   pymodbus requires ModbusSlaveContext which contains data to serve
+#   This ModbusSlaveContext has a hook to generate values on the fly when requested
 #
 class HookModbusSlaveContext(ModbusSlaveContext):
     def getValues(self, fc_as_hex, address, count=1):
         if self._on_getValues( fc_as_hex, address, count, self ):
             return super().getValues( fc_as_hex, address, count )
 
-# #   Eastron SDM120 ; reads fcode 4 addr 342 count 2, then 4 0 76
-# #   Solis does one read per second, so active_power is only updated every second
-
+###########################################################################################
+#   
+#   Fake smartmeter emulator
+#
+#   Base class is grugbus.LocalServer which extends pymodbus server class to allow
+#   registers to be accessed by name with full type conversion, instead of just
+#   address and raw data.
+#   
+###########################################################################################
 #   Meter setting on Solis: "Acrel 1 Phase" ; reads fcode 3 addr 0 count 65
 #   Note the Modbus manual for Acrel ACR10H corresponds to the wrong version of the meter.
 #   Register map in Acrel_1_Phase.py was reverse engineered from inverter requests.
@@ -245,23 +257,28 @@ class HookModbusSlaveContext(ModbusSlaveContext):
 #   it will respond to that address on the COM port, and it will query the meter with that
 #   address on the meter port.
 class FakeSmartmeter( grugbus.LocalServer ):
-    def __init__( self, port, key, name, smartmeter_modbus_address=1 ):
+    #
+    #   port    serial port name
+    #   key     machine readable name for logging, like "fake_meter_1", 
+    #   name    human readable name like "Fake SDM120 for Inverter 1"
+    #
+    def __init__( self, port, key, name, modbus_address=1 ):
         self.port = port
 
         # Create slave context for our local server
         slave_ctxs = {}
-        for modbus_address in (1,):#2:
-            data_store = ModbusSequentialDataBlock( 0, [0]*350 )   # Create datastore corresponding to registers available in Eastron SDM120 smartmeter
-            slave_ctx = HookModbusSlaveContext(
-                zero_mode = True,   # addresses start at zero
-                di = ModbusSequentialDataBlock( 0, [0] ), # Discrete Inputs  (not used, so just one zero register)
-                co = ModbusSequentialDataBlock( 0, [0] ), # Coils            (not used, so just one zero register)
-                hr = data_store, # Holding Registers, we will write fake values to this datastore
-                ir = data_store  # Input Registers (use the same datastore, so we don't have to check the opcode)
-                )
-            slave_ctx._on_getValues = self._on_getValues # hook
-            slave_ctx.modbus_address = modbus_address
-            slave_ctxs[modbus_address] = slave_ctx
+        # Create datastore corresponding to registers available in Eastron SDM120 smartmeter
+        data_store = ModbusSequentialDataBlock( 0, [0]*350 )   
+        slave_ctx = HookModbusSlaveContext(
+            zero_mode = True,   # addresses start at zero
+            di = ModbusSequentialDataBlock( 0, [0] ), # Discrete Inputs  (not used, so just one zero register)
+            co = ModbusSequentialDataBlock( 0, [0] ), # Coils            (not used, so just one zero register)
+            hr = data_store, # Holding Registers, we will write fake values to this datastore
+            ir = data_store  # Input Registers (use the same datastore, so we don't have to check the opcode)
+            )
+        slave_ctx._on_getValues = self._on_getValues # hook to update datastore when we get a request
+        slave_ctx.modbus_address = modbus_address
+        slave_ctxs[modbus_address] = slave_ctx
 
         # Create Server context and assign previously created datastore to smartmeter_modbus_address, this means our 
         # local server will respond to requests to this address with the contents of this datastore
@@ -278,10 +295,16 @@ class FakeSmartmeter( grugbus.LocalServer ):
 
     # This is called when the inverter sends a request to this server
     def _on_getValues( self, fc_as_hex, address, count, ctx ):
+
+        #   The main meter is read in another coroutine, so data is already available and up to date
+        #   but we still have to check if the meter is actually working
+        #
         meter = mgr.meter
         if not meter.is_online:
             log.warning( "FakeSmartmeter cannot reply to client: real smartmeter offline" )
-            return
+            # return value is False so pymodbus server will abort the request, which the inverter
+            # correctly interprets as the meter being offline
+            return False
 
         try:    # Fill our registers with up-to-date data
             self.voltage                .value = meter.phase_1_line_to_neutral_volts .value
@@ -517,28 +540,33 @@ class RoutableTasmota( Routable ):
         return mqtt.publish( "cmnd/%s/"%self.mqtt_prefix, {"Power": message} )
 
     def off( self ):
-        if self.is_on:
-            print( "Route OFF", self.name, self.mqtt_prefix )
+        # if self.is_on:
+            # print( "Route OFF", self.name, self.mqtt_prefix )
         if self.mqtt_power( "0" ):
             self.is_on = 0
 
     def on( self ):
-        if not self.is_on:
-            print( "Route ON", self.name, self.mqtt_prefix )
+        # if not self.is_on:
+            # print( "Route ON", self.name, self.mqtt_prefix )
         self.off_counter = 0
         if self.mqtt_power( "1" ):
             self.is_on = 1
 
+    def set( self, value ):
+        if value:   self.on()
+        else:       self.off()
 
 class Router():
     def __init__( self ):
         self.devices = [ RoutableTasmota("Tasmota T2", 800, "plugs/tasmota_t2"),
+                         RoutableTasmota("Tasmota T4", 1000, "plugs/tasmota_t4"),
                          RoutableTasmota("Tasmota T1", 1800, "plugs/tasmota_t1"),
                         ]       
 
         self.initialized = False
         self.timeout = Timeout( 10, expired=True )
         self.resend_tick = Metronome( 10 )
+        self.current_option = 0
         # self.off_counter = 0
 
     async def route( self ):
@@ -548,8 +576,28 @@ class Router():
             self.initialized += 1
             return
 
+        # pwr = (mgr.meter.total_power.value or 0) + 100
+
+        # options = []
+        # for bits in range(1<<len(self.devices)):
+        #     p = int(pwr)
+        #     for n,d in enumerate(self.devices):
+        #         p += d.power * ( bool(bits & (1<<n)) - d.is_on )
+        #     if p <= 0 or not bits:
+        #         options.append( (p, -bits) )
+
+        # next_option = -max( options )[1]
+        # if pwr>=0 or self.timeout.expired():
+        #     self.timeout.reset()
+        #     for n,d in enumerate(self.devices):
+        #         d.set( next_option & (1<<n) )
+        #     print( "Route", [d.is_on for d in self.devices], pwr )
+
+        # return
+
+
+
         p = (mgr.meter.total_power.value or 0) + 100
-        # print( [d.is_on for d in self.devices], p )
         if p>0:
             self.timeout.reset()
             for d in reversed( self.devices ):
@@ -567,6 +615,7 @@ class Router():
                             p += d.power
                             self.timeout.reset()
                             break
+                print( "Route", [d.is_on for d in self.devices], p )
 
         if self.resend_tick.ticked():
             for d in self.devices:
@@ -574,6 +623,7 @@ class Router():
                     d.on()
                 else:
                     d.off()
+
 
 
 ########################################################################################
@@ -769,6 +819,8 @@ class Solis( grugbus.SlaveDevice ):
 
         await self.adjust_time()
         tick = Metronome( config.POLL_PERIOD_SOLIS )
+        timeout_fan_off = Timeout( 60 )
+        bat_power_deque = collections.deque( maxlen=10 )
         timeout_power_on  = Timeout( 60, expired=True )
         timeout_power_off = Timeout( 600 )
         timeout_blackout  = Timeout( 1000, expired=True )
@@ -846,6 +898,16 @@ class Solis( grugbus.SlaveDevice ):
                 # self.rwr_battery_discharge_current_maximum_setting.set_value( 50 )
                 # await self.rwr_battery_discharge_current_maximum_setting.write()
 
+                # start fan if temperature too high or average battery power high
+                bat_power_deque.append( abs(pub["bms_battery_power"]) )
+                if self.temperature.value > 40 or sum(bat_power_deque) / len(bat_power_deque) > 2000:
+                    timeout_fan_off.reset()
+                    mqtt.publish( "cmnd/plugs/tasmota_t3/", {"Power": "1"} )
+                    print("Fan ON")
+                elif self.temperature.value < 35 and timeout_fan_off.expired():
+                    mqtt.publish( "cmnd/plugs/tasmota_t3/", {"Power": "0"} )
+                    print("Fan OFF")
+
                 mqtt.publish( "pv/%s/"%self.key, pub, add_heartbeat=True )
 
             except asyncio.exceptions.TimeoutError:
@@ -887,7 +949,7 @@ class Solis( grugbus.SlaveDevice ):
         if deltat < datetime.timedelta( seconds=2 ):
             log.info( "Inverter time is OK, we won't set it." )
         else:
-            if deltat > datetime.timedelta( seconds=1000 ):
+            if deltat > datetime.timedelta( seconds=4000 ):
                 log.info( "Pi time seems old, is NTP active?")
             else:
                 log.info( "Setting inverter time to Pi time" )
