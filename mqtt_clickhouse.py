@@ -349,8 +349,8 @@ async def transfer_data( mqtt ):
                         if not (n&0x3FFFF):
                             pool.flush()
             finally:
-                pass
-                # tmp_path.unlink()
+                # pass
+                tmp_path.unlink()
         else:
             #   Get real time data
             #

@@ -224,6 +224,7 @@ class FakeSmartmeter( grugbus.LocalServer ):
             strict = False,
             # response_manipulator = self.response_manipulator
             )
+        assert self.server
         await self.server.start()
 
 ########################################################################################
