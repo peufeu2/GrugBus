@@ -781,7 +781,8 @@ Precision: 1A",,,,
 3,43117,,"U16 ","0.1A ","Battery charge current maximum setting",,"float",,"register mentioned in 2018 document but
 2020-05-25 Delete 43114-43118
 2020-06-21 Add 43117-43118 max charge/dischargelimit
-Maximum: 70A，Default: 70A, Accuracy: 1A",,,,
+Maximum: 70A，Default: 70A, Accuracy: 1A
+https://diysolarforum.com/threads/solis-s5-various-issues.52383/post-802689 used to limit charge current",,,,
 3,43118,,"U16 ","0.1A ","Battery discharge current maximum setting",,"float",,"register mentioned in 2018 document but
 2020-05-25 Delete 43114-43118
 2020-06-21 Add 43117-43118 max charge/dischargelimit

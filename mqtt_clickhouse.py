@@ -105,10 +105,10 @@ SET wait_for_async_insert=0;""".split("\n"):
 # Main storage table for floats and ints
 clickhouse.execute( """
     CREATE TABLE IF NOT EXISTS mqtt_float_store( 
-        topic   LowCardinality( String ) NOT NULL                     CODEC(ZSTD(9)), 
+        topic   LowCardinality( String ) NOT NULL            CODEC(ZSTD(9)), 
         ts      DateTime64(2,'UTC') NOT NULL DEFAULT now()   CODEC(Delta,ZSTD(9)),   -- ts with millisecond precision
-        is_int  UInt8   NOT NULL                                      CODEC(ZSTD(9)),         -- 0:float 1:int/bitfield
-        value   Float64 NOT NULL                                      CODEC(Delta,ZSTD(9)),
+        is_int  UInt8   NOT NULL                             CODEC(ZSTD(9)),         -- 0:float 1:int/bitfield
+        value   Float64 NOT NULL                             CODEC(Delta,ZSTD(9)),
     )   ENGINE=ReplacingMergeTree -- eliminates duplicates with same (topic,ts) which should not occur
         ORDER BY (topic,ts)
         PRIMARY KEY (topic,ts);
@@ -137,19 +137,100 @@ clickhouse.execute( """
 """)
 
 # Coalesce data by the minute to make graphing faster
-clickhouse.execute( """CREATE OR REPLACE VIEW mqtt_minute AS
-SELECT
+# clickhouse.execute( """CREATE OR REPLACE VIEW mqtt_minute AS
+# SELECT
+#     topic,
+#     toStartOfMinute(ts) AS ts,
+#     max(is_int)         AS is_int,
+#     avg(value)          AS favg,
+#     min(value)          AS fmin,
+#     max(value)          AS fmax,
+#     groupBitAnd ( toUInt64(value) ) AS iand,
+#     groupBitOr  ( toUInt64(value) ) AS ior    
+# FROM mqtt_float
+# WHERE NOT isNaN(value)
+# GROUP BY topic,ts
+# """ )
+
+clickhouse.execute( """CREATE OR REPLACE VIEW mqtt_float_valid AS
+SELECT *
+FROM mqtt_float
+WHERE NOT isNaN(value)
+""" )
+
+#
+#   Queries for real time summaries with materialized views
+#
+"""
+CREATE MATERIALIZED VIEW mqtt_minute_mat ENGINE = AggregatingMergeTree ORDER BY (topic,ts)
+POPULATE
+AS SELECT
     topic,
     toStartOfMinute(ts) AS ts,
-    max(is_int),
-    avg(value)          AS favg,
-    min(value)          AS fmin,
-    max(value)          AS fmax,
-    groupBitAnd ( toUInt64(value) ) AS iand,
-    groupBitOr  ( toUInt64(value) ) AS ior    
-FROM mqtt_float
-GROUP BY topic,ts
-""" )
+    maxState(is_int)        AS is_int,
+    avgState(value)         AS favg,
+    minState(value)         AS fmin,
+    maxState(value)         AS fmax
+FROM mqtt_float_store
+WHERE NOT isNaN(value)
+GROUP BY topic,ts;
+
+CREATE VIEW mqtt_minute AS SELECT
+topic, ts,
+       maxMerge(is_int)     AS is_int, 
+       avgMerge(favg)       AS favg, 
+       maxMerge(fmax)       AS fmax, 
+       minMerge(fmin)       AS fmin
+FROM mqtt_minute_mat
+GROUP BY topic, ts;
+
+CREATE MATERIALIZED VIEW mqtt_10minute_mat ENGINE = AggregatingMergeTree ORDER BY (topic,ts)
+POPULATE
+AS SELECT
+    topic,
+    toStartOfInterval(ts, INTERVAL 10 MINUTE) AS ts,
+    maxState(is_int)        AS is_int,
+    avgState(value)         AS favg,
+    minState(value)         AS fmin,
+    maxState(value)         AS fmax
+FROM mqtt_float_store
+WHERE NOT isNaN(value)
+GROUP BY topic,ts;
+
+CREATE VIEW mqtt_10minute AS SELECT
+topic, ts,
+       maxMerge(is_int)     AS is_int, 
+       avgMerge(favg)       AS favg, 
+       maxMerge(fmax)       AS fmax, 
+       minMerge(fmin)       AS fmin
+FROM mqtt_10minute_mat
+GROUP BY topic, ts;
+
+CREATE MATERIALIZED VIEW mqtt_100minute_mat ENGINE = AggregatingMergeTree ORDER BY (topic,ts)
+POPULATE
+AS SELECT
+    topic,
+    toStartOfInterval(ts, INTERVAL 100 MINUTE) AS ts,
+    maxState(is_int)        AS is_int,
+    avgState(value)         AS favg,
+    minState(value)         AS fmin,
+    maxState(value)         AS fmax
+FROM mqtt_float_store
+WHERE NOT isNaN(value)
+GROUP BY topic,ts;
+
+CREATE VIEW mqtt_100minute AS SELECT
+topic, ts,
+       maxMerge(is_int)     AS is_int, 
+       avgMerge(favg)       AS favg, 
+       maxMerge(fmax)       AS fmax, 
+       minMerge(fmin)       AS fmin
+FROM mqtt_100minute_mat
+GROUP BY topic, ts;
+
+
+"""
+
 
 STILL_ALIVE = True
 STOP = asyncio.Event()

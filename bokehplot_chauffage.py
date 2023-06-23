@@ -97,32 +97,31 @@ class PlotHolder():
     pass
 
 PLOTS = { p[1]:DataStream( *p ) for p in (
-    ( 0, "pv/fronius/grid_port_power", "Fronius PV" , "#008000"  , -4.5             , {} ),
-    ( 0, "pv/total_pv_power"         , "Total PV"   , "#00FF00" , 1.0               , {} ),
-    ( 0, "pv/meter/house_power"      , "House"      , "#8080FF" , 1.0               , {} ),
-    ( 0, "pv/solis1/bms_battery_power"   , "Battery"    , "#FFC080", 1.0                , {} ),
-    ( 0, "pv/meter/total_power"      , "Grid"       , "#FF0000"   , 1.0             , {} ),
-    ( 0, "pv/solis1/meter/active_power" , "Solis"   , "cyan"  , 1.0                 , {} ),
-    # ( 0, "pv/solis1/pv_power"        , "Solis PV"   , "green" , 1.0               , {}    ),
-    # ( 0, "pv/solis1/bms_battery_power", "Battery BMS" , "yellow",1.0              , {}    ),
-    # ( 0, "pv/solis1/fakemeter/active_power", "Fakemeter"       , "blue"   , 1.0   , {}    ),
-    # ( 0, "pv/solis1/fakemeter/offset", "Offset"       , "magenta"   , 1.0         , {}    ),
-    # ( 1, "pv/solis1/temperature"     , "Temperature"     , "red"  ,1.0              , {"y_range_name":"temp"} ),
-    # ( 1, "pv/solis1/bms_battery_current" , "Battery current" , "#FFC080"  ,1.0      , {} ),
-    # ( 1, "pv/solis1/bms_battery_soc"     , "Battery SOC"   , "green"  ,1.0          , {} ),
-    ( 1, "pv/solis1/bms_battery_soc"     , "Battery SOC"   , "green"  ,1.0      , {} ),
-    # ( 1, "pv/solis1/energy_generated_today"     , "Energy generated"   , "green"  ,1.0      , {} , "day" ),
-    # ( 1, "pv/solis1/meter/import_active_energy"     , "Solis import"   , "#FFC000"  ,1.0    , {} , "day" ),
-    # ( 1, "pv/solis1/meter/export_active_energy"     , "Solis export"   , "#00FF80"  ,1.0    , {} , "day" ),
-    # ( 1, "pv/meter/total_import_kwh"     , "Grid import"   , "red"  ,1.0                    , {} , "day" ),
-    # ( 1, "pv/meter/total_export_kwh"     , "Grid export"   , "cyan"  ,1.0                   , {} , "day" ),
-)}
+    ( 0, "chauffage/depart"             , "depart"              , "#FF0000"  , 1.0             , {} ),
+    ( 0, "chauffage/retour"             , "retour"              , "#FF0000"  , 1.0             , {} ),
 
-DATA = { k:None for k in (
-    "pv/solis1/bms_battery_soc",
-    "pv/meter/total_export_kwh",
-    "pv/meter/total_import_kwh",
-    )}
+    ( 0, "chauffage/pac_depart"         , "pac_depart"          , "#FF8000"  , 1.0             , {} ),
+    ( 0, "chauffage/pac_retour"         , "pac_retour"          , "#FF8000"  , 1.0             , {} ),
+
+    # ( 0, "chauffage/debit"              , "debit"               , "#FFFFFF"  , 1.0             , {} ),
+
+    ( 0, "chauffage/et_pcbt_depart"     , "et_pcbt_depart"      , "#8000FF"  , 1.0             , {} ),
+    ( 0, "chauffage/et_pcbt_retour"     , "et_pcbt_retour"      , "#8000FF"  , 1.0             , {} ),
+    ( 0, "chauffage/et_pcbt_ambient"    , "et_pcbt_ambient"     , "#8000FF"  , 1.0             , {} ),
+
+    ( 0, "chauffage/ext_parking"        , "ext_parking"         , "#808000"  , 1.0             , {} ),
+    ( 0, "chauffage/ext_sous_balcon"    , "ext_sous_balcon"     , "#808000"  , 1.0             , {} ),
+
+    ( 0, "chauffage/rc_pc_cuisine"      , "rc_pc_cuisine"       , "#0000FF"  , 1.0             , {} ),
+
+    ( 0, "chauffage/rc_pc_pcbt_ambient" , "rc_pc_pcbt_ambient"  , "#00FF00"  , 1.0             , {} ),
+    ( 0, "chauffage/rc_pc_pcbt_depart"  , "rc_pc_pcbt_depart"   , "#00FF00"  , 1.0             , {} ),
+    ( 0, "chauffage/rc_pc_pcbt_retour"  , "rc_pc_pcbt_retour"   , "#00FF00"  , 1.0             , {} ),
+
+    ( 0, "chauffage/rc_pf_pcbt_ambient" , "rc_pf_pcbt_ambient"  , "#0080FF"  , 1.0             , {} ),
+    ( 0, "chauffage/rc_pf_pcbt_depart"  , "rc_pf_pcbt_depart"   , "#0080FF"  , 1.0             , {} ),
+    ( 0, "chauffage/rc_pf_pcbt_retour"  , "rc_pf_pcbt_retour"   , "#0080FF"  , 1.0             , {} ),
+)}
 
 class BokehApp():
     plot_data = []
@@ -130,7 +129,7 @@ class BokehApp():
 
     def __init__(self):
         io_loop = IOLoop.current()
-        self.server = Server(applications = {'/myapp': Application(FunctionHandler(self.make_document))}, io_loop = io_loop, port = 5001)
+        self.server = Server(applications = {'/myapp': Application(FunctionHandler(self.make_document))}, io_loop = io_loop, port = 5002)
         self.server.start()
         # self.server.show('/myapp')
 
@@ -148,7 +147,6 @@ class BokehApp():
 
     def mqtt_on_connect(self, client, flags, rc, properties):
         print("MQTT On Connect")
-        # for topic in list(PLOTS.keys())+list(DATA.keys()):
         for topic in PLOTS.keys():
             print( "subscribe", topic )
             self.mqtt.subscribe( topic, qos=0 )
@@ -156,8 +154,6 @@ class BokehApp():
     def mqtt_on_message(self, client, topic, payload, qos, properties):
         p = PLOTS.get(topic)
         y = float(payload)
-        # if topic in DATA:
-            # DATA[topic][1] = y
         if p:
             y*=p.scale
             t = np.datetime64(int(time.time()*1000),"ms")
@@ -302,19 +298,19 @@ class PVDashboard():
         if miny:
             # for fig in self.figs.values():
             fig = self.figs[0]
-            fig.y_range.start = max(-6500,min(miny))
-            fig.y_range.end   = min(12000,max(maxy))
+            fig.y_range.start = max(-5,min(miny))
+            fig.y_range.end   = min(60,max(maxy))
         self.tick.ticked()
 
     def event_lod_start( self, event ):
         print( event )
         self.streaming  = False
-        # self.lod_reduce = True
+        self.lod_reduce = True
         self.redraw( event )
 
     def event_lod_end( self, event ):
         print( event )
-        # self.lod_reduce = False
+        self.lod_reduce = False
         self.redraw( event, True )
 
     def event_reset( self, event ):
@@ -328,14 +324,7 @@ class PVDashboard():
         self.redraw( event )
 
     def update_title( self ):
-        for topic in DATA.keys():
-            DATA[topic] = get_one( topic )
-        self.figs[0].title.text = "PV: Batt %d%% Import %.03f Export %.03f Total %.03f kWh" % (
-                DATA["pv/solis1/bms_battery_soc"][1],
-                DATA["pv/meter/total_import_kwh"][1]-DATA["pv/meter/total_import_kwh"][0],
-                DATA["pv/meter/total_export_kwh"][1]-DATA["pv/meter/total_export_kwh"][0],
-                DATA["pv/meter/total_import_kwh"][1]-DATA["pv/meter/total_import_kwh"][0]-(DATA["pv/meter/total_export_kwh"][1]-DATA["pv/meter/total_export_kwh"][0])
-            )
+        pass
 
     def update( self ):
         if not self.streaming:
