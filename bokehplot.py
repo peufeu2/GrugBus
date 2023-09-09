@@ -19,6 +19,8 @@ from misc import *
 PLOT_LENGTH = 1000    # seconds
 PLOT_LENGTH_MIN = 200    # seconds
 PLOT_LENGTH_MAX = 3600    # seconds
+TIME_SHIFT_S = 3600*2
+TIME_SHIFT = np.timedelta64( TIME_SHIFT_S, 's' )
 
 clickhouse = clickhouse_driver.Client('localhost', user=config.CLICKHOUSE_USER, password=config.CLICKHOUSE_PASSWORD )
 
@@ -61,6 +63,9 @@ class DataStream( object ):
 
         # dynamic level of detail
         lod = int(round( span/lod_length ) or 1)
+        tstart -= TIME_SHIFT_S
+        if tend:
+            tend -= TIME_SHIFT_S
 
         args   = { "topic":self.topic, "tstart":tstart, "tend":tend, "lod":lod, "lodm":lod//60 }
         kwargs = { "columnar":True, "settings":{"use_numpy":True} }            
@@ -89,6 +94,7 @@ class DataStream( object ):
             y = np.array(y)*self.scale
             if "day" in self.mode:
                 y -= y[0]
+            x += TIME_SHIFT
             return x, y
         else:
             return ((),())
@@ -160,7 +166,7 @@ class BokehApp():
             # DATA[topic][1] = y
         if p:
             y*=p.scale
-            t = np.datetime64(int(time.time()*1000),"ms")
+            t = np.datetime64(int(time.time()*1000),"ms") + TIME_SHIFT
             p.x.append( t )
             p.y.append( y )
             limit = t - np.timedelta64( PLOT_LENGTH, 's' )

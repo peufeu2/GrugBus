@@ -19,7 +19,7 @@ from misc import *
 logging.basicConfig( #encoding='utf-8', 
                      level=logging.INFO,
                      format='[%(asctime)s] %(levelname)s:%(message)s',
-                     handlers=[logging.FileHandler(filename=Path(__file__).stem+'.log'), 
+                     handlers=[logging.FileHandler(filename=Path("/mnt/ssd/temp/log/")/Path(__file__).stem+'.log'), 
                             logging.StreamHandler(stream=sys.stdout)])
 log = logging.getLogger(__name__)
 
@@ -391,7 +391,8 @@ async def transfer_data( mqtt ):
     tmp_dir.makedirs_p()
 
     r = clickhouse.execute( "SELECT toUInt64(max(ts)) FROM mqtt_float ")
-    start_timestamp = r[0][0] - 3600
+    start_timestamp = r[0][0] - 3600*24
+    start_timestamp = 0
     log.info("Start timestamp: %d", start_timestamp)
 
     # connect to log server
@@ -415,7 +416,7 @@ async def transfer_data( mqtt ):
             #   make sure we read up to the next chunk, too complicated!
             #   just use temp file
             try:
-                with open( tmp_path := tmp_dir/("%2f.json.zst"%file_ts), "wb" ) as zf:
+                with open( tmp_path := tmp_dir/("%.02f.json.zst"%file_ts), "wb" ) as zf:
                     length2 += length/1024
                     while length>0:
                         data = await rsock.read( min(length,65536) )
@@ -430,8 +431,8 @@ async def transfer_data( mqtt ):
                         if not (n&0x3FFFF):
                             pool.flush()
             finally:
-                # pass
-                tmp_path.unlink()
+                pass
+                # tmp_path.unlink()
         else:
             #   Get real time data
             #

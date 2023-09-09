@@ -202,7 +202,7 @@ class Buffer():
     async def handle_client( self, reader, writer ):
         async def sendfile( fname ):
             log.info( "Sendfile %s q %d", fname.stem, len(self.queue_socket) )
-            writer.write( b"%d %d\n" % (self.fname_to_timestamp( fname ), fname.size ))
+            writer.write( b"%f %d\n" % (self.fname_to_timestamp( fname ), fname.size ))
             with open( fname, "rb" ) as f:
                 while data := f.read(65536):
                     writer.write(data)

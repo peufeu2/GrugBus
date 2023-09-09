@@ -16,9 +16,12 @@ from gmqtt import Client as MQTTClient
 import config
 from misc import *
 
-PLOT_LENGTH = 1000    # seconds
+PLOT_LENGTH = 3600    # seconds
 PLOT_LENGTH_MIN = 200    # seconds
 PLOT_LENGTH_MAX = 3600    # seconds
+
+TIME_SHIFT_S = 3600*2
+TIME_SHIFT = np.timedelta64( TIME_SHIFT_S, 's' )
 
 clickhouse = clickhouse_driver.Client('localhost', user=config.CLICKHOUSE_USER, password=config.CLICKHOUSE_PASSWORD )
 
@@ -33,7 +36,7 @@ def get_one( topic ):
         return [0,0]
 
 class DataStream( object ):
-    def __init__( self, pane, topic, label, color, scale, extra_plot_args={}, mode="" ):
+    def __init__( self, pane, topic, label, color, scale, extra_plot_args={}, visible=True, mode="" ):
         self.pane = pane
         self.topic = topic
         self.label = label
@@ -41,6 +44,7 @@ class DataStream( object ):
         self.scale = scale
         self.extra_args = extra_plot_args
         self.mode = mode
+        self.visible = visible
         self.load()
 
     def load( self ):
@@ -61,6 +65,9 @@ class DataStream( object ):
 
         # dynamic level of detail
         lod = int(round( span/lod_length ) or 1)
+        tstart -= TIME_SHIFT_S
+        if tend:
+            tend -= TIME_SHIFT_S
 
         args   = { "topic":self.topic, "tstart":tstart, "tend":tend, "lod":lod, "lodm":lod//60 }
         kwargs = { "columnar":True, "settings":{"use_numpy":True} }            
@@ -89,6 +96,7 @@ class DataStream( object ):
             y = np.array(y)*self.scale
             if "day" in self.mode:
                 y -= y[0]
+            x += TIME_SHIFT
             return x, y
         else:
             return ((),())
@@ -97,30 +105,24 @@ class PlotHolder():
     pass
 
 PLOTS = { p[1]:DataStream( *p ) for p in (
-    ( 0, "chauffage/depart"             , "depart"              , "#FF0000"  , 1.0             , {} ),
-    ( 0, "chauffage/retour"             , "retour"              , "#FF0000"  , 1.0             , {} ),
-
-    ( 0, "chauffage/pac_depart"         , "pac_depart"          , "#FF8000"  , 1.0             , {} ),
-    ( 0, "chauffage/pac_retour"         , "pac_retour"          , "#FF8000"  , 1.0             , {} ),
-
-    # ( 0, "chauffage/debit"              , "debit"               , "#FFFFFF"  , 1.0             , {} ),
-
-    ( 0, "chauffage/et_pcbt_depart"     , "et_pcbt_depart"      , "#8000FF"  , 1.0             , {} ),
-    ( 0, "chauffage/et_pcbt_retour"     , "et_pcbt_retour"      , "#8000FF"  , 1.0             , {} ),
-    ( 0, "chauffage/et_pcbt_ambient"    , "et_pcbt_ambient"     , "#8000FF"  , 1.0             , {} ),
-
-    ( 0, "chauffage/ext_parking"        , "ext_parking"         , "#808000"  , 1.0             , {} ),
-    ( 0, "chauffage/ext_sous_balcon"    , "ext_sous_balcon"     , "#808000"  , 1.0             , {} ),
-
-    ( 0, "chauffage/rc_pc_cuisine"      , "rc_pc_cuisine"       , "#0000FF"  , 1.0             , {} ),
-
-    ( 0, "chauffage/rc_pc_pcbt_ambient" , "rc_pc_pcbt_ambient"  , "#00FF00"  , 1.0             , {} ),
-    ( 0, "chauffage/rc_pc_pcbt_depart"  , "rc_pc_pcbt_depart"   , "#00FF00"  , 1.0             , {} ),
-    ( 0, "chauffage/rc_pc_pcbt_retour"  , "rc_pc_pcbt_retour"   , "#00FF00"  , 1.0             , {} ),
-
-    ( 0, "chauffage/rc_pf_pcbt_ambient" , "rc_pf_pcbt_ambient"  , "#0080FF"  , 1.0             , {} ),
-    ( 0, "chauffage/rc_pf_pcbt_depart"  , "rc_pf_pcbt_depart"   , "#0080FF"  , 1.0             , {} ),
-    ( 0, "chauffage/rc_pf_pcbt_retour"  , "rc_pf_pcbt_retour"   , "#0080FF"  , 1.0             , {} ),
+    ( 0, "chauffage/depart"             , "depart"              , "#FF0000"  , 1.0             , {} , False),
+    ( 0, "chauffage/retour"             , "retour"              , "#FF0000"  , 1.0             , {} , False),
+    ( 0, "chauffage/pac_depart"         , "pac_depart"          , "#FF8000"  , 1.0             , {} , False),
+    ( 0, "chauffage/pac_retour"         , "pac_retour"          , "#FF8000"  , 1.0             , {} , False),
+    ( 0, "chauffage/debit"              , "debit"               , "#FFFFFF"  , 1.0             , {} , False),
+    ( 0, "chauffage/et_bureau"          , "et_bureau"           , "#808080"  , 1.0             , {} , False),
+    ( 0, "chauffage/et_pcbt_depart"     , "et_pcbt_depart"      , "#8000FF"  , 1.0             , {} , False),
+    ( 0, "chauffage/et_pcbt_retour"     , "et_pcbt_retour"      , "#8000FF"  , 1.0             , {} , False),
+    ( 0, "chauffage/et_pcbt_ambient"    , "et_pcbt_ambient"     , "#8000FF"  , 1.0             , {} , True ),
+    ( 0, "chauffage/ext_parking"        , "ext_parking"         , "#808000"  , 1.0             , {} , True ),
+    ( 0, "chauffage/ext_sous_balcon"    , "ext_sous_balcon"     , "#808000"  , 1.0             , {} , True ),
+    ( 0, "chauffage/rc_pc_cuisine"      , "rc_pc_cuisine"       , "#0000FF"  , 1.0             , {} , True ),
+    ( 0, "chauffage/rc_pc_pcbt_ambient" , "rc_pc_pcbt_ambient"  , "#00FF00"  , 1.0             , {} , True ),
+    ( 0, "chauffage/rc_pc_pcbt_depart"  , "rc_pc_pcbt_depart"   , "#00FF00"  , 1.0             , {} , False),
+    ( 0, "chauffage/rc_pc_pcbt_retour"  , "rc_pc_pcbt_retour"   , "#00FF00"  , 1.0             , {} , False),
+    ( 0, "chauffage/rc_pf_pcbt_ambient" , "rc_pf_pcbt_ambient"  , "#0080FF"  , 1.0             , {} , True ),
+    ( 0, "chauffage/rc_pf_pcbt_depart"  , "rc_pf_pcbt_depart"   , "#0080FF"  , 1.0             , {} , False),
+    ( 0, "chauffage/rc_pf_pcbt_retour"  , "rc_pf_pcbt_retour"   , "#0080FF"  , 1.0             , {} , False),
 )}
 
 class BokehApp():
@@ -133,7 +135,7 @@ class BokehApp():
         self.server.start()
         # self.server.show('/myapp')
 
-        self.mqtt = MQTTClient("plotter")
+        self.mqtt = MQTTClient("plotter_chauffage")
         self.mqtt.on_connect    = self.mqtt_on_connect
         self.mqtt.on_message    = self.mqtt_on_message
         self.mqtt.set_auth_credentials( config.MQTT_USER, config.MQTT_PASSWORD )
@@ -156,7 +158,7 @@ class BokehApp():
         y = float(payload)
         if p:
             y*=p.scale
-            t = np.datetime64(int(time.time()*1000),"ms")
+            t = np.datetime64(int(time.time()*1000),"ms") + TIME_SHIFT
             p.x.append( t )
             p.y.append( y )
             limit = t - np.timedelta64( PLOT_LENGTH, 's' )
@@ -189,8 +191,8 @@ class PVDashboard():
                             # active_drag = "xpan",
                         )
 
-            self.figs[1].extra_y_ranges = {"temp": bokeh.models.Range1d(start=50, end=70)}
-            self.figs[1].add_layout(bokeh.models.LinearAxis(y_range_name="temp"), 'right')
+            # self.figs[1].extra_y_ranges = {"temp": bokeh.models.Range1d(start=50, end=70)}
+            # self.figs[1].add_layout(bokeh.models.LinearAxis(y_range_name="temp"), 'right')
 
         self.range_slider = Slider(start=PLOT_LENGTH_MIN, end=PLOT_LENGTH_MAX, value=PLOT_LENGTH, step=100, title="Range")
         self.range_slider.on_change("value", self.range_slider_on_change)
@@ -206,6 +208,7 @@ class PVDashboard():
             p.key    = key
             p.stream = stream
             p.plot   = self.figs[stream.pane].line( [], [], legend_label=stream.label, color=stream.color, line_width=3, **stream.extra_args )
+            p.plot.visible = stream.visible
             if stream.x:    # it can be empty if there is no data for the requested range
                 p.last_update = stream.x[-1]
             self.plots[key] = p
@@ -285,21 +288,23 @@ class PVDashboard():
         tend   = trange[1] * 0.001
         lod_length=1000 if self.lod_reduce else int(5000 * 10/(10+self.lod_slider_value))
         print( tstart, tend, event, self.lod_reduce, lod_length )
-        miny=[]
+        miny = []
         maxy = []
         for k,ph in self.plots.items():
-            ds = ph.plot.data_source
-            x,y = ph.stream.get( tstart, tend, lod_length=lod_length )
-            if len(y):
-                miny.append(y.min())
-                maxy.append(y.max())
-            ds.data = {"x":x, "y":y }
-            ds.trigger('data', ds.data, ds.data )
+            if ph.plot.visible:
+                ds = ph.plot.data_source
+                x,y = ph.stream.get( tstart, tend, lod_length=lod_length )
+                if len(y):
+                    print(k, y.min(), y.max())
+                    miny.append(y.min())
+                    maxy.append(y.max())
+                ds.data = {"x":x, "y":y }
+                ds.trigger('data', ds.data, ds.data )
         if miny:
             # for fig in self.figs.values():
             fig = self.figs[0]
-            fig.y_range.start = max(-5,min(miny))
-            fig.y_range.end   = min(60,max(maxy))
+            fig.y_range.start = max(-10,min(miny))
+            fig.y_range.end   = min(50,max(maxy))
         self.tick.ticked()
 
     def event_lod_start( self, event ):
