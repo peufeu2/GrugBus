@@ -241,10 +241,10 @@ Args:
 
     # convert value to raw_value
     def _set_raw_value_single( self ):
-        self.raw_value = int( self.value // self.unit_value )
+        self.raw_value = round( self.value / self.unit_value )
 
     def _set_raw_value_array( self ):
-        self.raw_value = [ int( v // self.unit_value ) for v in self.value ]
+        self.raw_value = [ round( v / self.unit_value ) for v in self.value ]
 
     # called before encode, returns data to transmit
     # all it does is make sure raw_value is updated and wrap it in []
