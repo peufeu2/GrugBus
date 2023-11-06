@@ -72,7 +72,8 @@ def get():
     data = urllib.request.urlopen("http://192.168.0.16/status.json?clear", timeout=2).read().decode("utf-8")
     try:
         data = orjson.loads(data)
-    except:
+    except Exception as e:
+        print("Error getting data", e)
         print(data)
         raise
 
@@ -130,6 +131,7 @@ async def run():
         try:
             data = {}
             for k,v in get():
+                print(k,v)
                 if isinstance( v,float ):
                     v = round( v, 2 )
                 data[k]=v

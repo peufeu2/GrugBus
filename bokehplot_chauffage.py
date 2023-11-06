@@ -123,6 +123,7 @@ PLOTS = { p[1]:DataStream( *p ) for p in (
     ( 0, "chauffage/rc_pf_pcbt_ambient" , "rc_pf_pcbt_ambient"  , "#0080FF"  , 1.0             , {} , True ),
     ( 0, "chauffage/rc_pf_pcbt_depart"  , "rc_pf_pcbt_depart"   , "#0080FF"  , 1.0             , {} , False),
     ( 0, "chauffage/rc_pf_pcbt_retour"  , "rc_pf_pcbt_retour"   , "#0080FF"  , 1.0             , {} , False),
+    ( 0, "chauffage/rc_pf_che"          , "rc_pf_che"           , "#FF8000"  , 1.0             , {} , False),
 )}
 
 class BokehApp():

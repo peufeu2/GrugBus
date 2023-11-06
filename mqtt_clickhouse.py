@@ -391,8 +391,8 @@ async def transfer_data( mqtt ):
     tmp_dir.makedirs_p()
 
     r = clickhouse.execute( "SELECT toUInt64(max(ts)) FROM mqtt_float ")
-    start_timestamp = r[0][0] - 3600*24
-    start_timestamp = 0
+    start_timestamp = r[0][0] - RETRIEVE_SECONDS
+    # start_timestamp = 1691942400
     log.info("Start timestamp: %d", start_timestamp)
 
     # connect to log server
@@ -422,14 +422,19 @@ async def transfer_data( mqtt ):
                         data = await rsock.read( min(length,65536) )
                         zf.write( data )
                         length -= len( data )
-                log.info( "Recv: %6d kB, %6d kB/s, %d rows", length2, length2/(time.time()-st), total_rows )
-                for n,line in enumerate( xopen( tmp_path ) ):
-                    j = orjson.loads( line )
-                    total_rows += 1
-                    if j[0] > start_timestamp:
-                        pool.add( *orjson.loads( line ) )
-                        if not (n&0x3FFFF):
-                            pool.flush()
+                log.info( "File at %s: Recv: %6d kB, %6d kB/s, %d rows", 
+                    datetime.datetime.fromtimestamp(file_ts).isoformat(), 
+                    length2, length2/(time.time()-st), total_rows )
+                try:
+                    for n,line in enumerate( xopen( tmp_path ) ):
+                        j = orjson.loads( line )
+                        total_rows += 1
+                        if j[0] > start_timestamp:
+                            pool.add( *orjson.loads( line ) )
+                            if not (n&0x3FFFF):
+                                pool.flush()
+                except Exception as e:
+                    print("Error on file %s: %s" % (tmp_path, e))
             finally:
                 pass
                 # tmp_path.unlink()
@@ -445,11 +450,19 @@ async def transfer_data( mqtt ):
                     pool.flush()
 
 
+RETRIEVE_SECONDS = 24*3600
+
 if sys.version_info >= (3, 11):
     with asyncio.Runner(loop_factory=uvloop.new_event_loop) as runner:
     # with asyncio.Runner() as runner:
         runner.run(astart())
 else:
+    if len( sys.argv ) > 1:
+        try:
+            RETRIEVE_SECONDS = int( sys.argv[1] )*3600*24
+        except:
+            print("usage: %s [n]\n  n number of days worth of data to retrieve from MQTT logger")
+            sys.exit(1)
     uvloop.install()
     asyncio.run(astart())
 

@@ -64,7 +64,7 @@ class Buffer():
         self.mqtt.set_auth_credentials( config.MQTT_USER, config.MQTT_PASSWORD )
 
         # MQTT -> thread deque
-        self.queue_socket = collections.deque( maxlen=1024 )
+        self.queue_socket = collections.deque( maxlen=65536 )
 
         # Logging to files
         self.basedir = Path( basedir )
