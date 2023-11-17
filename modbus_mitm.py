@@ -803,10 +803,11 @@ class Solis( grugbus.SlaveDevice ):
             mqtt.publish( "pv/%s/meter/"%self.key, lm_pub, add_heartbeat=True )
 
             # Add useful metrics to avoid asof joins in database
-            meter_pub = { "house_power" :  float(int(  (mgr.meter.total_power.value or 0)
-                                                    - (self.local_meter.active_power.value or 0)
-                                                    - (mgr.fronius.grid_port_power.value or 0) )) }
-            mqtt.publish( "pv/meter/", meter_pub )
+            if mgr.meter.is_online:
+                meter_pub = { "house_power" :  float(int(  (mgr.meter.total_power.value or 0)
+                                                        - (self.local_meter.active_power.value or 0)
+                                                        - (mgr.fronius.grid_port_power.value or 0) )) }
+                mqtt.publish( "pv/meter/", meter_pub )
             mqtt.publish( "pv/", {"total_pv_power": float(int(
                               (self.pv_power.value or 0) 
                             - (mgr.fronius.grid_port_power.value or 0)))} )
@@ -868,9 +869,9 @@ class Solis( grugbus.SlaveDevice ):
                     # Auto on/off: turn it off at night when the batery is below specified SOC
                     # so it doesn't keep draining it while doing nothing useful
                     inverter_is_on = power_reg.value == power_reg.value_on
+                    mpptv = max( self.mppt1_voltage.value, self.mppt2_voltage.value )
                     if inverter_is_on:
-                        if ( min( self.mppt1_voltage.value, self.mppt2_voltage.value ) < config.SOLIS_TURNOFF_MPPT_VOLTAGE 
-                            and self.bms_battery_soc.value <= config.SOLIS_TURNOFF_BATTERY_SOC ):
+                        if mpptv < config.SOLIS_TURNOFF_MPPT_VOLTAGE and self.bms_battery_soc.value <= config.SOLIS_TURNOFF_BATTERY_SOC:
                             timeout_power_on.reset()
                             if timeout_power_off.expired():
                                 log.info("Powering OFF %s"%self.key)
@@ -880,7 +881,7 @@ class Solis( grugbus.SlaveDevice ):
                         else:
                             timeout_power_off.reset()
                     else:
-                        if max( self.mppt1_voltage.value, self.mppt2_voltage.value ) > config.SOLIS_TURNON_MPPT_VOLTAGE:                        
+                        if mpptv > config.SOLIS_TURNON_MPPT_VOLTAGE:                        
                             timeout_power_off.reset()
                             if timeout_power_on.expired():
                                 log.info("Powering ON %s"%self.key)
