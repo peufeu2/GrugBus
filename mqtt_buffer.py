@@ -109,7 +109,8 @@ class Buffer():
         except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
             log.info( "Terminating..." )
         except:
-            log.error( "Exception: %s", traceback.format_exc() )
+            log.exception('Exception')
+            raise
         finally:
             self.file_close()
             await self.mqtt.disconnect()
@@ -122,15 +123,19 @@ class Buffer():
         self.mqtt.subscribe('#', qos=0)
 
     async def on_message(self, client, topic, payload, qos, properties):
-        # Encode MQTT message into json
-        jl = orjson.dumps( [ round(time.time(),2), topic, payload.decode() ], option=orjson.OPT_APPEND_NEWLINE )
-        # Queue it. deque() with maxlen is a ring buffer and will discard oldest items when full.
-        self.queue_socket.append( jl )
-        self.compressor.write( jl )
-        if self.flush_tick.ticked():
-            self.compressor.flush()
-        if self.new_file_tick.ticked():
-            self.file_new()
+        try:
+            # Encode MQTT message into json
+            jl = orjson.dumps( [ round(time.time(),2), topic, payload.decode() ], option=orjson.OPT_APPEND_NEWLINE )
+            # Queue it. deque() with maxlen is a ring buffer and will discard oldest items when full.
+            self.queue_socket.append( jl )
+            self.compressor.write( jl )
+            if self.flush_tick.ticked():
+                self.compressor.flush()
+            if self.new_file_tick.ticked():
+                self.file_new()
+        except:
+            log.exception('Exception')
+            raise
 
     ########################################################
     #   Log storage
@@ -209,47 +214,53 @@ class Buffer():
                     await writer.drain()
                     await asyncio.sleep( 0 )
 
-        log.info("Client connected")
-        async for line in reader:
-            # This server has exactly one command: gimme data from specified timestamp.
-            start_ts = float( line )-config.MQTT_BUFFER_FILE_DURATION*2-10
-            log.info("Client: start_ts %s", start_ts)
+        try:
+            log.info("Client connected")
+            async for line in reader:
+                # This server has exactly one command: gimme data from specified timestamp.
+                start_ts = float( line )-config.MQTT_BUFFER_FILE_DURATION*2-10
+                log.info("Client: start_ts %s", start_ts)
 
-            # we will consume this list
-            self.files_to_send = collections.deque(self.all_files)
+                # we will consume this list
+                self.files_to_send = collections.deque(self.all_files)
 
-            # Send all files past requested timestamp
-            # if file_new() adds another one while we're sending, it
-            # will also be queued
-            while self.files_to_send:
-                await asyncio.sleep( 0 )
-                fname = self.files_to_send.popleft()
-                if self.fname_to_timestamp( fname ) > start_ts:
-                    if fname != self.curfile.name:
-                        await sendfile( fname )
-                    else:
-                        log.info("Send last file")
-                        self.queue_socket.clear()   # clear real time queue
-                        self.file_new()             # stop writing to file before sending it
-                        await sendfile( fname )
-                        # if real time queue didn't fill up while we were sending the file,
-                        # then we didn't miss any records, we can move to the next step
-                        # otherwise the records are in the file, so we loop again
-                        if len(self.queue_socket)<self.queue_socket.maxlen:
-                            break
+                # Send all files past requested timestamp
+                # if file_new() adds another one while we're sending, it
+                # will also be queued
+                while self.files_to_send:
+                    await asyncio.sleep( 0 )
+                    fname = self.files_to_send.popleft()
+                    if self.fname_to_timestamp( fname ) > start_ts:
+                        if fname != self.curfile.name:
+                            await sendfile( fname )
+                        else:
+                            log.info("Send last file")
+                            self.queue_socket.clear()   # clear real time queue
+                            self.file_new()             # stop writing to file before sending it
+                            await sendfile( fname )
+                            # if real time queue didn't fill up while we were sending the file,
+                            # then we didn't miss any records, we can move to the next step
+                            # otherwise the records are in the file, so we loop again
+                            if len(self.queue_socket)<self.queue_socket.maxlen:
+                                break
 
-            # Now forward real time data
-            log.info("Send real time, queue %d", len(self.queue_socket))
-            await writer.drain()
-            writer.write( b"-1 -1\n" )
-            timer = Metronome(2)
-            while True:
-                if timer.ticked():
-                    print("Queue %d" % len(self.queue_socket))
-                while self.queue_socket:
-                    writer.write( self.queue_socket.popleft() )
+                # Now forward real time data
+                log.info("Send real time, queue %d", len(self.queue_socket))
                 await writer.drain()
-                await asyncio.sleep(0.1)
+                writer.write( b"-1 -1\n" )
+                timer = Metronome(2)
+                while True:
+                    if timer.ticked():
+                        print("Queue %d" % len(self.queue_socket))
+                    while self.queue_socket:
+                        writer.write( self.queue_socket.popleft() )
+                    await writer.drain()
+                    await asyncio.sleep(0.1)
+        except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
+            raise
+        except:
+            log.exception('Exception')
+            raise
 
 
 
@@ -259,11 +270,15 @@ if __name__ == '__main__':
         log.info("MQTT logger starting.")
         buf = Buffer( config.MQTT_BUFFER_PATH )
         buf.start()
+    except:
+        log.exception('Exception')            
     finally:
         try:
             buf.file_close()
         finally:
-            logging.shutdown()
+            pass
+        log.info("MQTT logger stopping.")
+        logging.shutdown()
 
 # gmqtt also compatibility with uvloop  
 # import uvloop

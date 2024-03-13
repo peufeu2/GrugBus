@@ -117,6 +117,10 @@ PLOTS = { p[1]:DataStream( *p ) for p in (
     # ( 1, "pv/solis1/bms_battery_current" , "Battery current" , "#FFC080"  ,1.0      , {} ),
     # ( 1, "pv/solis1/bms_battery_soc"     , "Battery SOC"   , "green"  ,1.0          , {} ),
     ( 1, "pv/solis1/bms_battery_soc"     , "Battery SOC"   , "green"  ,1.0      , {} ),
+    ( 1, "pv/solis1/temperature"         , "Temperature"   , "orange"  ,1.0      , {} ),
+    # ( 1, "pv/solis1/bms_battery_charge_current_limit"      , "BMS max charge Amps"    , "blue"  ,1.0      , {} ),
+    # ( 1, "pv/solis1/bms_battery_discharge_current_limit"   , "BMS max discharge Amps" , "red"  ,1.0      , {} ),
+
     # ( 1, "pv/solis1/energy_generated_today"     , "Energy generated"   , "green"  ,1.0      , {} , "day" ),
     # ( 1, "pv/solis1/meter/import_active_energy"     , "Solis import"   , "#FFC000"  ,1.0    , {} , "day" ),
     # ( 1, "pv/solis1/meter/export_active_energy"     , "Solis export"   , "#00FF80"  ,1.0    , {} , "day" ),

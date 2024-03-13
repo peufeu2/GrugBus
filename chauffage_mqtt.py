@@ -13,6 +13,26 @@ logging.basicConfig( #encoding='utf-8',
                             logging.StreamHandler(stream=sys.stdout)])
 log = logging.getLogger(__name__)
 
+RELAYS = {
+    "CHE_PF"                   : 0,
+    "CHE_PC"                   : 1,
+    "CIRCULATEUR_SDE_PC"       : 2,
+    "CIRCULATEUR_ETAGE"        : 3,
+    "4"                        : 4,
+    "CIRCULATEUR_PC"           : 5,
+    "CIRCULATEUR_DEPART"       : 6,
+    "DEMANDE_PAC"              : 7,
+    "CIRCULATEUR_PF"           : 8,
+    "VALVE_POWER"              : 9,
+    "VALVE_PF_LOOP"            : 10,
+    "VALVE_PF_HOT"             : 11,
+    "VALVE_ETAGE_BUREAU"       : 12,
+    "CIRCULATEUR_BOIS"         : 13,
+    "VALVE_PCBT_PC"            : 14,
+    "VALVE_PCBT_ETAGE"         : 15,
+}
+
+
 ########################################################################################
 #   MQTT
 ########################################################################################
@@ -111,10 +131,21 @@ def get():
     # yield "pv_power", data["pv"]["power"]
     yield "ram", data["ram"]
     yield "ram_blk", data["ram_blk"]
-    yield "relays", sum( 1<<n for n in data["relays"] )
+    # yield "relays", sum( 1<<n for n in data["relays"] )
     yield "degommage_state", data["idle"]["d_state"]
     yield "onewire_errors", data["onewire_errors"]
     yield "onewire_reads", data["onewire_reads"]
+
+    for relay_name, relay_number in RELAYS.items():
+        yield ("relays/"+relay_name), relay_number in data["relays"]
+    for valve_name in ( "PF_LOOP",
+                        "PF_HOT"      ,
+                        "ETAGE_BUREAU",
+                        "PCBT_PC"     ,
+                        "PCBT_ETAGE"  ):
+        yield ("valves/"+valve_name), RELAYS["VALVE_"+valve_name] in data["valves"]
+
+
     # yield "millis", data["millis"]
     # for relay,state,timeout in data["relays_timeouts"]:
         # if relay == 4:
@@ -124,16 +155,17 @@ sleep_delay = 5.0
 
 async def run():
     await mqtt.mqtt.connect( config.MQTT_BROKER_LOCAL )
-    last = None
     last_line = None
     timeout = None
     while True:
         try:
             data = {}
             for k,v in get():
-                print(k,v)
                 if isinstance( v,float ):
                     v = round( v, 2 )
+                if isinstance( v,bool ):
+                    v = int(v)
+                print(k,v)
                 data[k]=v
             # pprint.pprint(data)
             mqtt.publish( "chauffage/", data )

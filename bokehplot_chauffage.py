@@ -124,6 +124,10 @@ PLOTS = { p[1]:DataStream( *p ) for p in (
     ( 0, "chauffage/rc_pf_pcbt_depart"  , "rc_pf_pcbt_depart"   , "#0080FF"  , 1.0             , {} , False),
     ( 0, "chauffage/rc_pf_pcbt_retour"  , "rc_pf_pcbt_retour"   , "#0080FF"  , 1.0             , {} , False),
     ( 0, "chauffage/rc_pf_che"          , "rc_pf_che"           , "#FF8000"  , 1.0             , {} , False),
+    ( 0, "chauffage/debit"              , "debit"               , "#808080"  , 1.0             , {} , False),
+    ( 0, "chauffage/pompe"              , "pompe"               , "#80FF80"  , 1.0             , {} , False),
+    ( 0, "chauffage/pac_puits"          , "pac_puits"               , "#00FFFF"  , 1.0             , {} , False),
+    ( 0, "chauffage/pac_rejet"          , "pac_rejet"               , "#008080"  , 1.0             , {} , False),
 )}
 
 class BokehApp():

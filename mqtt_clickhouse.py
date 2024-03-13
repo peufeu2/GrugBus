@@ -106,7 +106,7 @@ SET wait_for_async_insert=0;""".split("\n"):
 clickhouse.execute( """
     CREATE TABLE IF NOT EXISTS mqtt_float_store( 
         topic   LowCardinality( String ) NOT NULL            CODEC(ZSTD(9)), 
-        ts      DateTime64(2,'UTC') NOT NULL DEFAULT now()   CODEC(Delta,ZSTD(9)),   -- ts with millisecond precision
+        ts      DateTime64(2,'UTC') NOT NULL DEFAULT now()   CODEC(Delta,ZSTD(9)),   -- ts with 10 millisecond precision
         is_int  UInt8   NOT NULL                             CODEC(ZSTD(9)),         -- 0:float 1:int/bitfield
         value   Float64 NOT NULL                             CODEC(Delta,ZSTD(9)),
     )   ENGINE=ReplacingMergeTree -- eliminates duplicates with same (topic,ts) which should not occur
@@ -118,7 +118,7 @@ clickhouse.execute( """
 clickhouse.execute( """
     CREATE TABLE IF NOT EXISTS mqtt_float( 
         topic   LowCardinality( String ) NOT NULL, 
-        ts      DateTime64(2,'UTC') NOT NULL DEFAULT now(),   -- ts with millisecond precision
+        ts      DateTime64(2,'UTC') NOT NULL DEFAULT now(),   -- ts with 10 millisecond precision
         is_int  UInt8   NOT NULL,         -- 0:float 1:int/bitfield
         value   Float64 NOT NULL,
     ) ENGINE=Buffer(mqtt, mqtt_float_store, 1, 60, 120, 100, 1000, 65536, 1048576 );
@@ -228,6 +228,44 @@ topic, ts,
 FROM mqtt_100minute_mat
 GROUP BY topic, ts;
 
+CREATE MATERIALIZED VIEW mqtt_day_mat ENGINE = AggregatingMergeTree ORDER BY (topic,ts)
+POPULATE
+AS SELECT
+    topic,
+    toStartOfDay(ts) AS ts,
+    maxState(is_int)        AS is_int,
+    avgState(value)         AS favg,
+    minState(value)         AS fmin,
+    maxState(value)         AS fmax
+FROM mqtt_float_store
+WHERE NOT isNaN(value)
+GROUP BY topic,ts;
+
+CREATE VIEW mqtt_day AS SELECT
+topic, ts,
+       maxMerge(is_int)     AS is_int, 
+       avgMerge(favg)       AS favg, 
+       maxMerge(fmax)       AS fmax, 
+       minMerge(fmin)       AS fmin
+FROM mqtt_day_mat
+GROUP BY topic, ts;
+
+--
+-- This table is guaranteed to contain a row every minute for every topic with no holes
+--
+CREATE TABLE IF NOT EXISTS mqtt_minute_filled( 
+    topic   LowCardinality( String ) NOT NULL            CODEC(ZSTD(9)), 
+    ts      DateTime64(0,'UTC') NOT NULL DEFAULT now()   CODEC(Delta,ZSTD(9)),   -- ts with second precision
+    age     UInt32  NOT NULL                             CODEC(Delta,ZSTD(9)),   -- 0 if this is an original row, otherwise age in seconds of the copied row relative to current row
+    favg    Float64 NOT NULL                             CODEC(Delta,ZSTD(9)),
+    fmin    Float64 NOT NULL                             CODEC(Delta,ZSTD(9)),
+    fmax    Float64 NOT NULL                             CODEC(Delta,ZSTD(9)),
+)   ENGINE=ReplacingMergeTree -- eliminates duplicates with same (topic,ts) which should not occur
+    ORDER BY (topic,ts)
+    PRIMARY KEY (topic,ts);
+
+
+select (SELECT max(ts) from mqtt_minute where topic='chauffage/relays/4') + INTERVAL number MINUTE from numbers(10);
 
 """
 
@@ -272,7 +310,9 @@ class InsertPooler():
 
 
     def add( self, ts, k, v ):
+        # clickhouse accepts numeric format, so don't bother with ISO timestamp.
         ts = int(ts*100)
+
         try:
             # Try to convert to int, will fail if it's a float
             self.insert_floats.append((k,ts,1,int(v)))                
@@ -453,16 +493,15 @@ async def transfer_data( mqtt ):
 RETRIEVE_SECONDS = 24*3600
 
 if sys.version_info >= (3, 11):
-    with asyncio.Runner(loop_factory=uvloop.new_event_loop) as runner:
-    # with asyncio.Runner() as runner:
-        runner.run(astart())
-else:
     if len( sys.argv ) > 1:
         try:
-            RETRIEVE_SECONDS = int( sys.argv[1] )*3600*24
+            RETRIEVE_SECONDS = int( sys.argv[1] )*3600
         except:
             print("usage: %s [n]\n  n number of days worth of data to retrieve from MQTT logger")
             sys.exit(1)
+    with asyncio.Runner(loop_factory=uvloop.new_event_loop) as runner:
+        runner.run(astart())
+else:
     uvloop.install()
     asyncio.run(astart())
 

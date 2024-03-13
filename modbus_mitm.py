@@ -509,8 +509,8 @@ class MainSmartmeter( grugbus.SlaveDevice ):
                     self.data_timestamp = data_request_timestamp
                     pub = { reg.key: reg.format_value() for reg in regs_to_publish.intersection(regs) }      # do not publish ALL registers on mqtt
                 dt = time.time()-tick.next_tick
-                if dt>0.1:
-                    print( dt, self.total_power.value )
+                # if dt>0.1:
+                    # print( dt, self.total_power.value )
                 pub[ "is_online" ]    = int( self.is_online )
                 pub[ "req_time" ]     = round(time.time()-data_request_timestamp,2)   # log modbus request time, round it for better compression
                 mqtt.publish( "pv/meter/", pub, add_heartbeat=True )
@@ -540,14 +540,14 @@ class RoutableTasmota( Routable ):
         return mqtt.publish( "cmnd/%s/"%self.mqtt_prefix, {"Power": message} )
 
     def off( self ):
-        # if self.is_on:
-            # print( "Route OFF", self.name, self.mqtt_prefix )
+        if self.is_on:
+            log.info( "Route OFF %s %s", self.name, self.mqtt_prefix )
         if self.mqtt_power( "0" ):
             self.is_on = 0
 
     def on( self ):
-        # if not self.is_on:
-            # print( "Route ON", self.name, self.mqtt_prefix )
+        if not self.is_on:
+            log.info( "Route ON  %s %s", self.name, self.mqtt_prefix )
         self.off_counter = 0
         if self.mqtt_power( "1" ):
             self.is_on = 1
@@ -558,64 +558,51 @@ class RoutableTasmota( Routable ):
 
 class Router():
     def __init__( self ):
-        self.devices = [ RoutableTasmota("Tasmota T2", 800, "plugs/tasmota_t2"),
-                         RoutableTasmota("Tasmota T4", 1000, "plugs/tasmota_t4"),
-                         RoutableTasmota("Tasmota T1", 1800, "plugs/tasmota_t1"),
+        self.devices = [ RoutableTasmota("Tasmota T2 Radiateur PF", 800, "plugs/tasmota_t2"),
+                         RoutableTasmota("Tasmota T4 Sèche serviette", 1000, "plugs/tasmota_t4"),
+                         RoutableTasmota("Tasmota T1 Radiateur bureau", 1800, "plugs/tasmota_t1"),
                         ]       
 
         self.initialized = False
-        self.timeout = Timeout( 10, expired=True )
+        self.timeout_export = Timeout( 4, expired=True )    # expires if we've been exporting for some time
+        self.timeout_import = Timeout( 3, expired=True )    # expires if we've been importing for some time
         self.resend_tick = Metronome( 10 )
-        self.current_option = 0
+        self.counter = 0
         # self.off_counter = 0
 
     async def route( self ):
+        # return
         if self.initialized < 2:
             for d in self.devices:
                 d.off()
             self.initialized += 1
             return
 
-        # pwr = (mgr.meter.total_power.value or 0) + 100
-
-        # options = []
-        # for bits in range(1<<len(self.devices)):
-        #     p = int(pwr)
-        #     for n,d in enumerate(self.devices):
-        #         p += d.power * ( bool(bits & (1<<n)) - d.is_on )
-        #     if p <= 0 or not bits:
-        #         options.append( (p, -bits) )
-
-        # next_option = -max( options )[1]
-        # if pwr>=0 or self.timeout.expired():
-        #     self.timeout.reset()
-        #     for n,d in enumerate(self.devices):
-        #         d.set( next_option & (1<<n) )
-        #     print( "Route", [d.is_on for d in self.devices], pwr )
-
-        # return
-
-
-
+        # after each action, wait a few seconds
+        changed = False
+        # p is positive if we're drawing from grid
         p = (mgr.meter.total_power.value or 0) + 100
-        if p>0:
-            self.timeout.reset()
-            for d in reversed( self.devices ):
-                if d.is_on:
-                    d.off_counter += 1
-                    if d.off_counter > 10:
+        if p<0:            
+            self.timeout_import.reset()         # we're exporting power
+            if self.timeout_export.expired():   # we've been exporting for a while
+                for d in self.devices:          # find something to turn on
+                    if not d.is_on and d.power < -p:
+                        d.on()
+                        changed = True
+                        self.timeout_export.reset()
+                        break
+        else:
+            self.timeout_export.reset()            # we're importing power
+            if self.timeout_import.expired():      # we've been importing for a while
+                for d in reversed( self.devices ): # find something to turn off
+                    if d.is_on:
                         d.off()
+                        changed = True
+                        self.timeout_import.reset()
                         break
 
-        else:
-            if self.timeout.expired():
-                for d in self.devices:
-                    if not d.is_on and d.power < -p:
-                            d.on()
-                            p += d.power
-                            self.timeout.reset()
-                            break
-                print( "Route", [d.is_on for d in self.devices], p )
+        # if changed:
+            # print( "Route", [d.is_on for d in self.devices], p )
 
         if self.resend_tick.ticked():
             for d in self.devices:
@@ -904,10 +891,10 @@ class Solis( grugbus.SlaveDevice ):
                 if self.temperature.value > 40 or sum(bat_power_deque) / len(bat_power_deque) > 2000:
                     timeout_fan_off.reset()
                     mqtt.publish( "cmnd/plugs/tasmota_t3/", {"Power": "1"} )
-                    print("Fan ON")
+                    # print("Fan ON")
                 elif self.temperature.value < 35 and timeout_fan_off.expired():
                     mqtt.publish( "cmnd/plugs/tasmota_t3/", {"Power": "0"} )
-                    print("Fan OFF")
+                    # print("Fan OFF")
 
                 mqtt.publish( "pv/%s/"%self.key, pub, add_heartbeat=True )
 
@@ -1040,7 +1027,7 @@ class SolisManager():
         p += min(0, -self.meter.total_power.value)    # if export
 
         p = (self.solis1.battery_power.value or 0) - (self.meter.total_power.value or 0)
-        print("HTTP Power:%d" % p)
+        # print("HTTP Power:%d" % p)
         return aiohttp.web.Response( text='{"Power" : %d}' % p )
 
     async def mqtt_start( self ):
