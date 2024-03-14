@@ -2,37 +2,12 @@
 # -*- coding: utf-8 -*-
 
 import os, pprint, time, sys, serial, socket, traceback, struct, datetime, logging, math, traceback, shutil, collections
-
-# Modbus stuff
-import pymodbus, asyncio, signal, uvloop
 from path import Path
-from pymodbus.client import AsyncModbusSerialClient, AsyncModbusTcpClient
-from pymodbus.datastore import ModbusServerContext, ModbusSlaveContext, ModbusSequentialDataBlock
-from pymodbus.server import StartAsyncSerialServer
-from pymodbus.transaction import ModbusRtuFramer
-
-import aiohttp
-
-from gmqtt import Client as MQTTClient
-
-# Device wrappers
-import grugbus
-from misc import *
-from grugbus.devices import Eastron_SDM120, Solis_S5_EH1P_6K_2020_Extras, Eastron_SDM630, Acrel_1_Phase
-import config
-
-# pymodbus.pymodbus_apply_logging_config( logging.DEBUG )
-logging.basicConfig( encoding='utf-8', 
-                     level=logging.INFO,
-                     format='[%(asctime)s] %(levelname)s:%(message)s',
-                     handlers=[logging.FileHandler(filename=Path(__file__).stem+'.log'), 
-                            logging.StreamHandler(stream=sys.stdout)])
-log = logging.getLogger(__name__)
-
-# set max reconnect wait time for Fronius
-pymodbus.constants.Defaults.ReconnectDelayMax = 60000   # in milliseconds
 
 """
+    python3.11
+    pymodbus 3.1
+
 #### WARNING ####
 This file is both the example code and the manual.
 ==================================================
@@ -68,6 +43,39 @@ This is sometimes not intuitive, but at least it's the same convention everywher
     Grid side meter is positive if the house is consuming power
     etc
 """
+
+
+# This program is supposed to run on a potato (Allwinner H3 SoC) and uses async/await,
+# so import the fast async library uvloop
+import asyncio, signal, uvloop, aiohttp
+
+# Modbus
+import pymodbus
+from pymodbus.client import AsyncModbusSerialClient, AsyncModbusTcpClient
+from pymodbus.datastore import ModbusServerContext, ModbusSlaveContext, ModbusSequentialDataBlock
+from pymodbus.server import StartAsyncSerialServer
+from pymodbus.transaction import ModbusRtuFramer
+
+# MQTT
+from gmqtt import Client as MQTTClient
+
+# Device wrappers and misc local libraries
+from misc import *
+import grugbus
+from grugbus.devices import Eastron_SDM120, Solis_S5_EH1P_6K_2020_Extras, Eastron_SDM630, Acrel_1_Phase
+import config
+
+# pymodbus.pymodbus_apply_logging_config( logging.DEBUG )
+logging.basicConfig( encoding='utf-8', 
+                     level=logging.INFO,
+                     format='[%(asctime)s] %(levelname)s:%(message)s',
+                     handlers=[logging.FileHandler(filename=Path(__file__).stem+'.log'), 
+                            logging.StreamHandler(stream=sys.stdout)])
+log = logging.getLogger(__name__)
+
+# set max reconnect wait time for Fronius
+pymodbus.constants.Defaults.ReconnectDelayMax = 60000   # in milliseconds
+
 
 #
 #   Helper to set modbus address of a SDM120 smartmeter during installation:
@@ -322,48 +330,6 @@ class FakeSmartmeter( grugbus.LocalServer ):
             # meter placement: load
             # self.active_power           .value = max(0, meter.total_power.value - mgr.solis1.local_meter.active_power.value)
 
-            # meter placement: PV+grid (needs Eastron) -- in this case PV is on the OTHER inverter
-            # this only updates power every 4s, very slow
-            # if ctx.modbus_address == 1:
-            #     self.active_power           .value = meter.total_power.value-self.power_offset
-            # else:
-            #     self.active_power           .value = mgr.fronius.grid_port_power.value-self.power_offset
-
-            # Compute power exported by house due to Solis only (negative if exported)
-            # house_power =   (mgr.meter.total_power.value or 0)
-                          # - (mgr.solis1.local_meter.active_power.value or 0)
-                          # - (mgr.fronius.grid_port_power.value or 0)
-
-            # if mgr.meter.total_power.value > 100:
-                # self.export_mode
-            # elif mgr.meter.total_power.value
-
-            # exp_solis_only = mgr.meter.total_power.value - (mgr.fronius.grid_port_power.value or 0)
-            # if exp_solis_only >= 0:
-            #     pass    # solis is not causing any export, use normal logic
-            #     self.power_offset -= 100
-            # else:
-            #     # solis is causing export, reduce its power
-            #     self.power_offset += 100
-            # self.power_offset -= mgr.meter.total_power.value * 0.3
-            # self.power_offset = max( 0, min( 3000, self.power_offset ))
-
-            # if mgr.solis1.bms_battery_soc.value >= 98 and meter.total_power.value < 0:
-            #     offset = max(0, mgr.solis1.rwr_epm_export_power_limit.value - 200)
-            # else:
-            #     offset = 0
-
-            # print( self.power_offset, self.active_power.value )
-            # self.active_power.value = meter.total_power.value - offset - self.power_offset
-            # self.active_power.value = 500
-            # 
-            # rwr_epm_export_power_limit
-            # meter_pub["house_power"] = float(int(  (mgr.meter.total_power.value or 0)
-            #                             - (self.local_meter.active_power.value or 0)
-            #                             - (mgr.fronius.grid_port_power.value or 0) ))
-
-            # print( "FakeSmartmeter:", ctx.modbus_address, address, count, self.active_power.value )
-
         except TypeError:   # if one of the registers was None because it wasn't read yet
             log.warning( "FakeSmartmeter cannot reply to client: real smartmeter missing fields" )
             return
@@ -407,11 +373,15 @@ class FakeSmartmeter( grugbus.LocalServer ):
 #
 #       Main house smartmeter, grid side, meters total power for solar+home
 #
+#       This class reads the meter and publishes it on MQTT
+#
+#       Meter is read very often, so it gets its own serial port
+#
 ########################################################################################
 class MainSmartmeter( grugbus.SlaveDevice ):
     def __init__( self ):
-        super().__init__( 
-            AsyncModbusSerialClient(
+        super().__init__(               # Initialize grugbus.SlaveDevice
+            AsyncModbusSerialClient(    # open Modbus on serial port
                 port            = config.COM_PORT_METER,
                 timeout         = 0.3,
                 retries         = config.MODBUS_RETRIES_SOLIS,
@@ -423,8 +393,11 @@ class MainSmartmeter( grugbus.SlaveDevice ):
                 strict = False
                 # framer=pymodbus.ModbusRtuFramer,
             ),
-            1,          # Modbus address
-            "meter", "SDM630 Smartmeter", 
+            1,                      # Modbus address
+            "meter",                # Name (for logging etc)
+            "SDM630 Smartmeter",    # Pretty name 
+            # List of registers is in another file, which is auto-generated from spreadsheet
+            # so import it now
             Eastron_SDM630.MakeRegisters() )
         self.router = Router()
 
@@ -493,8 +466,8 @@ class MainSmartmeter( grugbus.SlaveDevice ):
 
                 ))
 
-        tick = Metronome(config.POLL_PERIOD_METER)
-        while STILL_ALIVE:
+        tick = Metronome(config.POLL_PERIOD_METER)  # fires a tick on every period to read periodically, see misc.py
+        while STILL_ALIVE:  # set to false by abort()
             try:
                 if not self.modbus.connected:
                     await self.modbus.connect()
@@ -504,14 +477,12 @@ class MainSmartmeter( grugbus.SlaveDevice ):
                     read_fast_ctr = (read_fast_ctr+1) % len(read_fast_regs)
                     regs = await self.read_regs( read_fast_regs[read_fast_ctr] )
                 except asyncio.exceptions.TimeoutError:
-                    pub = {} # read_regs sets self.is_online to False, which sets FailSafe mode in inverter
+                    # Nothing special to do: in case of error, read_regs() above already set self.is_online to False
+                    pub = {}
                 else:
                     self.data_timestamp = data_request_timestamp
-                    pub = { reg.key: reg.format_value() for reg in regs_to_publish.intersection(regs) }      # do not publish ALL registers on mqtt
-                dt = time.time()-tick.next_tick
-                # if dt>0.1:
-                    # print( dt, self.total_power.value )
-                pub[ "is_online" ]    = int( self.is_online )
+                    pub = { reg.key: reg.format_value() for reg in regs_to_publish.intersection(regs) }      # publish what we just read
+                pub[ "is_online" ]    = int( self.is_online )   # set by read_regs(), True if it succeeded, False otherwise
                 pub[ "req_time" ]     = round(time.time()-data_request_timestamp,2)   # log modbus request time, round it for better compression
                 mqtt.publish( "pv/meter/", pub, add_heartbeat=True )
                 await self.router.route()
@@ -558,9 +529,9 @@ class RoutableTasmota( Routable ):
 
 class Router():
     def __init__( self ):
-        self.devices = [ RoutableTasmota("Tasmota T2 Radiateur PF", 800, "plugs/tasmota_t2"),
+        self.devices = [ RoutableTasmota("Tasmota T2 Radiateur PF", 900, "plugs/tasmota_t2"),
                          RoutableTasmota("Tasmota T4 Sèche serviette", 1000, "plugs/tasmota_t4"),
-                         RoutableTasmota("Tasmota T1 Radiateur bureau", 1800, "plugs/tasmota_t1"),
+                         RoutableTasmota("Tasmota T1 Radiateur bureau", 1700, "plugs/tasmota_t1"),
                         ]       
 
         self.initialized = False
