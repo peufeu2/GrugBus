@@ -311,22 +311,35 @@ class InsertPooler():
 
     def add( self, ts, k, v ):
         # clickhouse accepts numeric format, so don't bother with ISO timestamp.
-        ts = int(ts*100)
+        self._add( int(ts*100), k, v )
 
-        try:
-            # Try to convert to int, will fail if it's a float
-            self.insert_floats.append((k,ts,1,int(v)))                
-        except:
+    def _add( self, ts, k, v ):
+        if isinstance( v, int ):
+            return self.insert_floats.append((k,ts,1,int(v)))
+        elif isinstance( v, float ):
+            if math.isfinite(v):
+                self.insert_floats.append((k,ts,0,v))  
+            return
+        elif isinstance( v, dict ):
+            k += "/"
+            for dk,dv in v.items():
+                self._add( ts, k+dk, dv )
+        elif isinstance( v, list ):
+            print("Ignore", k, v )
+        else:
             try:
-                # try float...
-                f = float(v)
-                if math.isfinite(f):
-                    self.insert_floats.append((k,ts,0,f))  
-                else:
-                    return
+                # Try to convert to int, will fail if it's a float
+                return self._add( ts, k, int(v) )
             except:
-                # it's a string then
-                self.insert_str.append((k,ts,k.endswith("/exception"),v))
+                try: # try float...
+                    return self._add( ts, k, float(v) )
+                except:
+                    if k.endswith("/exception"):
+                        return self.insert_str.append((k,ts,True,v))
+                    elif v.startswith("{"):
+                        return self._add( ts, k, orjson.loads( v ))
+                    else:
+                        return self.insert_str.append((k,ts,False,v))
 
     def flush( self ):
         st = time.time()
@@ -470,7 +483,10 @@ async def transfer_data( mqtt ):
                         j = orjson.loads( line )
                         total_rows += 1
                         if j[0] > start_timestamp:
-                            pool.add( *orjson.loads( line ) )
+                            try:
+                                pool.add( *j )
+                            except Exception as e:
+                                print("Error on line %s: %s" % (line, e))                        
                             if not (n&0x3FFFF):
                                 pool.flush()
                 except Exception as e:
@@ -491,6 +507,16 @@ async def transfer_data( mqtt ):
 
 
 RETRIEVE_SECONDS = 24*3600
+
+# # unpack json values from tasmota plugs into individual rows
+# pool = InsertPooler()
+# for n, (topic, ts, value) in enumerate( clickhouse.execute( "SELECT topic, ts, value FROM mqtt_str WHERE value LIKE '{%'") ):
+#     # print( topic, ts, value )
+#     pool._add( ts, topic, value )
+#     if not (n&0x3FFF):
+#         pool.flush()
+# pool.flush()
+# stop
 
 if sys.version_info >= (3, 11):
     if len( sys.argv ) > 1:

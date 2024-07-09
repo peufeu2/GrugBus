@@ -71,8 +71,8 @@ class DataStream( object ):
 
         args   = { "topic":self.topic, "tstart":tstart, "tend":tend, "lod":lod, "lodm":lod//60 }
         kwargs = { "columnar":True, "settings":{"use_numpy":True} }            
-        if tend:    ts_cond = "ts BETWEEN %(tstart)s AND %(tend)s"
-        else:       ts_cond = "ts > %(tstart)s"
+        if tend:    ts_cond = "ts BETWEEN toDateTime64(%(tstart)s,1) AND toDateTime64(%(tend)s,1)"
+        else:       ts_cond = "ts > toDateTime64(%(tstart)s,1)"
         where = " WHERE topic=%(topic)s AND " + ts_cond + " "
 
         t=time.time()
@@ -232,6 +232,8 @@ class PVDashboard():
             fig.on_event( bokeh.events.MouseWheel,   self.event_generic )
             fig.on_event( bokeh.events.Pan,          self.event_generic )
 
+            fig.lod_threshold = None
+            
         self.lod_reduce = False
         self.streaming  = True
         self.tick = Metronome( 0.1 )
@@ -315,7 +317,7 @@ class PVDashboard():
     def event_lod_start( self, event ):
         print( event )
         self.streaming  = False
-        self.lod_reduce = True
+        # self.lod_reduce = True
         self.redraw( event )
 
     def event_lod_end( self, event ):

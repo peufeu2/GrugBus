@@ -8,6 +8,10 @@ from path import Path
     python3.11
     pymodbus 3.1
 
+TODO: move init after event loop is created
+https://github.com/pymodbus-dev/pymodbus/issues/2102
+
+
 #### WARNING ####
 This file is both the example code and the manual.
 ==================================================
@@ -529,8 +533,9 @@ class RoutableTasmota( Routable ):
 
 class Router():
     def __init__( self ):
-        self.devices = [ RoutableTasmota("Tasmota T2 Radiateur PF", 900, "plugs/tasmota_t2"),
-                         RoutableTasmota("Tasmota T4 Sèche serviette", 1000, "plugs/tasmota_t4"),
+        self.devices = [ 
+                         RoutableTasmota("Tasmota T4 Sèche serviette", 1050, "plugs/tasmota_t4"),
+                         RoutableTasmota("Tasmota T2 Radiateur PF", 800, "plugs/tasmota_t2"),
                          RoutableTasmota("Tasmota T1 Radiateur bureau", 1700, "plugs/tasmota_t1"),
                         ]       
 
@@ -549,11 +554,10 @@ class Router():
             self.initialized += 1
             return
 
-        # after each action, wait a few seconds
         changed = False
         # p is positive if we're drawing from grid
         p = (mgr.meter.total_power.value or 0) + 100
-        if p<0:            
+        if p < -200:
             self.timeout_import.reset()         # we're exporting power
             if self.timeout_export.expired():   # we've been exporting for a while
                 for d in self.devices:          # find something to turn on
@@ -562,7 +566,7 @@ class Router():
                         changed = True
                         self.timeout_export.reset()
                         break
-        else:
+        elif p > 0:
             self.timeout_export.reset()            # we're importing power
             if self.timeout_import.expired():      # we've been importing for a while
                 for d in reversed( self.devices ): # find something to turn off
@@ -752,6 +756,8 @@ class Solis( grugbus.SlaveDevice ):
                 lm_regs = await self.local_meter.read_regs( self.local_meter_regs_to_read )
             except asyncio.exceptions.TimeoutError:
                 lm_pub = {}
+                  # if it times out, there is no measured power
+                self.local_meter.active_power.value = None
             except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
                 return abort()
             else:
@@ -782,7 +788,7 @@ class Solis( grugbus.SlaveDevice ):
         bat_power_deque = collections.deque( maxlen=10 )
         timeout_power_on  = Timeout( 60, expired=True )
         timeout_power_off = Timeout( 600 )
-        timeout_blackout  = Timeout( 1000, expired=True )
+        timeout_blackout  = Timeout( 120, expired=True )
         power_reg = self.rwr_power_on_off
         while STILL_ALIVE:
             try:

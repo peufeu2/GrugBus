@@ -16,7 +16,7 @@ from gmqtt import Client as MQTTClient
 import config
 from misc import *
 
-PLOT_LENGTH = 1000    # seconds
+PLOT_LENGTH = 3600    # seconds
 PLOT_LENGTH_MIN = 200    # seconds
 PLOT_LENGTH_MAX = 3600    # seconds
 TIME_SHIFT_S = 3600*2
@@ -46,7 +46,7 @@ class DataStream( object ):
         self.load()
 
     def load( self ):
-        x,y = self.get( time.time()-PLOT_LENGTH )
+        x,y = self.get( time.time()-PLOT_LENGTH_MAX )
         self.x = collections.deque( x )
         self.y = collections.deque( y )
         print( "Loaded %d for %s" % (len(self.x), self.topic))
@@ -69,8 +69,8 @@ class DataStream( object ):
 
         args   = { "topic":self.topic, "tstart":tstart, "tend":tend, "lod":lod, "lodm":lod//60 }
         kwargs = { "columnar":True, "settings":{"use_numpy":True} }            
-        if tend:    ts_cond = "ts BETWEEN %(tstart)s AND %(tend)s"
-        else:       ts_cond = "ts > %(tstart)s"
+        if tend:    ts_cond = "ts BETWEEN toDateTime64(%(tstart)s,1) AND toDateTime64(%(tend)s,1)"
+        else:       ts_cond = "ts > toDateTime64(%(tstart)s,1)"
         where = " WHERE topic=%(topic)s AND " + ts_cond + " "
 
         t=time.time()
@@ -113,11 +113,13 @@ PLOTS = { p[1]:DataStream( *p ) for p in (
     # ( 0, "pv/solis1/bms_battery_power", "Battery BMS" , "yellow",1.0              , {}    ),
     # ( 0, "pv/solis1/fakemeter/active_power", "Fakemeter"       , "blue"   , 1.0   , {}    ),
     # ( 0, "pv/solis1/fakemeter/offset", "Offset"       , "magenta"   , 1.0         , {}    ),
-    # ( 1, "pv/solis1/temperature"     , "Temperature"     , "red"  ,1.0              , {"y_range_name":"temp"} ),
     # ( 1, "pv/solis1/bms_battery_current" , "Battery current" , "#FFC080"  ,1.0      , {} ),
     # ( 1, "pv/solis1/bms_battery_soc"     , "Battery SOC"   , "green"  ,1.0          , {} ),
-    ( 1, "pv/solis1/bms_battery_soc"     , "Battery SOC"   , "green"  ,1.0      , {} ),
-    ( 1, "pv/solis1/temperature"         , "Temperature"   , "orange"  ,1.0      , {} ),
+    ( 1, "pv/solis1/bms_battery_soc"     , "Battery SOC"   , "green"    , 1.0, {} ),
+    ( 1, "pv/solis1/temperature"         , "Temperature"   , "orange"   , 1.0, {} ),
+    # ( 1, "pv/solis1/dc_bus_voltage"      , "DC Bus"        , "cyan"     , 1.0, {} ),
+    # ( 1, "pv/solis1/mppt1_voltage"       , "mppt1_voltage" , "#FFFF00"  , 1.0, {} ),
+    # ( 1, "pv/solis1/mppt2_voltage"       , "mppt2_voltage" , "#FFFFFF"  , 1.0, {} ),
     # ( 1, "pv/solis1/bms_battery_charge_current_limit"      , "BMS max charge Amps"    , "blue"  ,1.0      , {} ),
     # ( 1, "pv/solis1/bms_battery_discharge_current_limit"   , "BMS max discharge Amps" , "red"  ,1.0      , {} ),
 
@@ -238,6 +240,16 @@ class PVDashboard():
             fig.on_event( bokeh.events.MouseWheel,   self.event_generic )
             fig.on_event( bokeh.events.Pan,          self.event_generic )
 
+            # fig.lod_factor    = 10
+            # fig.lod_interval  = 100
+            # fig.lod_threshold = 100
+            # fig.lod_timeout   = 1000
+
+            fig.lod_factor    = 10
+            fig.lod_interval  = 100
+            fig.lod_threshold = None
+            fig.lod_timeout   = 1000
+
         self.lod_reduce = False
         self.streaming  = True
         self.tick = Metronome( 0.1 )
@@ -297,7 +309,7 @@ class PVDashboard():
 
         tstart = trange[0] * 0.001
         tend   = trange[1] * 0.001
-        lod_length=1000 if self.lod_reduce else int(5000 * 10/(10+self.lod_slider_value))
+        lod_length=300 if self.lod_reduce else int(5000 * 10/(10+self.lod_slider_value))
         print( tstart, tend, event, self.lod_reduce, lod_length )
         miny=[]
         maxy = []
@@ -324,7 +336,7 @@ class PVDashboard():
 
     def event_lod_end( self, event ):
         print( event )
-        # self.lod_reduce = False
+        self.lod_reduce = False
         self.redraw( event, True )
 
     def event_reset( self, event ):
