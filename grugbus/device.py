@@ -2,8 +2,12 @@
 # -*- coding: utf-8 -*-
 
 import logging, functools, asyncio, time
+from pymodbus.pdu import ExceptionResponse
 
 log = logging.getLogger(__name__)
+
+class ModbusException( Exception ):
+    pass
 
 class DeviceBase( ):
     """
@@ -54,6 +58,9 @@ class DeviceBase( ):
         self.regs_by_key = {}
         self.addr_belongs_to_reg = {}
         self.regs_by_addr = {}
+
+        self.last_transaction_duration = 0
+        self.default_retries = 3
 
         #
         #   Will be set to True if we have successful communication with the device,
@@ -197,7 +204,7 @@ class SlaveDevice( DeviceBase ):
 
         return result
 
-    async def read_regs( self, read_list ):
+    async def read_regs( self, read_list, retries=None ):
         """
             Reads multiple registers. It is much faster than reading registers individually and is
             the preferred way versus calling read() on each register.
@@ -212,7 +219,9 @@ class SlaveDevice( DeviceBase ):
             
             All registers need not have the same function code, this will issue the appropriate commands.
         """
+        retries = retries or self.default_retries
         try:
+            start_time = time.time()
             result = []
             update_list = []
             for fcode, chunk in self.reg_list_to_chunks( read_list, None ):
@@ -224,11 +233,23 @@ class SlaveDevice( DeviceBase ):
                 # modbus bulk read
                 start_addr  = chunk[0][0]
                 end_addr    = chunk[-1][1]
-                async with self.modbus._async_mutex:    # can share same serial port between various devices
-                    reg_data = (await func( start_addr, end_addr-start_addr, self.bus_address )).registers
-                    if self.modbus._async_mutex._waiters:
-                        await asyncio.sleep(0.003)  # wait until serial is flushed before releasing lock
-                update_list.append( (fcode, chunk, start_addr, reg_data) )
+                for retry in range( retries ):
+                    try:
+                        async with self.modbus._async_mutex:    # can share same serial port between various devices
+                            resp = await func( start_addr, end_addr-start_addr, self.bus_address )
+                            if isinstance( resp, ExceptionResponse ):
+                                raise ModbusException( str( resp ) )
+                            reg_data = resp.registers
+                            if self.modbus._async_mutex._waiters:
+                                await asyncio.sleep(0.003)  # wait until serial is flushed before releasing lock
+                        update_list.append( (fcode, chunk, start_addr, reg_data) )
+                        break
+                    except asyncio.exceptions.TimeoutError:
+                        if retry < retries-1:
+                            logging.warning( "Modbus read timeout: %s will retry %d/%d", self.key, retry+1, retries )
+                        else:
+                            logging.error( "Modbus read timeout: %s after %d/%d retries", self.key, retry+1, retries )
+                            raise
 
             # Decode values and assign to registers. Do this in a separate loop after reading,
             # to make sure all registers were processed. Otherwise, due to the await above,
@@ -244,11 +265,12 @@ class SlaveDevice( DeviceBase ):
             return result
         except asyncio.exceptions.TimeoutError:
             self.is_online = False
-            logging.error( "Modbus timeout: %s", self.key )
             raise
+        finally:
+            self.last_transaction_duration = time.time()-start_time
 
 
-    async def write_regs( self, write_list ):
+    async def write_regs( self, write_list, retries=None ):
         """
             Writes multiple registers. 
             Modbus transactions will be chunked to stay under the limit max_regs_in_command.
@@ -272,9 +294,12 @@ class SlaveDevice( DeviceBase ):
 
             Args:
                 write_list: list of RegBase instances
+                retries   : if there is a modbus timeout, will retry up to the number specified
         """
+        retries = retries or self.default_retries
         try:
             update_list = []
+            start_time = time.time()
             for fcode, chunk in self.reg_list_to_chunks( write_list, 0 ):
                 # check address span of this write operation and build data buffer
                 start_addr = chunk[0][0]
@@ -295,35 +320,49 @@ class SlaveDevice( DeviceBase ):
                     raise IndexError("write_regs() cannot write a chunk of registers with a hole in it, as that would overwrite an unknown register")
                 update_list.append( (fcode, start_addr, reg_data) )
 
+
             # Perform modbus writes. Do this in a separate loop after preparing data to write,
             # otherwise, due to the await, a mix of old and new values could be written.
             for fcode, start_addr, reg_data in update_list:
-                async with self.modbus._async_mutex:
-                    if fcode==1:     # we're dealing with bools (force coil)
-                        if len(reg_data) == 1:    
-                            fcode = 5   # force single coil
-                            # print( "write_coil", fcode, start_addr, reg_data )
-                            await self.modbus.write_coil( start_addr, reg_data[0], self.bus_address )
-                        else:                     
-                            fcode = 15  # force multiple coils
-                            # print( "write_coils", fcode, start_addr, reg_data )
-                            await self.modbus.write_coils( start_addr, reg_data, self.bus_address )
-                    elif fcode==3:   # we're dealing with words (registers)
-                        if len(reg_data) == 1:    
-                            fcode = 6   # force single register
-                            # print( "write_register", fcode, start_addr, reg_data )
-                            await self.modbus.write_register( start_addr, reg_data[0], self.bus_address )
-                        else:                     
-                            fcode = 16  # force multiple registers
-                            # print( "write_registers", fcode, start_addr, reg_data )
-                            await self.modbus.write_registers( start_addr, reg_data, self.bus_address )
-                    else:
-                        raise ValueError( "wrong function code in write_regs()" )
-                self.is_online = True
+                for retry in range( retries ):
+                    try:
+                        async with self.modbus._async_mutex:
+                            if fcode in (1,5):     # we're dealing with bools (force coil)
+                                if len(reg_data) == 1:    
+                                    fcode = 5   # force single coil
+                                    # print( "write_coil", fcode, start_addr, reg_data )
+                                    resp = await self.modbus.write_coil( start_addr, reg_data[0], self.bus_address )
+                                else:                     
+                                    fcode = 15  # force multiple coils
+                                    # print( "write_coils", fcode, start_addr, reg_data )
+                                    resp = await self.modbus.write_coils( start_addr, reg_data, self.bus_address )
+                            elif fcode in (3,6):   # we're dealing with words (registers)
+                                if len(reg_data) == 1:    
+                                    fcode = 6   # force single register
+                                    # print( "write_register", fcode, start_addr, reg_data )
+                                    resp = await self.modbus.write_register( start_addr, reg_data[0], self.bus_address )
+                                else:                     
+                                    fcode = 16  # force multiple registers
+                                    # print( "write_registers", fcode, start_addr, reg_data )
+                                    resp = await self.modbus.write_registers( start_addr, reg_data, self.bus_address )
+                            else:
+                                raise ValueError( "wrong function code %r in write_regs()" % (fcode,) )
+                        if isinstance( resp, ExceptionResponse ):
+                            raise ModbusException( str( resp ))
+                        self.is_online = True
+                        break
+                    except asyncio.exceptions.TimeoutError:
+                        if retry < retries-1:
+                            logging.warning( "Modbus write timeout: %s will retry %d/%d", self.key, retry+1, retries )
+                        else:
+                            logging.error( "Modbus write timeout: %s after %d/%d retries", self.key, retry+1, retries )
+                            raise
+
         except asyncio.exceptions.TimeoutError:
             self.is_online = False
-            logging.error( "Modbus timeout: %s", self.key )
             raise
+        finally:
+            self.last_transaction_duration = time.time()-start_time
 
     # for debugging
     def dump_regs( self, all=False ):

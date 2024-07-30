@@ -260,5 +260,8 @@ if __name__ == "__main__":
 """ )
 
 
-for regfile in "Eastron_SDM120", "Acrel_ACR10RH", "Eastron_SDM630", "Solis_S5_EH1P_6K_2020", "Acrel_ACR10R", "Acrel_1_Phase":
-    run(regfile)
+# for regfile in "Eastron_SDM120", "Acrel_ACR10RH", "Eastron_SDM630", "Solis_S5_EH1P_6K_2020", "Acrel_ACR10R", "Acrel_1_Phase":
+    # run(regfile)
+
+run("EVSE_ABB_Terra")
+

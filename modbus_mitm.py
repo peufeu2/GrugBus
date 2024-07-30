@@ -748,16 +748,18 @@ class Solis( grugbus.SlaveDevice ):
 
     async def read_meter_coroutine( self ):
         tick = Metronome( config.POLL_PERIOD_SOLIS_METER )
+        timeout_counter = 0
         while STILL_ALIVE:
             async with self.modbus._async_mutex:
                 if not self.modbus.connected:
                     await self.modbus.connect()
             try:
                 lm_regs = await self.local_meter.read_regs( self.local_meter_regs_to_read )
+                timeout_counter = 0
             except asyncio.exceptions.TimeoutError:
                 lm_pub = {}
-                  # if it times out, there is no measured power
-                self.local_meter.active_power.value = None
+                self.local_meter.active_power.value = None if timeout_counter<10 else 0 # if it times out, there is no measured power
+                timeout_counter += 1
             except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
                 return abort()
             else:
