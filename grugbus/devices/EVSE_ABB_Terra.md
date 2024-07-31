@@ -36,13 +36,6 @@ Both apps will force update the EVSE firmware to the latest version before letti
 
 Obviously, the first item on the todolist is to get rid of the app.
 
-# RFID
-
-There is a RFID reader. It is possible to add RFID cards to authorize charging. It proudly beeps when a RFID card is scanned.
-Obviously, it doesn't work to enable charging.
-I guess the authorized RFID cards list is not stored in the EVSE memory but in ABB cloud servers. You can use your own OCPP server by setting its url in the app, so that may be an option. I didn't try.
-This means without wifi or ethernet, RFID is useless. No further testing.
-
 # The almighty hidden "Charging_Enabled" state variable.
 
 Without RFID, only ChargeSync can enable charging.
@@ -139,6 +132,22 @@ The result is quite practical:
 I have a Type 1 car: the plug on the EV side has a thumb latch which releases it from the socket and allows it to be pulled out. The car has a switch to detect if the thumb latch is pressed, which interrupts charging. Thus the natural motion of grabbing the plug, pressing the latch and pulling it out corresponds to the electrically safe sequence of cutting off current before unplugging. As soon as it is unplugged, the station detects it and cuts power to the cable.
 
 With a type 2 car, there is a lock and no thumb latch, and the station has no button to interrupt charging either. So extracting the plug requires the user to stop the charge from the EV side, which will probably involve navigating some kind of retarded user interface. If you have a type 2 car I would recommend a station which has usable user interface instead, like a button.
+
+# RFID
+
+When "Free use" mode is enabled, the RFID reader is not used.
+
+With the app, it is possible to add RFID cards to authorize charging. These seem to be stored in the station's internal memory, since no internet connection is required to approve them. It proudly beeps when any RFID card is scanned, whether it is authorized or not. When authorization is enabled and modbus is set, the process is:
+
+- Plug the cable into station and EV.
+- Station then reports State #5 "Others" and does not begin charging.
+- Scan authorized RFID tag
+- Station proceeds through normal state transitions until it reaches State #4 (charging)
+- Scan authorized RFID tag to stop charging
+
+You can use your own OCPP server by setting its url in the app, so that may also be an option. I didn't try.
+
+Note if ABB's cloud goes down, the app won't work, so it will be impossible to alter RFID settings or add new tags.
 
 # Controlling charge current
 

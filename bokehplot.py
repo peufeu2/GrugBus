@@ -103,12 +103,14 @@ class PlotHolder():
     pass
 
 PLOTS = { p[1]:DataStream( *p ) for p in (
-    ( 0, "pv/fronius/grid_port_power", "Fronius PV" , "#008000"  , -4.5             , {} ),
-    ( 0, "pv/total_pv_power"         , "Total PV"   , "#00FF00" , 1.0               , {} ),
-    ( 0, "pv/meter/house_power"      , "House"      , "#8080FF" , 1.0               , {} ),
-    ( 0, "pv/solis1/bms_battery_power"   , "Battery"    , "#FFC080", 1.0                , {} ),
-    ( 0, "pv/meter/total_power"      , "Grid"       , "#FF0000"   , 1.0             , {} ),
-    ( 0, "pv/solis1/meter/active_power" , "Solis"   , "cyan"  , 1.0                 , {} ),
+    ( 0, "pv/fronius/grid_port_power"   , "Fronius PV" , "#008000"  , -4.5  , {} ),
+    ( 0, "pv/total_pv_power"            , "Total PV"   , "#00FF00"  , 1.0   , {} ),
+    ( 0, "pv/meter/house_power"         , "House"      , "#8080FF"  , 1.0   , {} ),
+    ( 0, "pv/solis1/bms_battery_power"  , "Battery"    , "#FFC080"  , 1.0   , {} ),
+    ( 0, "pv/meter/total_power"         , "Grid"       , "#FF0000"  , 1.0   , {} ),
+    ( 0, "pv/solis1/meter/active_power" , "Solis"      , "cyan"     , 1.0   , {} ),
+    ( 0, "pv/evse/active_power"         , "EVSE"       , "#FF80FF"  , 1.0   , {} ),
+
     # ( 0, "pv/solis1/pv_power"        , "Solis PV"   , "green" , 1.0               , {}    ),
     # ( 0, "pv/solis1/bms_battery_power", "Battery BMS" , "yellow",1.0              , {}    ),
     # ( 0, "pv/solis1/fakemeter/active_power", "Fakemeter"       , "blue"   , 1.0   , {}    ),
