@@ -329,7 +329,11 @@ class FakeSmartmeter( grugbus.LocalServer ):
             self.export_active_energy   .value = meter.total_export_kwh              .value
             # self.active_power           .value = max( meter.total_power                   .value + self.power_offset, -self.power_elimit ) + (time.time()%2)
             # meter placement: grid
-            self.active_power           .value = meter.total_power                   .value
+
+            # report tweaked value, it shifts a little bit to have a small amount of
+            # export when we can afford it, to really keep power drawn from grid to zero
+            # instead of "fluctuating around zero""
+            self.active_power           .value = meter.total_power_tweaked
 
             # meter placement: load
             # self.active_power           .value = max(0, meter.total_power.value - mgr.solis1.local_meter.active_power.value)
@@ -394,6 +398,7 @@ class MainSmartmeter( grugbus.SlaveDevice ):
             Eastron_SDM630.MakeRegisters() )
 
         self.router = Router()
+        self.total_power_tweaked = 0.0
 
     async def read_coroutine( self ):
         # For power routing to work we need to read total_power frequently. So we don't read 
@@ -471,6 +476,14 @@ class MainSmartmeter( grugbus.SlaveDevice ):
                 try:
                     read_fast_ctr = (read_fast_ctr+1) % len(read_fast_regs)
                     regs = await self.read_regs( read_fast_regs[read_fast_ctr] )
+
+                    # offset measured power a little bit to ensure a small value of export
+                    # even if the battery is not fully charged
+                    self.total_power_tweaked = self.total_power.value
+                    bp  = mgr.solis1.battery_power.value or 0       # Battery charging power. Positive if charging, negative if discharging.
+                    soc = mgr.solis1.bms_battery_soc.value or 0     # battery soc, 0-100
+                    if bp > 200:        self.total_power_tweaked += soc*bp*0.0001
+
                 except asyncio.exceptions.TimeoutError:
                     # Nothing special to do: in case of error, read_regs() above already set self.is_online to False
                     pub = {}
@@ -478,7 +491,7 @@ class MainSmartmeter( grugbus.SlaveDevice ):
                     self.data_timestamp = data_request_timestamp
                     pub = { reg.key: reg.format_value() for reg in regs_to_publish.intersection(regs) }      # publish what we just read
                 pub[ "is_online" ]    = int( self.is_online )   # set by read_regs(), True if it succeeded, False otherwise
-                pub[ "req_time" ]     = round(self.last_transaction_duration,2)   # log modbus request time, round it for better compression
+                pub[ "req_time" ]     = round( self.last_transaction_duration,2 )   # log modbus request time, round it for better compression
                 mqtt.publish( "pv/meter/", pub, add_heartbeat=True )
                 await self.router.route()
             except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
@@ -520,9 +533,6 @@ class EVSE( grugbus.SlaveDevice ):
             self.socket_state
         )
 
-        self.excess_history_1 = collections.deque( maxlen=7 )        # queue to smooth measured power
-        self.excess_history_2 = collections.deque( maxlen=7 )        # queue to smooth measured power
-
         self.tick_poll = Metronome( 1 )
         self.timeout = Timeout( 10, expired=True )    # expires if we've been exporting for some time
 
@@ -537,10 +547,6 @@ class EVSE( grugbus.SlaveDevice ):
         self.virtual_i_max   = 32.0  # bounds
         self.virtual_i_pause   = -3.0 # hysteresis comparator: virtual_current_limit threshold to go from charge to pause
         self.virtual_i_unpause = 1.0 # hysteresis comparator: virtual_current_limit threshold to go from pause to charge
-
-        # settings, can be changed
-        self.battery_min_charge_power = 2000    # steal power from inverter battery charging above this, it should cover the minimum of 6A
-        self.battery_min_soc = 35               # but only if the soc is above this
 
         self.ensure_i   = 6         # guarantee this charge current
         self.ensure_Wh  = 0       # until this energy has been delivered
@@ -569,73 +575,12 @@ class EVSE( grugbus.SlaveDevice ):
             mqtt.mqtt.publish( "pv/exception", s )
             await asyncio.sleep(0.5)
 
-    # Adjusting current when charging is quite fast (a few seconds) so we can do it often.
-    # But pausing and restarting charge is slow, so we should not do it just because there was a spike in the
-    # exported power measured by the meter.
-    # Solution is to have a virtual_current_limit which is quickly adjusted, then derive the real current limit from it:
-    # when the virtual current limit is lower than 6A but not too low, we keep the real current limit at 6A so it keeps charging ;
-    # thus multiple 
-    async def set_virtual_current_limit( self, value ):
-        # clip it
-        self.virtual_current_limit = value = min( self.virtual_i_max, max( self.virtual_i_min, value ))
-
-        # hysteresis comparator
-        threshold = self.virtual_i_pause if self.is_charging_unpaused() else self.virtual_i_unpause
-
-        if value <= threshold:     current_limit = self.i_pause
-        elif value <= self.i_min:  current_limit = self.i_min
-        else:                      current_limit = value
-
-        await self.rwr_current_limit.write_if_changed( current_limit )
-
-    async def adjust_virtual_current_limit( self, increment ):
-        await self.set_virtual_current_limit( self.virtual_current_limit + increment )
-
-    def is_charging_paused( self ):
-        return self.rwr_current_limit.value < self.i_min
-
-    def is_charging_unpaused( self ):
-        return self.rwr_current_limit.value >= self.i_min
-
-    async def route( self ):
+    async def route( self, excess ):
         # Poll charging station
         if not self.tick_poll.ticked():         # polling interval
             return
 
-        # Get export power from smartmeter. It's negative if we are exporting power, so invert the sign.
-        excess = -(mgr.meter.total_power.value or 0)
-        self.excess_history_1.append( excess )
-
-        # Battery charging power. Positive if charging.
-        bp  = mgr.solis1.battery_power.value or 0
-        soc = mgr.solis1.bms_battery_soc.value or 0
-
-        # However export power is not sufficient: at night when running on battery it will fluctuate
-        # around zero but with spikes in import/export and we don't want that to trigger the EVSE charge!
-        # What we're interested in is excess production: (meter export) + (solar battery charging power)
-        # this behaves correctly both when solar produces and at night.
-        if soc < self.battery_min_soc:
-            # when below minimum SOC, only count battery discharging power, but not charging power.
-            # this gives priority to charging solar battery, while still working properly at night.
-            excess += min( -100, bp )
-        else:
-            min_bp = self.battery_min_charge_power * (150 - soc) / (150-self.battery_min_soc)
-            # min_bp = self.battery_min_charge_power
-
-            if bp < 100:        # battery is discharging
-                excess += bp
-            elif bp >= min_bp:  # steal from solar battery charging when it is above threshold
-                excess += bp - min_bp
-
-        self.excess_history_2.append( excess )
-        excess_1 = sum(self.excess_history_1) / len(self.excess_history_1)
-        excess_2 = sum(self.excess_history_2) / len(self.excess_history_2)
-
-        # if the inverter's grid port is maxed out, it may still be charging
-        if excess_1 < 0:        excess = min( excess_1, excess_2 )
-        else:                   excess = excess_2
-
-        # poll EVSE
+        # poll EVSE over modbus
         if not await self.poll( excess ):
             self.tick_poll.tick = 30.0  # If it did not respond, poll it less often to not disturb the shared smartmeter modbus line
             self.default_retries = 1
@@ -655,15 +600,16 @@ class EVSE( grugbus.SlaveDevice ):
         #              1-2-300 : waiting for the car or current limit below 6A, not charging
         #              400     : charging
 
-        # deliver requested amount of power no matter what
+        # At the beginning of charge, deliver requested amount of power no matter what
         if self.energy.value < self.ensure_Wh:
             await self.set_virtual_current_limit( self.ensure_i )    # set current to minimum value to allow charging to begin
             return
 
-        # now charge with solar only
-        # elif state == 4:        #   charging
-        if not self.timeout.expired():
-            return
+        # Now charge with solar only
+        # EVSE is slow, the car takes 2 seconds to respond to commands, then the inverter needs to adjust,
+        # new value of excess power needs to stabilize, etc, before a new power setting can he issued.
+        # This means we have to wait about 10s between commands.
+        if not self.timeout.expired(): return
         self.timeout.reset( 10 )
 
         if self.is_charging_paused():
@@ -671,110 +617,16 @@ class EVSE( grugbus.SlaveDevice ):
                 await self.set_virtual_current_limit( self.i_min )    # set current to minimum value to allow charging to begin
             return
 
-        if self.current.value < 5.8:    # wait for charger to start up, or to finish charging/balancing
+        if self.current.value < 5.5:    
+            # Current is low. This either means:
+            # - Charge hasn't started yet, so we shouldn't issue new current adjustments that will be ignored... as the result of that
+            # would be incrementing the current limit too much and when charging starts, a big current spike.
+            # - Or it is in the final charging/balancing stage, and we want that to finish cleanly no matter what excess PV is.
+            # In both cases, we just do nothing.
             return
 
-        # adjust current
+        # Finally... adjust current
         await self.adjust_virtual_current_limit( (excess-self.p_export_target) * 0.003 )    # It is charging
-
-class EVSE_old( grugbus.SlaveDevice ):
-    def __init__( self, modbus ):
-        super().__init__(
-            modbus,                # Initialize grugbus.SlaveDevice
-            3,                     # Modbus address
-            "evse",                # Name (for logging etc)
-            "ABB Terra",    # Pretty name 
-            # List of registers is in another file, which is auto-generated from spreadsheet
-            # so import it now
-            EVSE_ABB_Terra.MakeRegisters() )
-
-        self.rwr_current_limit.value = 0.0
-
-        self.regs_to_read = (
-            self.charge_state       ,
-            self.current_limit      ,
-            self.current            ,
-            self.active_power       ,
-            self.energy             ,
-            self.error_code         ,
-            self.socket_state
-        )
-
-        self.tick_poll = Metronome( 1 )
-        self.change_timeout = Timeout( 2.5, expired=True )    # expires if we've been exporting for some time
-        self.change_direction_timeout = Timeout( 10, expired=True )    # expires if we've been exporting for some time
-        self.prev_step = 0
-
-        # settings, DO NOT CHANGE as these are set in the ISO standard
-        self.i_pause = 5.0          # current limit in pause mode
-        self.i_min   = 6.0          # minimum current limit for charge, can be set to below 6A if charge should pause when solar not available
-        self.i_max   = 32.0         # maximum current limit
-
-        # see comments in set_virtual_current_limit()
-        self.virtual_current_limit = 0
-        self.virtual_i_min   = -5.0   # bounds
-        self.virtual_i_max   = 32.0  # bounds
-        self.virtual_i_pause   = -3.0 # hysteresis comparator: virtual_current_limit threshold to go from charge to pause
-        self.virtual_i_unpause = 1.0 # hysteresis comparator: virtual_current_limit threshold to go from pause to charge
-
-        # settings, can be changed
-        self.battery_min_charge_power = 2000    # steal power from inverter battery charging above this, it should cover the minimum of 6A
-        self.battery_min_soc = 35               # but only if the soc is above this
-
-        self.ensure_i   = 6         # guarantee this charge current
-        self.ensure_Wh  = 0       # until this energy has been delivered
-
-        self.i_step          = 0.25       # increment/decrement current limit by this
-        self.p_threshold_dec   = 50     # decrement when excess < this
-        self.p_threshold_inc   = self.p_threshold_dec+200    # increment when excess > this
-        self.p_threshold_start = 1400-self.p_threshold_inc   # start charging when excess > this
-        assert self.p_threshold_inc > self.p_threshold_dec + self.i_step*230
-        # queue to smooth measured power
-        # self.p_queue = collections.deque( maxlen= )
-
-    async def poll( self, p ):
-        try:
-            await self.read_regs( self.regs_to_read )
-            pub = { reg.key: reg.format_value() for reg in self.regs_to_read }
-            pub["virtual_current_limit"] = "%.02f"%self.virtual_current_limit
-            pub["fake_power"]            = int(p)
-            pub["rwr_current_limit"]     = self.rwr_current_limit.format_value()
-            pub["charging_unpaused"]     = self.is_charging_unpaused()
-            mqtt.publish( "pv/evse/", pub, add_heartbeat=True )
-            line = "%-6dW e=%6d s=%04x s=%04x v%6.03fA %6.03fA %6.03fA %6.03fA %6.03fW %6.03fWh %fs" % (p, self.error_code.value, self.charge_state.value, self.socket_state.value, 
-                self.virtual_current_limit, self.rwr_current_limit.value, self.current_limit.value, self.current.value, 
-                self.active_power.value, self.energy.value, self.last_transaction_duration )
-            print( line )
-            return True
-        except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
-            return abort()
-        except:
-            s = traceback.format_exc()
-            log.error(s)
-            mqtt.mqtt.publish( "pv/exception", s )
-            await asyncio.sleep(0.5)
-
-    # Adjusting current when charging is quite fast (a few seconds) so we can do it often.
-    # But pausing and restarting charge is slow, so we should not do it just because there was a spike in the
-    # exported power measured by the meter.
-    # Solution is to have a virtual_current_limit which is quickly adjusted, then derive the real current limit from it:
-    # when the virtual current limit is lower than 6A but not too low, we keep the real current limit at 6A so it keeps charging ;
-    # thus multiple 
-    async def set_virtual_current_limit( self, value ):
-        # clip it
-        self.virtual_current_limit = value = min( self.virtual_i_max, max( self.virtual_i_min, value ))
-
-        # hysteresis comparator
-        threshold = self.virtual_i_pause if self.is_charging_unpaused() else self.virtual_i_unpause
-
-        if value <= threshold:     current_limit = self.i_pause
-        elif value <= self.i_min:  current_limit = self.i_min
-        else:                      current_limit = value
-
-        await self.rwr_current_limit.write_if_changed( current_limit )
-
-    async def adjust_virtual_current_limit( self, increment ):
-        await self.set_virtual_current_limit( self.virtual_current_limit + increment )
 
     def is_charging_paused( self ):
         return self.rwr_current_limit.value < self.i_min
@@ -782,85 +634,30 @@ class EVSE_old( grugbus.SlaveDevice ):
     def is_charging_unpaused( self ):
         return self.rwr_current_limit.value >= self.i_min
 
-    async def route( self ):
-        # Poll charging station
-        if not self.tick_poll.ticked():         # polling interval
-            return
+    async def adjust_virtual_current_limit( self, increment ):
+        await self.set_virtual_current_limit( self.virtual_current_limit + increment )
 
-        # Get export power from smartmeter. It's negative if we are exporting power, so invert the sign.
-        excess = -(mgr.meter.total_power.value or 0)
+    # Adjusting current when charging takes a few seconds so we can do it often.
+    # But pausing and restarting charge is slow (>30s) so we should not do it just because there was a spike in the
+    # exported power measured by the meter.
+    # When current limit is 6A, EVSE will start charging. Below that it will pause.
+    # So we use a virtual_current_limit that is adjusted according to excess power, then derive the real current limit from it:
+    # when the virtual current limit is lower than 6A but not too low, we keep the real current limit at 6A so it keeps charging.
+    # This avoids short pause/restart cycles;
+    async def set_virtual_current_limit( self, value ):
+        # clip it
+        self.virtual_current_limit = value = min( self.virtual_i_max, max( self.virtual_i_min, value ))
 
-        # Battery charging power. Positive if charging.
-        bp  = mgr.solis1.battery_power.value or 0
-        soc = mgr.solis1.bms_battery_soc.value or 0
+        # hysteresis comparator
+        threshold = self.virtual_i_pause if self.is_charging_unpaused() else self.virtual_i_unpause
 
-        # However export power is not sufficient: at night when running on battery it will fluctuate
-        # around zero but with spikes in import/export and we don't want that to trigger the EVSE charge!
-        # What we're interested in is excess production: (meter export) + (solar battery charging power)
-        # this behaves correctly both when solar produces and at night.
-        if soc < self.battery_min_soc:
-            # when below minimum SOC, only count battery discharging power, but not charging power.
-            # this gives priority to charging solar battery, while still working properly at night.
-            excess += min( -100, bp )
-        else:
-            min_bp = self.battery_min_charge_power * (150 - soc) / (150-self.battery_min_soc)
-            # min_bp = self.battery_min_charge_power
+        if value <= threshold:     current_limit = self.i_pause     # very low: pause charging
+        elif value <= self.i_min:  current_limit = self.i_min       # low but not too low: keep charging at min power
+        else:                      current_limit = value            # above 6A: send current limit unchanged
 
-            if bp < 100:        # battery is discharging
-                excess += bp
-            elif bp >= min_bp:  # steal from solar battery charging when it is above threshold
-                excess += bp - min_bp
+        await self.rwr_current_limit.write_if_changed( current_limit )
 
-        # poll EVSE
-        if not await self.poll( excess ):
-            self.tick_poll.tick = 30.0  # If it did not respond, poll it less often to not disturb the shared smartmeter modbus line
-            self.default_retries = 1
-            return
-        self.tick_poll.tick = 1.0   # EVSE is online, use short poll interval
-        self.default_retries = 2
 
-        # EV is not plugged, or init register at startup
-        if (self.socket_state.value) != 0x111 or (not self.rwr_current_limit.value):    
-            await self.set_virtual_current_limit( self.virtual_i_min )                    # set charge to paused
-            return
-
-        # TODO: do not trip breaker     mgr.meter.phase_1_current
-
-        # now, EV is plugged in, but not necessarily authorized or willing to charge.
-        # charge_state 500     : waiting for RFID authorization or other causes.
-        #              1-2-300 : waiting for the car or current limit below 6A, not charging
-        #              400     : charging
-
-        # deliver requested amount of power no matter what
-        if self.energy.value < self.ensure_Wh:
-            await self.set_virtual_current_limit( self.ensure_i )    # set current to minimum value to allow charging to begin
-            return
-
-        # now charge with solar only
-        # state = (self.charge_state.value & 0xF00) >> 8
-        # elif state == 4:        #   charging
-
-        if not self.change_timeout.expired():
-            return
-
-        thr_inc = self.p_threshold_inc
-        thr_dec = self.p_threshold_dec
-        if self.is_charging_paused():
-            thr_inc += self.p_threshold_start
-            thr_dec += self.p_threshold_start
-
-        if excess < thr_dec:        step = -self.i_step         # we're importing power
-        elif excess > thr_inc:      step = self.i_step          # we're exporting
-        else:                       return
-
-        if step != self.prev_step:
-            self.prev_step = step
-            if not self.change_direction_timeout.expired():
-                return
-
-        self.change_direction_timeout.reset()
-        self.change_timeout.reset()
-        await self.adjust_virtual_current_limit( step )
 
 class Routable():
     def __init__( self, name, power ):
@@ -902,11 +699,24 @@ class Router():
                          RoutableTasmota("Tasmota T1 Radiateur bureau", 1700, "plugs/tasmota_t1"),
                         ]       
 
+        self.excess_history_nobat = collections.deque( maxlen=70 )        # queue to smooth measured power
+        self.excess_history_bat   = collections.deque( maxlen=70 )        # queue to smooth measured power
+
+        # settings, can be changed
+        self.battery_min_soc = 35               # but only if the soc is above this
+        self.battery_min_charge_power = 2000    # steal power from inverter battery charging above this, it should cover the minimum of 6A
+        self.solis1_max_output_power = 5700
+
+
         self.initialized = False
         self.timeout_export = Timeout( 4, expired=True )    # expires if we've been exporting for some time
         self.timeout_import = Timeout( 3, expired=True )    # expires if we've been importing for some time
         self.resend_tick = Metronome( 10 )
         self.counter = 0
+
+
+
+
         # self.off_counter = 0
 
     async def route( self ):
@@ -917,15 +727,86 @@ class Router():
             self.initialized += 1
             return
 
+        # Get export power from smartmeter, positive when exporting.
+        # Smartmeter gives a negative valu when exporting power, so invert the sign.
+        # This is the main control variable for power routing. The rest of this code is about tweaking it
+        # according to operating conditions to get desired behavior.
+        excess = meter_export = -mgr.meter.total_power_tweaked
+
+        # Export power alone is not sufficient: at night when running on battery it will fluctuate
+        # around zero but with spikes in import/export and we don't want that to trigger the EVSE charge!
+        # What we're interested in is excess production: (meter export) + (solar battery charging power)
+        # this behaves correctly in all cases.
+
+        bp  = mgr.solis1.battery_power.value or 0       # Battery charging power. Positive if charging, negative if discharging.
+        soc = mgr.solis1.bms_battery_soc.value or 0     # battery soc, 0-100
+
+        steal_from_battery = 0
+        if soc < self.battery_min_soc:
+            # When below minimum SOC, only count battery discharging power, but not charging power.
+            # So the inverter can charge its battery as much as it wants. 
+            # (If it has too much PV and still exports power, this is already accounted for in "excess" variable.)
+            # This gives priority to charging the battery, while still working properly at night:
+            # When we run on battery, meter export is around zero, and battery provides all the power,
+            # so bp is negative, the result is excess<0, which disables routing.
+            excess += min( -100, bp )
+        else:
+            # Battery is above minimum SOC.
+            if bp < 100:
+                # Battery is discharging or idle/finished charging.
+                # 100W threshold is used instead of 0 due to offset in the inverter battery power measurement.
+                # Don't try to enforce minimum charging power, as it makes no sense when battery is fully charged.
+                excess += bp
+            else:
+                # Battery is charging. Guarantee minimum battery charging power according to battery SOC
+                min_bp = self.battery_min_charge_power * (150 - soc) / (150-self.battery_min_soc)
+                if bp >= min_bp:  
+                    # Battery is charging above minimum power, we can steal some power from it
+                    # However, if solis AC output is maxed out, it may still be charging the battery, but we can't
+                    # steal this power. So in this case, we shouldn't count battery charging power as available!
+                    # This is done below with excess_1 and excess_2
+                    steal_from_battery = max( 0, bp - min_bp)
+
+        # We now have two excess power measurements
+        #   excess                      does not include power that can be stolen from the battery
+        #   excess+steal_from_battery   it includes that
+        # TODO: use both to also control the water heater and other stuff.
+        # For now this is just for the EVSE.
+
+        # Store it in a deque to smooth it, to avoid jerky behavior on power spikes
+        self.excess_history_nobat.append( excess )          # TODO: this was previously meter_export
+        self.excess_history_bat.append( excess + steal_from_battery )
+
+        # Smooth it
+        excess_avg_nobat = sum(self.excess_history_nobat) / len(self.excess_history_nobat)
+        excess_avg_bat   = sum(self.excess_history_bat)   / len(self.excess_history_bat)
+
+        # Also get solis1 output power, negative if producing power, so flip sign to make it positive
+        solis1_output = -(mgr.solis1.local_meter.active_power.value or 0)
+        
+        # If the inverter's grid port is maxed out, "steal_from_battery" will be too optimistic,
+        # as the inverter can't redirect more power to its output in this case.
+        # Correct for this:
+        if excess_avg_nobat < 0 and solis1_output > self.solis1_max_output_power:
+            excess_avg = min( excess_avg_nobat, excess_avg_bat )
+        else:
+            excess_avg = excess_avg_bat
+
+        # We now have our excess PV power available for routing!
+        # excess                        Instantaneous excess power
+        # excess + steal_from_battery   Instantaneous excess power, including what can be stolen from battery charging
+        # excess_avg_bat                Smoothed excess power
+        # excess_avg                    Smoothed excess power, including what can be stolen from battery charging
+
         # Poll charging station
         evse = mgr.evse
-        await evse.route()
+        await evse.route( excess_avg )
         return
 
 
         changed = False
         # p is positive if we're drawing from grid
-        p = (mgr.meter.total_power.value or 0) + 100
+        p = mgr.meter.total_power_tweaked + 100
         if p < -200:
             self.timeout_import.reset()         # we're exporting power
             if self.timeout_export.expired():   # we've been exporting for a while
