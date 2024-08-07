@@ -468,9 +468,7 @@ class MainSmartmeter( grugbus.SlaveDevice ):
         tick = Metronome(config.POLL_PERIOD_METER)  # fires a tick on every period to read periodically, see misc.py
         while STILL_ALIVE:  # set to false by abort()
             try:
-                async with self.modbus._async_mutex:
-                    if not self.modbus.connected:
-                        await self.modbus.connect()
+                await self.connect()
 
                 data_request_timestamp = time.time()    # measure lag between modbus request and data delivered to fake smartmeter
                 try:
@@ -533,8 +531,20 @@ class EVSE( grugbus.SlaveDevice ):
             self.socket_state
         )
 
-        self.tick_poll = Metronome( 1 )
-        self.timeout = Timeout( 10, expired=True )    # expires if we've been exporting for some time
+        self.tick_poll = Metronome( config.POLL_PERIOD_EVSE )   # how often we poll it over modbus
+
+        #   This setting deserves a comment... This is the time interval between current_limit commands to the EVSE.
+        #   After each command:
+        #       The car's charger takes 2-3s to react, but we don't know yet if the charger will decide to use all of the allowed power, or only some.
+        #       Then the solar inverter adjusts its output power, which takes another 1-2s. 
+        #   During all the above, excess PV power calculated by the Router class is not really valid, and should not be used to trigger some other loads
+        #   which would result in "overbooking" of PV power.
+        #   In addition, excess PV power needs to be smoothed (see Router class) to avoid freaking out every time a motor is started in the house
+        #   and causes a short power spike. Say over Ts seconds. 
+        #   Excess power also needs to settle before it can be used to calculate a new current_limit command.
+        #   All this means it will be quite slow. Issue a command, ignore excess power during about 4 seconds, then smooth it for 3 seconds, get a new value, update.
+        #   The length of the smoothing is in the deque in Router() class.
+        self.command_interval = Timeout( 10, expired=True )
 
         # settings, DO NOT CHANGE as these are set in the ISO standard
         self.i_pause = 5.0          # current limit in pause mode
@@ -558,7 +568,7 @@ class EVSE( grugbus.SlaveDevice ):
             await self.read_regs( self.regs_to_read )
             pub = { reg.key: reg.format_value() for reg in self.regs_to_read }
             pub["virtual_current_limit"] = "%.02f"%self.virtual_current_limit
-            pub["fake_power"]            = int(p)
+            # pub["fake_power"]            = int(p)
             pub["rwr_current_limit"]     = self.rwr_current_limit.format_value()
             pub["charging_unpaused"]     = self.is_charging_unpaused()
             mqtt.publish( "pv/evse/", pub, add_heartbeat=True )
@@ -609,8 +619,8 @@ class EVSE( grugbus.SlaveDevice ):
         # EVSE is slow, the car takes 2 seconds to respond to commands, then the inverter needs to adjust,
         # new value of excess power needs to stabilize, etc, before a new power setting can he issued.
         # This means we have to wait about 10s between commands.
-        if not self.timeout.expired(): return
-        self.timeout.reset( 10 )
+        if not self.command_interval.expired(): return
+        self.command_interval.reset()
 
         if self.is_charging_paused():
             if excess > self.p_threshold_start:
@@ -635,7 +645,7 @@ class EVSE( grugbus.SlaveDevice ):
         return self.rwr_current_limit.value >= self.i_min
 
     async def adjust_virtual_current_limit( self, increment ):
-        await self.set_virtual_current_limit( self.virtual_current_limit + increment )
+        return await self.set_virtual_current_limit( self.virtual_current_limit + increment )
 
     # Adjusting current when charging takes a few seconds so we can do it often.
     # But pausing and restarting charge is slow (>30s) so we should not do it just because there was a spike in the
@@ -655,7 +665,7 @@ class EVSE( grugbus.SlaveDevice ):
         elif value <= self.i_min:  current_limit = self.i_min       # low but not too low: keep charging at min power
         else:                      current_limit = value            # above 6A: send current limit unchanged
 
-        await self.rwr_current_limit.write_if_changed( current_limit )
+        return await self.rwr_current_limit.write_if_changed( current_limit )
 
 
 
@@ -698,26 +708,23 @@ class Router():
                          RoutableTasmota("Tasmota T2 Radiateur PF", 800, "plugs/tasmota_t2"),
                          RoutableTasmota("Tasmota T1 Radiateur bureau", 1700, "plugs/tasmota_t1"),
                         ]       
+        self.tick_mqtt = Metronome( config.ROUTER_PUBLISH_PERIOD )
 
-        self.excess_history_nobat = collections.deque( maxlen=70 )        # queue to smooth measured power
-        self.excess_history_bat   = collections.deque( maxlen=70 )        # queue to smooth measured power
+        # queues to smooth measured power, see comment on command_interval in EVSE class
+        # "nobat" is for "excess power" and "bat" for "same including power we can steal from battery charging"
+        self.excess_history_nobat = collections.deque( maxlen=70 )        
+        self.excess_history_bat   = collections.deque( maxlen=70 )        # same
 
-        # settings, can be changed
-        self.battery_min_soc = 35               # but only if the soc is above this
-        self.battery_min_charge_power = 2000    # steal power from inverter battery charging above this, it should cover the minimum of 6A
-        self.solis1_max_output_power = 5700
-
+        # settings
+        self.battery_min_soc = 35               # Do not steal power from battery charging if SOC is below this
+        self.battery_min_charge_power = 2000    # same, ensures a minimum charging power for battery
+        self.solis1_max_output_power = 5700     # when the inverter is maxed out, we can't redirect battery charging power to the AC output
 
         self.initialized = False
         self.timeout_export = Timeout( 4, expired=True )    # expires if we've been exporting for some time
         self.timeout_import = Timeout( 3, expired=True )    # expires if we've been importing for some time
         self.resend_tick = Metronome( 10 )
         self.counter = 0
-
-
-
-
-        # self.off_counter = 0
 
     async def route( self ):
         # return
@@ -727,25 +734,33 @@ class Router():
             self.initialized += 1
             return
 
-        # Get export power from smartmeter, positive when exporting.
-        # Smartmeter gives a negative valu when exporting power, so invert the sign.
+        # Routing behaves as an integrator, for stability.
+
+        # Get export power from smartmeter, set it to positive when exporting, makes the algo below easier to understand.
+        # (Smartmeter gives a negative value when exporting power, so invert the sign.)
         # This is the main control variable for power routing. The rest of this code is about tweaking it
         # according to operating conditions to get desired behavior.
         excess = meter_export = -mgr.meter.total_power_tweaked
 
-        # Export power alone is not sufficient: at night when running on battery it will fluctuate
-        # around zero but with spikes in import/export and we don't want that to trigger the EVSE charge!
+        # Smartmeter power alone is not sufficient: at night when running on battery it will fluctuate
+        # around zero but with spikes in import/export and we don't want that to trigger routing!
         # What we're interested in is excess production: (meter export) + (solar battery charging power)
         # this behaves correctly in all cases.
+        bp      = mgr.solis1.battery_power.value or 0       # Battery charging power. Positive if charging, negative if discharging.
 
-        bp  = mgr.solis1.battery_power.value or 0       # Battery charging power. Positive if charging, negative if discharging.
-        soc = mgr.solis1.bms_battery_soc.value or 0     # battery soc, 0-100
+        # Note battery power should always be taken into account for routing, especially
+        # if we want to keep it charging! Because some drift always occurs, so we may divert a little bit
+        # more power than we should, and the inverter will provide... to do so it will reduce battery charging power
+        # until it's no longer charging...
 
+        # bp_max  = (mgr.solis1.battery_max_charge_current.value or 0) * (mgr.solis1.battery_voltage.value or 0)
+        soc = mgr.solis1.bms_battery_soc.value or 0     # battery SOC, 0-100
         steal_from_battery = 0
+
         if soc < self.battery_min_soc:
             # When below minimum SOC, only count battery discharging power, but not charging power.
             # So the inverter can charge its battery as much as it wants. 
-            # (If it has too much PV and still exports power, this is already accounted for in "excess" variable.)
+            # (If it has too much PV and still exports power, the smartmeter reads it, so this is already accounted for.)
             # This gives priority to charging the battery, while still working properly at night:
             # When we run on battery, meter export is around zero, and battery provides all the power,
             # so bp is negative, the result is excess<0, which disables routing.
@@ -755,17 +770,19 @@ class Router():
             if bp < 100:
                 # Battery is discharging or idle/finished charging.
                 # 100W threshold is used instead of 0 due to offset in the inverter battery power measurement.
-                # Don't try to enforce minimum charging power, as it makes no sense when battery is fully charged.
+                # Don't try to enforce minimum charging power, as it makes no sense here.
+                # If battery is discharging at night, bp is negative, excess<0, which disables routing.
                 excess += bp
             else:
                 # Battery is charging. Guarantee minimum battery charging power according to battery SOC
+                # with a bit of tapering according to SOC...
                 min_bp = self.battery_min_charge_power * (150 - soc) / (150-self.battery_min_soc)
                 if bp >= min_bp:  
                     # Battery is charging above minimum power, we can steal some power from it
-                    # However, if solis AC output is maxed out, it may still be charging the battery, but we can't
-                    # steal this power. So in this case, we shouldn't count battery charging power as available!
-                    # This is done below with excess_1 and excess_2
                     steal_from_battery = max( 0, bp - min_bp)
+
+        # TODO: solis.battery_max_charge_current
+
 
         # We now have two excess power measurements
         #   excess                      does not include power that can be stolen from the battery
@@ -775,30 +792,47 @@ class Router():
 
         # Store it in a deque to smooth it, to avoid jerky behavior on power spikes
         self.excess_history_nobat.append( excess )          # TODO: this was previously meter_export
-        self.excess_history_bat.append( excess + steal_from_battery )
+        self.excess_history_bat  .append( excess + steal_from_battery )
 
         # Smooth it
         excess_avg_nobat = sum(self.excess_history_nobat) / len(self.excess_history_nobat)
         excess_avg_bat   = sum(self.excess_history_bat)   / len(self.excess_history_bat)
 
-        # Also get solis1 output power, negative if producing power, so flip sign to make it positive
+        # Also get solis1 output power, flip sign to make it positive when producing power
         solis1_output = -(mgr.solis1.local_meter.active_power.value or 0)
         
-        # If the inverter's grid port is maxed out, "steal_from_battery" will be too optimistic,
-        # as the inverter can't redirect more power to its output in this case.
-        # Correct for this:
-        if excess_avg_nobat < 0 and solis1_output > self.solis1_max_output_power:
+        # If the inverter's grid port is maxed out, we can't steal power from the battery 
+        # "steal_from_battery" will be too optimistic, correct for this:
+        # if excess_avg_nobat < 0 and solis1_output > self.solis1_max_output_power:
+        if solis1_output > self.solis1_max_output_power:
+            # Note solis1_max_output_power is not used in the calculation. 
             excess_avg = min( excess_avg_nobat, excess_avg_bat )
         else:
             excess_avg = excess_avg_bat
 
+        pub = { 
+            "excess"            : excess + steal_from_battery,
+            "excess_nobat"      : excess
+        }
+        if self.tick_mqtt.ticked():
+            pub["excess_avg"       ] = excess_avg
+            pub["excess_avg_nobat" ] = excess_avg_nobat
+        mqtt.publish( "pv/router/", pub, add_heartbeat=True )
+
         # We now have our excess PV power available for routing!
         # excess                        Instantaneous excess power
         # excess + steal_from_battery   Instantaneous excess power, including what can be stolen from battery charging
-        # excess_avg_bat                Smoothed excess power
+        # excess_avg_nobat              Smoothed excess power
         # excess_avg                    Smoothed excess power, including what can be stolen from battery charging
 
+        #   Note excess_avg_nobat doesn't work that well. It tends to use too much from the battery
+        #   because the inverter wil llower battery charging power on its own to power the EVSE, but this is
+        #   not visible on the smartmeter reading!
+
         # Poll charging station
+
+        # TODO: 
+        #   - excess_avg_bat works (balancing with battery)
         evse = mgr.evse
         await evse.route( excess_avg )
         return
@@ -854,7 +888,7 @@ class Fronius( grugbus.SlaveDevice ):
         try:    # It powers down at night, which disconnects TCP. 
                 # pymodbus reconnects automatically, no need to put this in the while loop below
                 # otherwise it will leak sockets
-            await self.modbus.connect()
+            await self.connect()
         except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
             return abort()
 
@@ -1000,9 +1034,7 @@ class Solis( grugbus.SlaveDevice ):
         tick = Metronome( config.POLL_PERIOD_SOLIS_METER )
         timeout_counter = 0
         while STILL_ALIVE:
-            async with self.modbus._async_mutex:
-                if not self.modbus.connected:
-                    await self.modbus.connect()
+            await self.connect()
             try:
                 lm_regs = await self.local_meter.read_regs( self.local_meter_regs_to_read )
                 timeout_counter = 0
@@ -1035,10 +1067,7 @@ class Solis( grugbus.SlaveDevice ):
             await tick.wait()
 
     async def read_inverter_coroutine( self ):
-        async with self.modbus._async_mutex:
-            if not self.modbus.connected:
-                await self.modbus.connect()
-
+        await self.connect()
         await self.adjust_time()
         tick = Metronome( config.POLL_PERIOD_SOLIS )
         timeout_fan_off = Timeout( 60 )

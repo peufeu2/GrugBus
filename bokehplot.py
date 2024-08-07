@@ -110,7 +110,7 @@ PLOTS = { p[1]:DataStream( *p ) for p in (
     ( 0, "pv/meter/total_power"         , "Grid"       , "#FF0000"  , 1.0   , {} ),
     ( 0, "pv/solis1/meter/active_power" , "Solis"      , "cyan"     , 1.0   , {} ),
     ( 0, "pv/evse/active_power"         , "EVSE"       , "#FF80FF"  , 1.0   , {} ),
-    ( 0, "pv/evse/fake_power"           , "Route excess", "#FF00FF"  , 1.0   , {} ),
+    ( 0, "pv/router/excess_avg"         , "Route excess", "#FF00FF"  , 1.0   , {} ),
 
     # ( 0, "pv/solis1/pv_power"        , "Solis PV"   , "green" , 1.0               , {}    ),
     # ( 0, "pv/solis1/bms_battery_power", "Battery BMS" , "yellow",1.0              , {}    ),
@@ -120,6 +120,9 @@ PLOTS = { p[1]:DataStream( *p ) for p in (
     # ( 1, "pv/solis1/bms_battery_soc"     , "Battery SOC"   , "green"  ,1.0          , {} ),
     ( 1, "pv/solis1/bms_battery_soc"     , "Battery SOC"   , "green"    , 1.0, {} ),
     ( 1, "pv/solis1/temperature"         , "Temperature"   , "orange"   , 1.0, {} ),
+    ( 1, "pv/evse/virtual_current_limit" , "EVSE ILim (virtual)" , "#FF00FF"   , 1.0, {} ),
+    ( 1, "pv/evse/rwr_current_limit"     , "EVSE ILim (real)"    , "#FF80FF"   , 1.0, {} ),
+
     # ( 1, "pv/solis1/dc_bus_voltage"      , "DC Bus"        , "cyan"     , 1.0, {} ),
     # ( 1, "pv/solis1/mppt1_voltage"       , "mppt1_voltage" , "#FFFF00"  , 1.0, {} ),
     # ( 1, "pv/solis1/mppt2_voltage"       , "mppt2_voltage" , "#FFFFFF"  , 1.0, {} ),

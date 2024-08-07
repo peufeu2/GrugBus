@@ -151,6 +151,11 @@ class SlaveDevice( DeviceBase ):
                 4:  modbus.read_input_registers
             }
 
+    async def connect( self ):
+        async with self.modbus._async_mutex:
+            if not self.modbus.connected:
+                await self.modbus.connect()
+
     # function cache requires reg_list to be a tuple
     def reg_list_to_chunks( self, reg_list, _max_hole_size ):
         if len(reg_list) == 1:  # fast path
@@ -218,6 +223,9 @@ class SlaveDevice( DeviceBase ):
                 read_list: list of RegBase instances
             
             All registers need not have the same function code, this will issue the appropriate commands.
+
+            This releases the Modbus mutex between each register chunk (ie, between each modbus command)
+            so other tasks trying to access this modbus interface get a chance to run.
         """
         retries = retries or self.default_retries
         try:

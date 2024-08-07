@@ -181,7 +181,6 @@ Args:
         """
         if value != None:
             self.value = value
-        # Use the range read operation to read this register, to avoid code duplication
         return await self.device.write_regs( (self,) )
 
     async def write_if_changed( self, value ):
@@ -192,7 +191,6 @@ Args:
         if value == self.value:
             return
         self.value = value
-        # Use the range read operation to read this register, to avoid code duplication
         return await self.device.write_regs( (self,) )
 
     ########################################################
