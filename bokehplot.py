@@ -111,6 +111,7 @@ PLOTS = { p[1]:DataStream( *p ) for p in (
     ( 0, "pv/solis1/meter/active_power" , "Solis"      , "cyan"     , 1.0   , {} ),
     ( 0, "pv/evse/active_power"         , "EVSE"       , "#FF80FF"  , 1.0   , {} ),
     ( 0, "pv/router/excess_avg"         , "Route excess", "#FF00FF"  , 1.0   , {} ),
+    ( 0, "pv/router/excess_avg_nobat"   , "Route excess nobat", "#8000FF"  , 1.0   , {} ),
 
     # ( 0, "pv/solis1/pv_power"        , "Solis PV"   , "green" , 1.0               , {}    ),
     # ( 0, "pv/solis1/bms_battery_power", "Battery BMS" , "yellow",1.0              , {}    ),
@@ -122,6 +123,7 @@ PLOTS = { p[1]:DataStream( *p ) for p in (
     ( 1, "pv/solis1/temperature"         , "Temperature"   , "orange"   , 1.0, {} ),
     ( 1, "pv/evse/virtual_current_limit" , "EVSE ILim (virtual)" , "#FF00FF"   , 1.0, {} ),
     ( 1, "pv/evse/rwr_current_limit"     , "EVSE ILim (real)"    , "#FF80FF"   , 1.0, {} ),
+    ( 1, "pv/solis1/battery_max_charge_current"     , "Bat max current"    , "#0080FF"   , 1.0, {} ),
 
     # ( 1, "pv/solis1/dc_bus_voltage"      , "DC Bus"        , "cyan"     , 1.0, {} ),
     # ( 1, "pv/solis1/mppt1_voltage"       , "mppt1_voltage" , "#FFFF00"  , 1.0, {} ),
@@ -211,8 +213,8 @@ class PVDashboard():
                             # active_drag = "xpan",
                         )
 
-            self.figs[1].extra_y_ranges = {"temp": bokeh.models.Range1d(start=50, end=70)}
-            self.figs[1].add_layout(bokeh.models.LinearAxis(y_range_name="temp"), 'right')
+            # self.figs[1].extra_y_ranges = {"temp": bokeh.models.Range1d(start=50, end=70)}
+            # self.figs[1].add_layout(bokeh.models.LinearAxis(y_range_name="temp"), 'right')
 
         self.range_slider = Slider(start=PLOT_LENGTH_MIN, end=PLOT_LENGTH_MAX, value=PLOT_LENGTH, step=100, title="Range")
         self.range_slider.on_change("value", self.range_slider_on_change)
@@ -330,8 +332,8 @@ class PVDashboard():
         if miny:
             # for fig in self.figs.values():
             fig = self.figs[0]
-            fig.y_range.start = max(-6500,min(miny))
-            fig.y_range.end   = min(12000,max(maxy))
+            # fig.y_range.start = max(-6500,min(miny))
+            # fig.y_range.end   = min(12000,max(maxy))
         self.tick.ticked()
 
     def event_lod_start( self, event ):

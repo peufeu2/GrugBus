@@ -46,3 +46,11 @@ class Timeout():
 
     def remain( self ):
         return max(0, self.expiry - time.time())
+
+def interpolate( xa, ya, xb, yb, x ):
+    if x <= xa:
+        return ya
+    elif x >= xb:
+        return yb
+    else:
+        return ya + (yb-ya)*(x-xa)/(xb-xa)

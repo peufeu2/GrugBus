@@ -561,7 +561,8 @@ class EVSE( grugbus.SlaveDevice ):
         self.ensure_i   = 6         # guarantee this charge current
         self.ensure_Wh  = 0       # until this energy has been delivered
         self.p_threshold_start = 1400   # minimum excess power to start charging
-        self.p_export_target = 50
+        self.p_export_target = 100
+        self.p_hysteresis = 70
 
     async def poll( self, p ):
         try:
@@ -635,8 +636,13 @@ class EVSE( grugbus.SlaveDevice ):
             # In both cases, we just do nothing.
             return
 
-        # Finally... adjust current
-        await self.adjust_virtual_current_limit( (excess-self.p_export_target) * 0.003 )    # It is charging
+        # Finally... adjust current.
+        # Since the car imposes 0.5A steps, if we have a small excess that is lower than the power step
+        # then don't skip to the next step, as that would result in import, then the router woule step back,
+        # in other words oscillation.
+        delta = excess-self.p_export_target
+        if abs(delta) > self.p_hysteresis:
+            await self.adjust_virtual_current_limit( (delta) * 0.003 )    # It is charging
 
     def is_charging_paused( self ):
         return self.rwr_current_limit.value < self.i_min
@@ -712,13 +718,20 @@ class Router():
 
         # queues to smooth measured power, see comment on command_interval in EVSE class
         # "nobat" is for "excess power" and "bat" for "same including power we can steal from battery charging"
-        self.excess_history_nobat = collections.deque( maxlen=70 )        
-        self.excess_history_bat   = collections.deque( maxlen=70 )        # same
+        self.history_export = collections.deque( maxlen=70 )        
+        self.history_bp     = collections.deque( maxlen=70 )        # same
 
-        # settings
-        self.battery_min_soc = 35               # Do not steal power from battery charging if SOC is below this
-        self.battery_min_charge_power = 2000    # same, ensures a minimum charging power for battery
-        self.solis1_max_output_power = 5700     # when the inverter is maxed out, we can't redirect battery charging power to the AC output
+        # Battery charging current is limited to the product of:
+        #   1) Full charging current (as requested by BMS depending on SOC)
+        #   2) Scale factor below, from 0 to 1
+        self.battery_min_soc = 50               # Do not steal power from battery charging if SOC is below this
+        self.battery_min_soc_scale = 0.98
+        self.battery_max_soc = 75
+        self.battery_max_soc_scale = 0.4
+
+        # when the inverter is maxed out, we can't redirect battery charging power to the AC output
+        # so special case above this output power
+        self.solis1_max_output_power = 5700
 
         self.initialized = False
         self.timeout_export = Timeout( 4, expired=True )    # expires if we've been exporting for some time
@@ -740,7 +753,10 @@ class Router():
         # (Smartmeter gives a negative value when exporting power, so invert the sign.)
         # This is the main control variable for power routing. The rest of this code is about tweaking it
         # according to operating conditions to get desired behavior.
-        excess = meter_export = -mgr.meter.total_power_tweaked
+        meter_export = -mgr.meter.total_power_tweaked
+
+        # Also get solis1 output power, flip sign to make it positive when producing power
+        solis1_output = -(mgr.solis1.local_meter.active_power.value or 0)
 
         # Smartmeter power alone is not sufficient: at night when running on battery it will fluctuate
         # around zero but with spikes in import/export and we don't want that to trigger routing!
@@ -748,93 +764,58 @@ class Router():
         # this behaves correctly in all cases.
         bp      = mgr.solis1.battery_power.value or 0       # Battery charging power. Positive if charging, negative if discharging.
 
+        # correct battery power measurement offset when battery is fully charged
+        # print( bp, mgr.solis1.battery_max_charge_current.value )
+        if not mgr.solis1.battery_max_charge_current.value and -200 < bp < 200:
+            bp = 0.
+
         # Note battery power should always be taken into account for routing, especially
         # if we want to keep it charging! Because some drift always occurs, so we may divert a little bit
         # more power than we should, and the inverter will provide... to do so it will reduce battery charging power
         # until it's no longer charging...
 
-        # bp_max  = (mgr.solis1.battery_max_charge_current.value or 0) * (mgr.solis1.battery_voltage.value or 0)
+        # Store it in a deque to smooth it, to avoid jerky behavior on power spikes
+        self.history_export.append( meter_export )          # TODO: this was previously meter_export
+        self.history_bp    .append( bp )
+
+        # Smooth it
+        export_avg = sum(self.history_export) / len(self.history_export)
+        bp_avg     = sum(self.history_bp    ) / len(self.history_bp    )
+
+        # get maximum charging power the battery can take, as determined by inverter, according to BMS info
+        bp_max  = (mgr.solis1.battery_max_charge_current.value or 0) * (mgr.solis1.battery_voltage.value or 0)
+
+        # how much power do we allocate to charging the battery, according to SOC
         soc = mgr.solis1.bms_battery_soc.value or 0     # battery SOC, 0-100
-        steal_from_battery = 0
+        bp_min = bp_max * interpolate( self.battery_min_soc, self.battery_min_soc_scale, self.battery_max_soc, self.battery_max_soc_scale, soc )
+        steal_from_battery = bp_avg - bp_min
 
-        if soc < self.battery_min_soc:
-            # When below minimum SOC, only count battery discharging power, but not charging power.
-            # So the inverter can charge its battery as much as it wants. 
-            # (If it has too much PV and still exports power, the smartmeter reads it, so this is already accounted for.)
-            # This gives priority to charging the battery, while still working properly at night:
-            # When we run on battery, meter export is around zero, and battery provides all the power,
-            # so bp is negative, the result is excess<0, which disables routing.
-            excess += min( -100, bp )
-        else:
-            # Battery is above minimum SOC.
-            if bp < 100:
-                # Battery is discharging or idle/finished charging.
-                # 100W threshold is used instead of 0 due to offset in the inverter battery power measurement.
-                # Don't try to enforce minimum charging power, as it makes no sense here.
-                # If battery is discharging at night, bp is negative, excess<0, which disables routing.
-                excess += bp
-            else:
-                # Battery is charging. Guarantee minimum battery charging power according to battery SOC
-                # with a bit of tapering according to SOC...
-                min_bp = self.battery_min_charge_power * (150 - soc) / (150-self.battery_min_soc)
-                if bp >= min_bp:  
-                    # Battery is charging above minimum power, we can steal some power from it
-                    steal_from_battery = max( 0, bp - min_bp)
-
-        # TODO: solis.battery_max_charge_current
-
+        # If the inverter's grid port is maxed out, we can't steal power from the battery 
+        # so "steal_from_battery" will be too optimistic, correct for this:
+        steal_from_battery = min( steal_from_battery, self.solis1_max_output_power - solis1_output )
 
         # We now have two excess power measurements
-        #   excess                      does not include power that can be stolen from the battery
-        #   excess+steal_from_battery   it includes that
+        #   export_avg                      does not include power that can be stolen from the battery
+        #   export_avg+steal_from_battery   it includes that
         # TODO: use both to also control the water heater and other stuff.
         # For now this is just for the EVSE.
 
-        # Store it in a deque to smooth it, to avoid jerky behavior on power spikes
-        self.excess_history_nobat.append( excess )          # TODO: this was previously meter_export
-        self.excess_history_bat  .append( excess + steal_from_battery )
-
-        # Smooth it
-        excess_avg_nobat = sum(self.excess_history_nobat) / len(self.excess_history_nobat)
-        excess_avg_bat   = sum(self.excess_history_bat)   / len(self.excess_history_bat)
-
-        # Also get solis1 output power, flip sign to make it positive when producing power
-        solis1_output = -(mgr.solis1.local_meter.active_power.value or 0)
-        
-        # If the inverter's grid port is maxed out, we can't steal power from the battery 
-        # "steal_from_battery" will be too optimistic, correct for this:
-        # if excess_avg_nobat < 0 and solis1_output > self.solis1_max_output_power:
-        if solis1_output > self.solis1_max_output_power:
-            # Note solis1_max_output_power is not used in the calculation. 
-            excess_avg = min( excess_avg_nobat, excess_avg_bat )
-        else:
-            excess_avg = excess_avg_bat
-
-        pub = { 
-            "excess"            : excess + steal_from_battery,
-            "excess_nobat"      : excess
-        }
         if self.tick_mqtt.ticked():
-            pub["excess_avg"       ] = excess_avg
-            pub["excess_avg_nobat" ] = excess_avg_nobat
-        mqtt.publish( "pv/router/", pub, add_heartbeat=True )
+            pub = {     "excess_avg"       : export_avg + steal_from_battery,
+                        "excess_avg_nobat" : export_avg
+                    }
+            mqtt.publish( "pv/router/", pub, add_heartbeat=True )
 
-        # We now have our excess PV power available for routing!
-        # excess                        Instantaneous excess power
-        # excess + steal_from_battery   Instantaneous excess power, including what can be stolen from battery charging
-        # excess_avg_nobat              Smoothed excess power
-        # excess_avg                    Smoothed excess power, including what can be stolen from battery charging
-
-        #   Note excess_avg_nobat doesn't work that well. It tends to use too much from the battery
-        #   because the inverter wil llower battery charging power on its own to power the EVSE, but this is
+        #   Note export_avg_nobat doesn't work that well. It tends to use too much from the battery
+        #   because the inverter will lower battery charging power on its own to power the EVSE, but this is
         #   not visible on the smartmeter reading!
+        #   So it should only be used with a highish export threshold.
 
-        # Poll charging station
 
         # TODO: 
-        #   - excess_avg_bat works (balancing with battery)
+        #   - export_avg_bat works (balancing with battery)
         evse = mgr.evse
-        await evse.route( excess_avg )
+        await evse.route( export_avg + steal_from_battery )
         return
 
 
