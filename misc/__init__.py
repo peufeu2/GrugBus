@@ -33,13 +33,16 @@ class Timeout():
         Simple class to periodically trigger an event
     """
     def __init__( self, duration, expired=False ):
+        self.duration = duration
         self.reset( duration )
         if expired:
             self.expiry = 0
 
     def reset( self, duration=None ):
-        self.duration = duration or self.duration
-        self.expiry   = time.time() + self.duration
+        self.expiry   = time.time() + (duration or self.duration)
+
+    def reset_or_extend( self, duration ):
+        self.expiry   = max( self.expiry, time.time() + duration )
 
     def expired( self ):
         return time.time() > self.expiry
@@ -54,3 +57,9 @@ def interpolate( xa, ya, xb, yb, x ):
         return yb
     else:
         return ya + (yb-ya)*(x-xa)/(xb-xa)
+
+def average( l ):
+    if l:
+        return sum(l)/len(l)
+    else:
+        return 0

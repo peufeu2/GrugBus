@@ -332,8 +332,8 @@ class PVDashboard():
         if miny:
             # for fig in self.figs.values():
             fig = self.figs[0]
-            # fig.y_range.start = max(-6500,min(miny))
-            # fig.y_range.end   = min(12000,max(maxy))
+            fig.y_range.start = max(-6500,min(miny))
+            fig.y_range.end   = min(12000,max(maxy))
         self.tick.ticked()
 
     def event_lod_start( self, event ):

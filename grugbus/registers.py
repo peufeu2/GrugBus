@@ -181,7 +181,7 @@ Args:
         """
         if value != None:
             self.value = value
-        return await self.device.write_regs( (self,) )
+        await self.device.write_regs( (self,) )
 
     async def write_if_changed( self, value ):
         """
@@ -191,7 +191,8 @@ Args:
         if value == self.value:
             return
         self.value = value
-        return await self.device.write_regs( (self,) )
+        await self.device.write_regs( (self,) )
+        return True
 
     ########################################################
     #   Local server functions
