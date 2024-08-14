@@ -103,26 +103,31 @@ class PlotHolder():
     pass
 
 PLOTS = { p[1]:DataStream( *p ) for p in (
-    ( 0, "pv/fronius/grid_port_power"   , "Fronius PV" , "#008000"  , -4.5  , {} ),
+    # ( 0, "pv/fronius/grid_port_power"   , "Fronius PV" , "#008000"  , -4.5  , {} ),
     ( 0, "pv/total_pv_power"            , "Total PV"   , "#00FF00"  , 1.0   , {} ),
     ( 0, "pv/meter/house_power"         , "House"      , "#8080FF"  , 1.0   , {} ),
     ( 0, "pv/solis1/bms_battery_power"  , "Battery"    , "#FFC080"  , 1.0   , {} ),
     ( 0, "pv/meter/total_power"         , "Grid"       , "#FF0000"  , 1.0   , {} ),
     ( 0, "pv/solis1/meter/active_power" , "Solis"      , "cyan"     , 1.0   , {} ),
-    ( 0, "pv/evse/active_power"         , "EVSE"       , "#FF80FF"  , 1.0   , {} ),
-    ( 0, "pv/router/excess_avg"         , "Route excess", "#FF00FF"  , 1.0   , {} ),
-    ( 0, "pv/router/excess_avg_nobat"   , "Route excess nobat", "#8000FF"  , 1.0   , {} ),
+    ( 0, "pv/solis1/fakemeter/active_power" , "FakeMeter"      , "#FFFFFF"     , 1.0   , {} ),
+    ( 0, "pv/evse/rwr_current_limit"    , "EVSE ILim"   , "#FFFFFF"   , 230, {} ),
+    ( 0, "pv/evse/active_power"         , "EVSE"        , "#FF80FF"  , 1.0   , {} ),
+    ( 0, "pv/router/excess_avg"         , "Route excess", "#FF00FF"  , -1.0   , {} ),
+    # ( 0, "pv/router/excess_avg_nobat"   , "Route excess nobat", "#8000FF"  , -1.0   , {} ),
 
-    # ( 0, "pv/solis1/pv_power"        , "Solis PV"   , "green" , 1.0               , {}    ),
-    # ( 0, "pv/solis1/bms_battery_power", "Battery BMS" , "yellow",1.0              , {}    ),
-    # ( 0, "pv/solis1/fakemeter/active_power", "Fakemeter"       , "blue"   , 1.0   , {}    ),
-    # ( 0, "pv/solis1/fakemeter/offset", "Offset"       , "magenta"   , 1.0         , {}    ),
     # ( 1, "pv/solis1/bms_battery_current" , "Battery current" , "#FFC080"  ,1.0      , {} ),
-    # ( 1, "pv/solis1/bms_battery_soc"     , "Battery SOC"   , "green"  ,1.0          , {} ),
     ( 1, "pv/solis1/bms_battery_soc"     , "Battery SOC"   , "green"    , 1.0, {} ),
     ( 1, "pv/solis1/temperature"         , "Temperature"   , "orange"   , 1.0, {} ),
-    ( 1, "pv/evse/virtual_current_limit" , "EVSE ILim (virtual)" , "#FF00FF"   , 1.0, {} ),
-    ( 1, "pv/evse/rwr_current_limit"     , "EVSE ILim (real)"    , "#FF80FF"   , 1.0, {} ),
+
+    # ( 1, "pv/meter/phase_1_line_to_neutral_volts"         , "PH1V"   , "orange"   , 1.0, {} ),
+    # ( 1, "pv/meter/phase_2_line_to_neutral_volts"         , "PH2V"   , "orange"   , 1.0, {} ),
+    # ( 1, "pv/meter/phase_3_line_to_neutral_volts"         , "PH3V"   , "orange"   , 1.0, {} ),
+
+    # ( 1, "pv/evse/virtual_current_limit" , "EVSE ILim (virtual)" , "#FF00FF"   , 1.0, {} ),
+    # ( 1, "pv/evse/current"               , "EVSE I (real)"    , "#FFFFFF"   , 1.0, {} ),
+    # ( 1, "pv/solis1/fakemeter/lag"               , "lag"    , "#FFFFFF"   , 1.0, {} ),
+    
+    ( 1, "pv/solis1/battery_current"     , "Bat current"    , "#008080"   , 1.0, {} ),
     ( 1, "pv/solis1/battery_max_charge_current"     , "Bat max current"    , "#0080FF"   , 1.0, {} ),
 
     # ( 1, "pv/solis1/dc_bus_voltage"      , "DC Bus"        , "cyan"     , 1.0, {} ),
@@ -200,7 +205,7 @@ class PVDashboard():
         self.figs[0] = figure(   title = 'PV', 
                         sizing_mode = 'stretch_both', 
                         x_axis_type="datetime",
-                        tools="undo,redo,reset,save,hover,box_zoom,xwheel_zoom,xpan",
+                        tools="undo,redo,reset,save,hover,box_zoom,xwheel_zoom,wheel_zoom,xpan",
                         active_drag = "xpan",
                         # active_zoom = "xwheel_zoom"
                     )
@@ -209,7 +214,7 @@ class PVDashboard():
             self.figs[1] = figure(   title = 'Inverter', 
                             sizing_mode = 'stretch_both', 
                             x_axis_type="datetime",
-                            tools="hover",
+                            tools="undo,redo,reset,save,hover,box_zoom,xwheel_zoom,wheel_zoom,xpan",
                             # active_drag = "xpan",
                         )
 
@@ -332,8 +337,8 @@ class PVDashboard():
         if miny:
             # for fig in self.figs.values():
             fig = self.figs[0]
-            fig.y_range.start = max(-6500,min(miny))
-            fig.y_range.end   = min(12000,max(maxy))
+            # fig.y_range.start = max(-6500,min(miny))
+            # fig.y_range.end   = min(12000,max(maxy))
         self.tick.ticked()
 
     def event_lod_start( self, event ):

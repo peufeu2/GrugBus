@@ -480,9 +480,9 @@ HV hybrid：
 4,33240,,"U16 ","1ms ","81>.S2S Time ","P81gtS2S Time ","float",,,,,,
 4,33241,,"U16 ","0.01Hz ","81<.S2S Frequency","P81ltS2S Frequency","float",,,,,,
 4,33242,,"U16 ","1ms ","81<.S2S Time","P81ltS2S Time","float",,"11ms",,,,
-4,33243,,"U16 ","0.1A ","Parallel PV inverter AC current",,"float",,,,,,
-4,33244,,"U16 ","0.1V ","Parallel PV inverter AC Voltage",,"float",,,,,,
-4,33245,,"U16 ","1W ","Parallel PV inverter AC power",,"float",,,,,,
+4,33243,,"U16 ","0.1A ","Parallel PV inverter AC current",,"float",,"TODO",,,,
+4,33244,,"U16 ","0.1V ","Parallel PV inverter AC Voltage",,"float",,"TODO",,,,
+4,33245,,"U16 ","1W ","Parallel PV inverter AC power",,"float",,"TODO",,,,
 4,33246,,"U16 ",,"Reserved Parallel PV inverter CT Detect",,"int",,"0：OFF ; 1：ON",,,,
 4,33247,,"S16 ","100W ","EPM Backflow power",,"float",,"+ to grid ; - From grid",,,,
 4,33248,,"U16 ",,"EPM Flags",,"bitfield",,"BIT00：EPM switch，0 OFF，1 ON
@@ -696,13 +696,24 @@ Active/Reactive powercontrol (Power off saving function)",,,,
 3,43071,,"U16 ",,"Reactive power switch",,"int",,"0x55: off, power factor recovery 1, reactive power ratio recovery 0
 0xA1: reactive power ratio setting is valid and power factor is restored to 1 (for registers 43051 and 43083);
 0xA2: power factor 02 is valid and reactive power ratio is restored to 0 (for register 43054).",,,,
-3,43072,,"U16 ",,"LVRT switch ",,"int",,"0xAA enabled，0x55 closed, Default：off",,,,
-3,43073,,"U16",,"EPM Settings",,"bitfield",,"register mentioned in changelog but not documented 		43073 BIT05 add Failsafe switch；
-Reverse-engineered
-BIT4 : Enable EPM (1=ON)
-BIT5 : Enable EPM FailSafe (1=ON)",,,,
-3,43074,,"U16","100W","EPM Export Power Limit",,"float",,"Undocumented, reverse-engineered
-Internal EPM Export power limit set in GUI","TODO",,,
+3,43072,,"U16 ",,"LVRT switch ",,"int",,"0xAA enabled，0x55 closed, Default：off
+LVRT = Low Voltage Ride Through",,,,
+3,43073,,"U16",,"EPM Settings",,"bitfield",,"register mentioned in changelog but not documented 		
+BIT00 : Reserved
+BIT01 : Reserved
+BIT02 : CT in grid, AC couple inverter only, to avoid uploading meter COM fail alarm
+BIT03 : Parallel inverter CT detection switch – if 33250 BIT03=0 a,d 33245>500W it means there is CT connected for several inverters and power flow exists. If 33250=0, 33245 value needs to be displayed.
+BIT04 : Enable EPM (1=ON)
+BIT05 : Enable EPM FailSafe (1=ON)
+BIT06 : Power control mode – 0 : 3 phase balanced – 1 : 3 phase individual control, effective when EPM function (BIT04 or BIT07) enabled
+BIT07 : EPM current setting swich, 0=OFF, 1=ON. When ON, set 43326 or 43327-43329 according to mode corresponding to BIT06 (Note : temporarily supported from S6 models)
+BIT08 : External EPM : 1=ON 0=OFF Not supported to have BIT04 and BIT08 at the same time. (only used for 3ph HV hybrid 5G)
+BIT09 : External EPM Failsafe (1=ON) (only used for 3ph HV hybrid 5G)
+BIT10 : Parallel EPM power setting switch (1=ON)
+BIT11 : Parallel EPM current setting switch 1=ON default OFF
+BIT12 : Parallel power control mode (when BIT10 or BIT11 is ON) : 0 three phase balanced 1 : Three phase independent
+BIT13- Reserved",,,,
+3,43074,,"U16","100W","EPM Export Power Limit",,"float",,"Internal EPM Backflow power limit set in GUI",,,,
 3,43075,,"U16",,"Reserved ",,"int",,"register mentioned in changelog but not documented		Remove 43075 (deleted?)",,,,
 3,43076,,"U16",,"Reserved ",,"int",,"register mentioned in changelog but not documented 		43076 AFCI ON/OFF",,,,
 3,43077,,"U16",,"Reserved ",,"int",,"register mentioned in changelog but not documented","TODO",,,
@@ -987,4 +998,8 @@ BIT03-BIT15:Reserved",,,,
 3,43298,,"U16",,"Reserved ",,"int",,,,,,
 3,43299,,"U16",,"Reserved ",,"int",,,,,,
 3,43300,,"U16",,"Reserved ",,"int",,,,,,
-3,43301,,"U16",,"Reserved ",,"int",,"register mentioned in changelog but not documented 		43301 self-check function ON/OFFBIT00 indicates fan self-check",,,,
+3,43301,,"U16",,"Reserved ",,"int",,"Implied from description of 43073",,,,
+3,43326,,"S16",,"External EPM power setting",,"int",,"Implied from description of 43073",,,,
+3,43327,,"S16",,"External EPM power setting phase A",,"int",,"Implied from description of 43073",,,,
+3,43328,,"S16",,"External EPM power setting phase B",,"int",,"Implied from description of 43073",,,,
+3,43329,,"S16",,"External EPM power setting phase C",,"int",,"Implied from description of 43073",,,,

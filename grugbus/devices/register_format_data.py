@@ -117,7 +117,7 @@ def run( regfile ):
                     if row["type"] in ("Bool","U16","S16"):
                         if row["length"] > 1:
                             pprint.pprint( row )
-                            input("Check addr_end?")
+                            input("This looks like an array register, confirm?")
 
                 print( row )
                 ut = row["usertype"].lower()
@@ -261,7 +261,8 @@ if __name__ == "__main__":
 
 
 # for regfile in "Eastron_SDM120", "Acrel_ACR10RH", "Eastron_SDM630", "Solis_S5_EH1P_6K_2020", "Acrel_ACR10R", "Acrel_1_Phase":
-    # run(regfile)
+for regfile in "Solis_S5_EH1P_6K_2020",:
+    run(regfile)
 
-run("EVSE_ABB_Terra")
+# run("EVSE_ABB_Terra")
 

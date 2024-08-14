@@ -16,9 +16,9 @@ from gmqtt import Client as MQTTClient
 import config
 from misc import *
 
-PLOT_LENGTH = 3600    # seconds
+PLOT_LENGTH = 3600*24    # seconds
 PLOT_LENGTH_MIN = 200    # seconds
-PLOT_LENGTH_MAX = 3600    # seconds
+PLOT_LENGTH_MAX = 3600*24    # seconds
 
 TIME_SHIFT_S = 3600*2
 TIME_SHIFT = np.timedelta64( TIME_SHIFT_S, 's' )

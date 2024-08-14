@@ -186,20 +186,17 @@ class MQTT():
             print( reg.key, reg.value )
         elif topic=="cmd/pv/read":
             addr = int(payload)
-            reg = mgr.solis1.regs_by_addr.get(addr)
-            if not reg:
+            s = mgr.solis1
+            reg = s.regs_by_addr.get(addr)
+            if reg:
+                await reg.read()
+                print( reg.key, reg.value )
+            else:
                 print("Unknown register", addr)
-            await reg.read()
-            print( reg.key, reg.value )
-        elif topic=="cmd/pv/offset":
-            v = int(payload)
-            print("power_offset", v)
-            mgr.solis1.fake_meter.power_offset = v
-        elif topic=="cmd/pv/elimit":
-            v = int(payload)
-            print("elimit", v)
-            mgr.solis1.fake_meter.power_elimit = v
-
+                m = s.modbus
+                async with m._async_mutex:
+                    r = await m.read_holding_registers( addr, 1, mgr.solis1.bus_address )
+                    print( addr, r.registers )
 
     def on_subscribe(self, client, mid, qos, properties):
         print('MQTT SUBSCRIBED')
@@ -297,13 +294,12 @@ class FakeSmartmeter( grugbus.LocalServer ):
         self.server_ctx = ModbusServerContext( slave_ctxs, single=False )
         super().__init__( slave_ctxs[1],   # dummy parameter, address is not actually used
               1, key, name, 
-            Acrel_1_Phase.MakeRegisters() ) # build our registers
             # Eastron_SDM120.MakeRegisters() ) # build our registers
+            Acrel_1_Phase.MakeRegisters() ) # build our registers
         self.last_request_time = time.time()    # for stats
         self.data_request_timestamp = 0
-        self.power_offset = 0
-        self.power_elimit = 2000
-        self.export_mode = 0
+        self.prev_power = 0
+        # self.integ = 0
 
     # This is called when the inverter sends a request to this server
     def _on_getValues( self, fc_as_hex, address, count, ctx ):
@@ -333,10 +329,24 @@ class FakeSmartmeter( grugbus.LocalServer ):
             # report tweaked value, it shifts a little bit to have a small amount of
             # export when we can afford it, to really keep power drawn from grid to zero
             # instead of "fluctuating around zero""
-            self.active_power           .value = meter.total_power_tweaked
+
+            if mgr.solis1.battery_dcdc_active:    
+                # battery DC/DC offline, inverter responds quickly
+                self.active_power           .value = meter.total_power_tweaked
+            else:                                 
+                # battery online, inverter responds slowly, tweak for better transient response
+                #   Looks like there is a bug in the inverter: when using Acrel_1Ph meter setting,
+                #   it seems to add two power samples, which doubles the open loop gain and causes
+                #   damped oscillations. So we correct for this.
+                self.active_power           .value = meter.total_power_tweaked * 0.5 + min(0, 0.5*(meter.total_power_tweaked+500))
+
+            self.prev_power = meter.total_power_tweaked
 
             # meter placement: load
             # self.active_power           .value = max(0, meter.total_power.value - mgr.solis1.local_meter.active_power.value)
+            # self.active_power           .value = int(self.prev) * 1000
+            # print( self.active_power           .value )
+            # self.prev = (self.prev+0.01) % 3.0
 
         except TypeError:   # if one of the registers was None because it wasn't read yet
             log.warning( "FakeSmartmeter cannot reply to client: real smartmeter missing fields" )
@@ -353,7 +363,6 @@ class FakeSmartmeter( grugbus.LocalServer ):
             mqtt.publish( "pv/solis1/fakemeter/", {
                 "lag": round( t-meter.data_timestamp, 2 ), # lag between getting data from the real meter and forwarding it to the inverter
                 self.active_power.key: self.active_power.format_value(), # log what we sent to the inverter
-                "offset": int(self.power_offset)
                 })
         return True
 
@@ -476,6 +485,10 @@ class MainSmartmeter( grugbus.SlaveDevice ):
                         read_fast_ctr = (read_fast_ctr+1) % len(read_fast_regs)
                         regs = await self.read_regs( read_fast_regs[read_fast_ctr] )
 
+                    except asyncio.exceptions.TimeoutError:
+                        # Nothing special to do: in case of error, read_regs() above already set self.is_online to False
+                        pub = {}
+                    else:
                         # offset measured power a little bit to ensure a small value of export
                         # even if the battery is not fully charged
                         self.total_power_tweaked = self.total_power.value
@@ -483,10 +496,6 @@ class MainSmartmeter( grugbus.SlaveDevice ):
                         soc = mgr.solis1.bms_battery_soc.value or 0     # battery soc, 0-100
                         if bp > 200:        self.total_power_tweaked += soc*bp*0.0001
 
-                    except asyncio.exceptions.TimeoutError:
-                        # Nothing special to do: in case of error, read_regs() above already set self.is_online to False
-                        pub = {}
-                    else:
                         self.data_timestamp = data_request_timestamp
                         pub = { reg.key: reg.format_value() for reg in regs_to_publish.intersection(regs) }      # publish what we just read
                     pub[ "is_online" ]    = int( self.is_online )   # set by read_regs(), True if it succeeded, False otherwise
@@ -551,7 +560,7 @@ class EVSE( grugbus.SlaveDevice ):
 
         # settings, DO NOT CHANGE as these are set in the ISO standard
         self.i_pause = 5.0          # current limit in pause mode
-        self.i_min   = 6.0          # minimum current limit for charge, can be set to below 6A if charge should pause when solar not available
+        self.i_start = 6.0          # minimum current limit for charge, can be set to below 6A if charge should pause when solar not available
         self.i_max   = 30.0         # maximum current limit
 
         # see comments in set_virtual_current_limit()
@@ -564,8 +573,9 @@ class EVSE( grugbus.SlaveDevice ):
         self.ensure_i   = 6         # guarantee this charge current
         self.ensure_Wh  = 0       # until this energy has been delivered
         self.p_threshold_start = 1400   # minimum excess power to start charging
-        self.p_export_target = 120
-        self.p_hysteresis = 100
+
+        self.p_dead_band_fast = 0.5 * 240
+        self.p_dead_band_slow = 0.5 * 240
 
     async def poll( self, p, fast ):
         try:
@@ -576,10 +586,10 @@ class EVSE( grugbus.SlaveDevice ):
             pub["rwr_current_limit"]     = self.rwr_current_limit.format_value()
             pub["charging_unpaused"]     = self.is_charging_unpaused()
             mqtt.publish( "pv/evse/", pub, add_heartbeat=True )
-            line = "%d %-6dW e=%6d s=%04x s=%04x v%6.03fA %6.03fA %6.03fA %6.03fA %6.03fW %6.03fWh %fs" % (fast, p, self.error_code.value, self.charge_state.value, self.socket_state.value, 
-                self.virtual_current_limit, self.rwr_current_limit.value, self.current_limit.value, self.current.value, 
-                self.active_power.value, self.energy.value, self.last_transaction_duration )
-            print( line )
+            # line = "%d %-6dW e=%6d s=%04x s=%04x v%6.03fA %6.03fA %6.03fA %6.03fA %6.03fW %6.03fWh %fs" % (fast, p, self.error_code.value, self.charge_state.value, self.socket_state.value, 
+            #     self.virtual_current_limit, self.rwr_current_limit.value, self.current_limit.value, self.current.value, 
+            #     self.active_power.value, self.energy.value, self.last_transaction_duration )
+            # print( line )
             return True
         except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
             return abort()
@@ -634,6 +644,7 @@ class EVSE( grugbus.SlaveDevice ):
             # would be incrementing the current limit too much and when charging starts, a big current spike.
             # - Or it is in the final charging/balancing stage, and we want that to finish cleanly no matter what excess PV is.
             # In both cases, we just do nothing.
+            self.command_interval.reset( 6 )
             return
 
         # Now charge with solar only
@@ -643,16 +654,21 @@ class EVSE( grugbus.SlaveDevice ):
         if not self.command_interval.expired(): 
             return
 
+        # TODO: if a large current step comes after a small adjustment, ignore the timeout
+        # basically add a load turn on/off detector
+
         # Finally... adjust current.
-        # Since the car imposes 0.5A steps, if we have a small excess that is lower than the power step
+        # Since the car imposes 1A steps, if we have a small excess that is lower than the power step
         # then don't bother.
         wait_time = 0
-        delta = excess-self.p_export_target
-        if abs(delta) > self.p_hysteresis:
-            if await self.adjust_virtual_current_limit( (delta) * 0.004 ):
-                if fast_route:
-                    wait_time = 6
-                else:
+        if fast_route:
+            if abs(excess) > self.p_dead_band_fast:
+                if await self.adjust_virtual_current_limit( excess * 0.004 ):
+                    wait_time = 6   # above returns true if current_limit register changed, so we must wait
+                                    # SAE J1772 specs: max charger response time to PWM change is 5s
+        else:
+            if abs(excess) > self.p_dead_band_slow:
+                if await self.adjust_virtual_current_limit( excess * 0.004 ):
                     wait_time = 10
 
         # Wait until the car has acted on the power change command to issue another
@@ -665,10 +681,10 @@ class EVSE( grugbus.SlaveDevice ):
 
 
     def is_charging_paused( self ):
-        return self.rwr_current_limit.value < self.i_min
+        return self.rwr_current_limit.value < self.i_start
 
     def is_charging_unpaused( self ):
-        return self.rwr_current_limit.value >= self.i_min
+        return self.rwr_current_limit.value >= self.i_start
 
     async def adjust_virtual_current_limit( self, increment ):
         return await self.set_virtual_current_limit( self.virtual_current_limit + increment )
@@ -687,13 +703,14 @@ class EVSE( grugbus.SlaveDevice ):
         # hysteresis comparator
         threshold = self.virtual_i_pause if self.is_charging_unpaused() else self.virtual_i_unpause
 
-        if value <= threshold:     current_limit = self.i_pause     # very low: pause charging
-        elif value <= self.i_min:  current_limit = self.i_min       # low but not too low: keep charging at min power
-        else:                      current_limit = value            # above 6A: send current limit unchanged
+        if value <= threshold:      current_limit = self.i_pause     # very low: pause charging
+        elif value <= self.i_start: current_limit = self.i_start     # low but not too low: keep charging at min power
+        else:                       current_limit = min( self.i_max, value ) # above 6A: send current limit unchanged
 
-        current_limit = round(current_limit*2.0) * 0.5
+        # avoid useless writes since the car rounds it
+        current_limit = round(current_limit)
 
-        # returns None if there was no change, the register itself if it was written
+        # returns True if the value changed
         return await self.rwr_current_limit.write_if_changed( current_limit )
 
 
@@ -749,14 +766,22 @@ class Router():
         # Battery charging current is limited to the product of:
         #   1) Full charging current (as requested by BMS depending on SOC)
         #   2) Scale factor below, from 0 to 1
-        self.battery_min_soc = 50               # Do not steal power from battery charging if SOC is below this
+        #   Note: when inverter is hot or soc>90%, battery charging is reduced to 85A and sometimes 
+        #   this does not show up in battery_max_charge_current, so adjust below parameters to avoid
+        #   wasting power
+        self.battery_min_soc = 85               # Do not steal power from battery charging if SOC is below this
         self.battery_min_soc_scale = 0.98
-        self.battery_max_soc = 75
-        self.battery_max_soc_scale = 0.9
+        self.battery_max_soc = 90
+        self.battery_max_soc_scale = 0.75
 
         # when the inverter is maxed out, we can't redirect battery charging power to the AC output
         # so special case above this output power
         self.solis1_max_output_power = 5700
+
+        # Export target: center export power on this value
+        # (multiply by battery SOC)
+        self.p_export_target_base       = 100
+        self.p_export_target_soc_factor = 1
 
         self.initialized = False
         self.timeout_export = Timeout( 4, expired=True )    # expires if we've been exporting for some time
@@ -792,10 +817,11 @@ class Router():
         # around zero but with spikes in import/export and we don't want that to trigger routing!
         # What we're interested in is excess production: (meter export) + (solar battery charging power)
         # this behaves correctly in all cases.
-        bp      = mgr.solis1.battery_power.value or 0       # Battery charging power. Positive if charging, negative if discharging.
+        bp  = mgr.solis1.battery_power.value or 0       # Battery charging power. Positive if charging, negative if discharging.
+        soc = mgr.solis1.bms_battery_soc.value or 0     # battery SOC, 0-100
 
         # correct battery power measurement offset when battery is fully charged
-        if not mgr.solis1.battery_max_charge_current.value and -200 < bp < 200:
+        if not mgr.solis1.battery_dcdc_active and -200 < bp < 200:
             bp = 0
 
         # Solis S5 EH1P has several different behaviors to which we should adapt for better routing.
@@ -839,7 +865,10 @@ class Router():
         #
         #   From the above, we distinguish two routing modes: fast and slow.
         #
-        fast_route = mgr.solis1.battery_max_charge_current.value == 0
+        fast_route = not mgr.solis1.battery_dcdc_active
+
+        # set desired average export power according to mode
+        meter_export -= self.p_export_target_base + self.p_export_target_soc_factor * soc
 
         # Note battery power should always be taken into account for routing, especially
         # if we want to keep it charging! Because some drift always occurs, so we may divert a little bit
@@ -861,7 +890,6 @@ class Router():
         bp_max  = (mgr.solis1.battery_max_charge_current.value or 0) * (mgr.solis1.battery_voltage.value or 0)
 
         # how much power do we allocate to charging the battery, according to SOC
-        soc = mgr.solis1.bms_battery_soc.value or 0     # battery SOC, 0-100
         bp_min = bp_max * interpolate( self.battery_min_soc, self.battery_min_soc_scale, self.battery_max_soc, self.battery_max_soc_scale, soc )
         steal_from_battery = bp_avg - bp_min
 
@@ -933,46 +961,46 @@ class Router():
 #       Fronius Primo Inverter, modbus over TCP
 #
 ########################################################################################
-class Fronius( grugbus.SlaveDevice ):
-    def __init__( self, ip, modbus_addr ):
-        super().__init__( AsyncModbusTcpClient( ip ), modbus_addr , "fronius", "Fronius", [ 
-            grugbus.registers.RegFloat( (3, 6, 16), 40095, 1, 'grid_port_power', 1, "W", 'float', None, 'Grid Port Power', '' ) 
-            ] )
+# class Fronius( grugbus.SlaveDevice ):
+#     def __init__( self, ip, modbus_addr ):
+#         super().__init__( AsyncModbusTcpClient( ip ), modbus_addr , "fronius", "Fronius", [ 
+#             grugbus.registers.RegFloat( (3, 6, 16), 40095, 1, 'grid_port_power', 1, "W", 'float', None, 'Grid Port Power', '' ) 
+#             ] )
 
-    async def read_coroutine( self ):
-        tick = Metronome( config.POLL_PERIOD_FRONIUS )
-        try:    # It powers down at night, which disconnects TCP. 
-                # pymodbus reconnects automatically, no need to put this in the while loop below
-                # otherwise it will leak sockets
-            await self.connect()
-        except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
-            return abort()
+#     async def read_coroutine( self ):
+#         tick = Metronome( config.POLL_PERIOD_FRONIUS )
+#         try:    # It powers down at night, which disconnects TCP. 
+#                 # pymodbus reconnects automatically, no need to put this in the while loop below
+#                 # otherwise it will leak sockets
+#             await self.connect()
+#         except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
+#             return abort()
 
-        while STILL_ALIVE:
-            try:
-                await tick.wait()
-                try:
-                    # t = time.time()
-                    await self.grid_port_power.read()
-                    # print("Fronius", time.time()-t, self.grid_port_power.value)
-                except (asyncio.exceptions.TimeoutError, pymodbus.exceptions.ConnectionException):
-                    self.grid_port_power.value = 0.
-                    pub = {}
-                    # await asyncio.sleep(5)
-                else:
-                    self.grid_port_power.value = -(self.grid_port_power.value or 0)
-                    pub = { 
-                        self.grid_port_power.key: self.grid_port_power.format_value(),
-                        }
-                pub["is_online"] = int( self.is_online )
-                mqtt.publish( "pv/fronius/", pub, add_heartbeat=True )
-            except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
-                return abort()
-            except:
-                s = traceback.format_exc()
-                log.error(s)
-                mqtt.mqtt.publish( "pv/exception", s )
-                await asyncio.sleep(0.5)
+#         while STILL_ALIVE:
+#             try:
+#                 await tick.wait()
+#                 try:
+#                     # t = time.time()
+#                     await self.grid_port_power.read()
+#                     # print("Fronius", time.time()-t, self.grid_port_power.value)
+#                 except (asyncio.exceptions.TimeoutError, pymodbus.exceptions.ConnectionException):
+#                     self.grid_port_power.value = 0.
+#                     pub = {}
+#                     # await asyncio.sleep(5)
+#                 else:
+#                     self.grid_port_power.value = -(self.grid_port_power.value or 0)
+#                     pub = { 
+#                         self.grid_port_power.key: self.grid_port_power.format_value(),
+#                         }
+#                 pub["is_online"] = int( self.is_online )
+#                 mqtt.publish( "pv/fronius/", pub, add_heartbeat=True )
+#             except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
+#                 return abort()
+#             except:
+#                 s = traceback.format_exc()
+#                 log.error(s)
+#                 mqtt.mqtt.publish( "pv/exception", s )
+#                 await asyncio.sleep(0.5)
 
 ########################################################################################
 #
@@ -988,6 +1016,8 @@ class Solis( grugbus.SlaveDevice ):
 
         self.local_meter = meter        # on AC grid port
         self.fake_meter  = fakemeter    # meter emulation on meter port
+
+        self.battery_dcdc_active = True # inverter reacts slower when battery works (charge or discharge), see comments in Router
 
         self.regs_to_read = (
             self.mppt1_voltage,              
@@ -1093,7 +1123,6 @@ class Solis( grugbus.SlaveDevice ):
             await self.connect()
             try:
                 lm_regs = await self.local_meter.read_regs( self.local_meter_regs_to_read )
-                timeout_counter = 0
             except asyncio.exceptions.TimeoutError:
                 lm_pub = {}
                 self.local_meter.active_power.value = None if timeout_counter<10 else 0 # if it times out, there is no measured power
@@ -1107,6 +1136,7 @@ class Solis( grugbus.SlaveDevice ):
                 await asyncio.sleep(0.5)
             else:
                 lm_pub = { reg.key: reg.format_value() for reg in lm_regs }
+                timeout_counter = 0
 
             lm_pub[ "is_online" ] = int(self.local_meter.is_online)
             mqtt.publish( "pv/%s/meter/"%self.key, lm_pub, add_heartbeat=True )
@@ -1115,11 +1145,13 @@ class Solis( grugbus.SlaveDevice ):
             if mgr.meter.is_online:
                 meter_pub = { "house_power" :  float(int(  (mgr.meter.total_power.value or 0)
                                                         - (self.local_meter.active_power.value or 0)
-                                                        - (mgr.fronius.grid_port_power.value or 0) )) }
+                                                        # - (mgr.fronius.grid_port_power.value or 0) 
+                                                        )) }
                 mqtt.publish( "pv/meter/", meter_pub )
             mqtt.publish( "pv/", {"total_pv_power": float(int(
                               (self.pv_power.value or 0) 
-                            - (mgr.fronius.grid_port_power.value or 0)))} )
+                            # - (mgr.fronius.grid_port_power.value or 0)
+                            ))} )
             await tick.wait()
 
     async def read_inverter_coroutine( self ):
@@ -1143,6 +1175,7 @@ class Solis( grugbus.SlaveDevice ):
                     self.battery_current.value     *= -1
                     self.bms_battery_current.value *= -1
                     self.battery_power.value       *= -1
+                self.battery_dcdc_active = self.battery_max_charge_current.value == 0
 
                 # positive means inverter is consuming power, negative means producing
                 # this line is commented out, we're using unit_value=-1 in the register definitions instead.
@@ -1309,7 +1342,7 @@ class SolisManager():
             fakemeter = FakeSmartmeter( config.COM_PORT_FAKE_METER1, "fake_meter_1", "Fake SDM120 for Inverter 1" )
         )
 
-        self.fronius = Fronius( '192.168.0.17', 1 )
+        # self.fronius = Fronius( '192.168.0.17', 1 )
 
     ########################################################################################
     #   Start async processes
@@ -1333,7 +1366,7 @@ class SolisManager():
 
         asyncio.create_task( self.solis1.fake_meter.start_server() )
         asyncio.create_task( abort_on_exit( self.meter.read_coroutine() ))
-        asyncio.create_task( abort_on_exit( self.fronius.read_coroutine() ))
+        # asyncio.create_task( abort_on_exit( self.fronius.read_coroutine() ))
         asyncio.create_task( abort_on_exit( self.solis1.read_inverter_coroutine() ))
         asyncio.create_task( abort_on_exit( self.solis1.read_meter_coroutine() ))
         asyncio.create_task( abort_on_exit( self.sysinfo_coroutine() ))
@@ -1355,7 +1388,8 @@ class SolisManager():
     ########################################################################################
 
     async def webresponse( self, request ):
-        p = (self.solis1.pv_power.value or 0) - (self.fronius.grid_port_power.value or 0)
+        p = (self.solis1.pv_power.value or 0) 
+            # - (self.fronius.grid_port_power.value or 0)
         p *= (self.solis1.bms_battery_soc.value or 0)*0.01
         p += min(0, -self.meter.total_power.value)    # if export
 
@@ -1430,7 +1464,7 @@ class SolisManager():
                     meter.total_power               ,
                     solis.pv_power,      
                     solis.battery_power,                      
-                    self.fronius.grid_port_power,
+                    # self.fronius.grid_port_power,
                     ms1.active_power,
                     # solis.house_load_power,                   
                     solis.backup_load_power,                  
