@@ -66,7 +66,7 @@ from gmqtt import Client as MQTTClient
 # Device wrappers and misc local libraries
 from misc import *
 import grugbus
-from grugbus.devices import Eastron_SDM120, Solis_S5_EH1P_6K_2020_Extras, Eastron_SDM630, Acrel_1_Phase, EVSE_ABB_Terra
+from grugbus.devices import Eastron_SDM120, Solis_S5_EH1P_6K_2020_Extras, Eastron_SDM630, Acrel_1_Phase, EVSE_ABB_Terra, Acrel_ACR10RD16TE4
 import config
 
 # pymodbus.pymodbus_apply_logging_config( logging.DEBUG )
@@ -182,8 +182,34 @@ class MQTT():
                 print("Unknown register", addr)
             await reg.read()
             print( reg.key, reg.value, "->", value )
+            self.mqtt.publish( "cmd/pv/write/"+reg.key, str(reg.value), qos=0 )
             await reg.write( value )
+            self.mqtt.publish( "cmd/pv/write/"+reg.key, str(value), qos=0 )
             print( reg.key, reg.value )
+        elif topic=="cmd/pv/writeonly":
+            addr,value = payload.split(b" ",1)
+            addr = int(addr)
+            value = int(value)
+            reg = mgr.solis1.regs_by_addr.get(addr)
+            if not reg:
+                print("Unknown register", addr)
+            print( reg.key, "->", value )
+            await reg.write( value )
+        elif topic=="cmd/pv/write2":
+            addr,value = payload.split(b" ",1)
+            addr = int(addr)
+            value = int(value)
+            reg = mgr.solis1.regs_by_addr.get(addr)
+            if not reg:
+                print("Unknown register", addr)
+            await reg.read()
+            print( reg.key, reg.value, "->", value )
+            await reg.write( value )
+            await asyncio.sleep(1)
+            await reg.write( value )
+            v = reg.value
+            await reg.read()
+            print( reg.key, v, reg.value )
         elif topic=="cmd/pv/read":
             addr = int(payload)
             s = mgr.solis1
@@ -244,6 +270,7 @@ mqtt = MQTT()
 class HookModbusSlaveContext(ModbusSlaveContext):
     def getValues(self, fc_as_hex, address, count=1):
         if self._on_getValues( fc_as_hex, address, count, self ):
+            # print("Meter read:", fc_as_hex, address, count, time.time() )
             return super().getValues( fc_as_hex, address, count )
 
 ###########################################################################################
@@ -277,7 +304,7 @@ class FakeSmartmeter( grugbus.LocalServer ):
         # Create slave context for our local server
         slave_ctxs = {}
         # Create datastore corresponding to registers available in Eastron SDM120 smartmeter
-        data_store = ModbusSequentialDataBlock( 0, [0]*350 )   
+        data_store = ModbusSequentialDataBlock( 0, [0]*750 )   
         slave_ctx = HookModbusSlaveContext(
             zero_mode = True,   # addresses start at zero
             di = ModbusSequentialDataBlock( 0, [0] ), # Discrete Inputs  (not used, so just one zero register)
@@ -295,11 +322,11 @@ class FakeSmartmeter( grugbus.LocalServer ):
         super().__init__( slave_ctxs[1],   # dummy parameter, address is not actually used
               1, key, name, 
             # Eastron_SDM120.MakeRegisters() ) # build our registers
-            Acrel_1_Phase.MakeRegisters() ) # build our registers
+            # Acrel_1_Phase.MakeRegisters() ) # build our registers
+            Acrel_ACR10RD16TE4.MakeRegisters() ) # build our registers
         self.last_request_time = time.time()    # for stats
         self.data_request_timestamp = 0
-        self.prev_power = 0
-        # self.integ = 0
+        self.prev = 0
 
     # This is called when the inverter sends a request to this server
     def _on_getValues( self, fc_as_hex, address, count, ctx ):
@@ -330,23 +357,25 @@ class FakeSmartmeter( grugbus.LocalServer ):
             # export when we can afford it, to really keep power drawn from grid to zero
             # instead of "fluctuating around zero""
 
-            if mgr.solis1.battery_dcdc_active:    
-                # battery DC/DC offline, inverter responds quickly
-                self.active_power           .value = meter.total_power_tweaked
-            else:                                 
-                # battery online, inverter responds slowly, tweak for better transient response
-                #   Looks like there is a bug in the inverter: when using Acrel_1Ph meter setting,
-                #   it seems to add two power samples, which doubles the open loop gain and causes
-                #   damped oscillations. So we correct for this.
-                self.active_power           .value = meter.total_power_tweaked * 0.5 + min(0, 0.5*(meter.total_power_tweaked+500))
+            # Acrel Three Phase
+            self.active_power           .value = meter.total_power_tweaked
 
-            self.prev_power = meter.total_power_tweaked
+            # Acrel 1 Phase
+            # if mgr.solis1.battery_dcdc_active:    
+            #     # battery DC/DC offline, inverter responds quickly
+            #     self.active_power           .value = meter.total_power_tweaked
+            # else:                                 
+            #     # battery online, inverter responds slowly, tweak for better transient response
+            #     #   Looks like there is a bug in the inverter: when using Acrel_1Ph meter setting,
+            #     #   it seems to add two power samples, which doubles the open loop gain and causes
+            #     #   damped oscillations. So we correct for this.
+            #     self.active_power           .value = meter.total_power_tweaked * 0.5 + min(0, 0.5*(meter.total_power_tweaked+500))
 
             # meter placement: load
             # self.active_power           .value = max(0, meter.total_power.value - mgr.solis1.local_meter.active_power.value)
-            # self.active_power           .value = int(self.prev) * 1000
+            # self.active_power           .value = int(self.prev) * 500
             # print( self.active_power           .value )
-            # self.prev = (self.prev+0.01) % 3.0
+            # self.prev = (self.prev+0.05) % 3.0
 
         except TypeError:   # if one of the registers was None because it wasn't read yet
             log.warning( "FakeSmartmeter cannot reply to client: real smartmeter missing fields" )
@@ -359,7 +388,7 @@ class FakeSmartmeter( grugbus.LocalServer ):
         # log.debug(s); 
         # mqtt.mqtt.publish("pv/query", s)
         self.last_request_time = t
-        if meter.data_timestamp:    # how fresh is this data?
+        if meter.data_timestamp and self.active_power.value != None:    # how fresh is this data?
             mqtt.publish( "pv/solis1/fakemeter/", {
                 "lag": round( t-meter.data_timestamp, 2 ), # lag between getting data from the real meter and forwarding it to the inverter
                 self.active_power.key: self.active_power.format_value(), # log what we sent to the inverter
@@ -1074,28 +1103,28 @@ class Solis( grugbus.SlaveDevice ):
 
             self.rwr_epm_export_power_limit,
 
-            # self.meter_ac_voltage_a                           ,
-            # self.meter_ac_current_a                           ,
-            # self.meter_ac_voltage_b                           ,
-            # self.meter_ac_current_b                           ,
-            # self.meter_ac_voltage_c                           ,
-            # self.meter_ac_current_c                           ,
-            # self.meter_active_power_a                         ,
-            # self.meter_active_power_b                         ,
-            # self.meter_active_power_c                         ,
-            # self.meter_total_active_power                     ,
-            # self.meter_reactive_power_a                       ,
-            # self.meter_reactive_power_b                       ,
-            # self.meter_reactive_power_c                       ,
-            # self.meter_total_reactive_power                   ,
-            # self.meter_apparent_power_a                       ,
-            # self.meter_apparent_power_b                       ,
-            # self.meter_apparent_power_c                       ,
-            # self.meter_total_apparent_power                   ,
-            # self.meter_power_factor                           ,
-            # self.meter_grid_frequency                         ,
-            # self.meter_total_active_energy_imported_from_grid ,
-            # self.meter_total_active_energy_exported_to_grid   ,
+            self.meter_ac_voltage_a                           ,
+            self.meter_ac_current_a                           ,
+            self.meter_ac_voltage_b                           ,
+            self.meter_ac_current_b                           ,
+            self.meter_ac_voltage_c                           ,
+            self.meter_ac_current_c                           ,
+            self.meter_active_power_a                         ,
+            self.meter_active_power_b                         ,
+            self.meter_active_power_c                         ,
+            self.meter_total_active_power                     ,
+            self.meter_reactive_power_a                       ,
+            self.meter_reactive_power_b                       ,
+            self.meter_reactive_power_c                       ,
+            self.meter_total_reactive_power                   ,
+            self.meter_apparent_power_a                       ,
+            self.meter_apparent_power_b                       ,
+            self.meter_apparent_power_c                       ,
+            self.meter_total_apparent_power                   ,
+            self.meter_power_factor                           ,
+            self.meter_grid_frequency                         ,
+            self.meter_total_active_energy_imported_from_grid ,
+            self.meter_total_active_energy_exported_to_grid   ,
         )
 
         lm = self.local_meter
@@ -1164,8 +1193,43 @@ class Solis( grugbus.SlaveDevice ):
         timeout_power_off = Timeout( 600 )
         timeout_blackout  = Timeout( 120, expired=True )
         power_reg = self.rwr_power_on_off
+
+        # try:
+        #     tk = Metronome( 1 )
+        #     plimit = 0
+        #     await self.rwr_remote_control_force_battery_discharge_power.write( 4500 )
+        #     await self.rwr_remote_control_force_battery_charge_discharge.write( 2 )
+
+        #     while STILL_ALIVE:
+        #         try:
+        #             plimit += min( mgr.meter.total_power_tweaked, 2500 )
+        #             plimit = min( 4000, max( 200, plimit ))
+        #             mqtt.mqtt.publish( "cmd/pv/write/rwr_battery_discharge_power_limit", str(plimit) )
+        #             await self.rwr_battery_discharge_power_limit.write( plimit )
+        #         except asyncio.exceptions.TimeoutError:
+        #             pass # This also covers register writes above, not just the first read, so do not move
+        #         except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
+        #             return abort()
+        #         except:
+        #             s = traceback.format_exc()
+        #             log.error(s)
+        #             mqtt.mqtt.publish( "pv/exception", s )
+        #             await asyncio.sleep(0.5)
+        #         await tk.wait()
+        # finally:
+        #         await self.rwr_remote_control_force_battery_discharge_power.write( 0 )
+        #         await self.rwr_remote_control_force_battery_charge_discharge.write( 0 )
+        #         await self.rwr_battery_discharge_power_limit.write( 0 )
+        # return
+
         while STILL_ALIVE:
             try:
+                # mqtt.mqtt.publish( "cmd/pv/write/rwr_battery_discharge_power_limit", str(v) )
+                # v = foo * 200 + 200
+                # mqtt.mqtt.publish( "cmd/pv/write/rwr_battery_discharge_power_limit", str(v) )
+                # await self.rwr_battery_discharge_power_limit.write( v )
+                # foo = (foo+1) % 5
+
                 regs = await self.read_regs( self.regs_to_read )
 
                 # multitasking: at this point the sign of battery current and power is wrong

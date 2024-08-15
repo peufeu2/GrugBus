@@ -120,10 +120,10 @@ Args:
             self.format_value_fstr = "%%.0%df" % max( self.decimals, 1 )
         else:
             if decimals not in (0,None):
-                raise ValueError( "user_type <%s> requires decimals=0 or None" % (user_type,))
+                raise ValueError( "%s: user_type <%s> requires decimals=0 or None" % (self.key,user_type,))
             self.decimals = None
             if self.unit_value not in (1,-1):
-                raise ValueError( "user_type <%s> requires unit_value=1 or -1 (integer)" % (user_type,))
+                raise ValueError( "%s: user_type <%s> requires unit_value=1 or -1 (integer)" % (self.key,user_type,))
             self.unit_value = int(self.unit_value)     # cast unit_value to int  to make sure self.value will always be an int
             self.format_value_fstr = "%d"
 

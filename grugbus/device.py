@@ -411,6 +411,7 @@ class LocalServer( DeviceBase ):
                     print(reg.key, reg.value)
                     raise
                 else:
+                    # self.modbus.setValues( reg.fcodes[0], reg.addr, [0] )
                     self.modbus.setValues( reg.fcodes[0], reg.addr, v )
 
 if __name__ == "__main__":

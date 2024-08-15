@@ -530,8 +530,8 @@ BIT07-BIT15: Reserved",,,,
 4,33294,,"U16 ",,"Reserved ",,"int",,"always zero",,,,
 4,33295,,"U16 ",,"Reserved ",,"int",,"always zero",,,,
 4,33296,,"U16 ",,"Reserved ",,"int",,"always zero",,,,
-4,33297,,"U16 ","1,00 %","Battery off grid DOD",,"float",,"10%-100%",,,,
-4,33298,,"U16 ","1,00 %","Battery EPS DOD ",,"float",,"10%-100%",,,,
+4,33297,,"U16 ","1,00 %","Off grid overdischarge SOC",,"float",,"10%-100%",,,,
+4,33298,,"U16 ","1,00 %","EPS overdischarge SOC",,"float",,"10%-100%",,,,
 4,33299,,"U16 ","10ms ","EPS Switching Time",,"float",,"1 <--> 10ms, 10~99990ms
 0 means EPS parameters invalid",,,,
 4,33300,,"U16 ",,"Meter1 Type and location",,"bitfield",,"High byte indicates location
@@ -589,14 +589,12 @@ Contains 1",,,,
 		43010&43011 ，Overdischarge/Overcharge SOC ratio as1:1. Accuracy 1%","TODO",,,
 3,43011,,"U16","1,00 %","Battery over discharge SOC",,"float",,"Storage menu > Battery > Overdischarge SOC
 Can be used to stop discharging","TODO",,,
-3,43012,,"U16","0,1A","Reserved ",,"float",,"register mentioned in changelog but not documented « user defined battery parameters »
+3,43012,,"U16","0,1A","Battery max charge current",,"float",,"register mentioned in changelog but not documented « user defined battery parameters »
 Modify 43012/43013 current limitationfrom 90A to 100A, default 50A to 62.5A
-So battery charge or discharge current
 Constantly overwritten with value from chosen battery type (user or BMS) so not usable
 Value is constant so it is not written by EPM ",,,,
-3,43013,,"U16","0,1A","Reserved ",,"float",,"register mentioned in changelog but not documented « user defined battery parameters »
+3,43013,,"U16","0,1A","Battery max discharge current",,"float",,"register mentioned in changelog but not documented « user defined battery parameters »
 Modify 43012/43013 current limitationfrom 90A to 100A, default 50A to 62.5A
-So battery charge or discharge current
 Constantly overwritten with value from chosen battery type (user or BMS) so not usable
 Value is constant so it is not written by EPM ",,,,
 3,43014,,"U16","0,1V","Reserved Battery user charge overvoltage protection",,"float",,"register mentioned in changelog but not documented « user defined battery parameters »
@@ -803,30 +801,49 @@ Maximum: 70A，Default: 70A, Accuracy: 1A",,,,
 3,43121,,"U16 ","0.1V ","Battery charge voltage setting",,"float",,"Default：56.4；Range：54-60",,,,
 3,43122,,"U16 ","0.1V ","Battery overvoltage protection setting",,"float",,"Default：59.5；Range：54-62",,,,
 3,43123,,"U16 ",,"Overload buck setting",,"int",,"0000H: not enabled，0001H: enabled, Default: not enabled",,,,
-3,43124,,"U16",,"Reserved ",,"int",,"register mentioned in changelog but not documented (maybe deleted)","TODO",,,
-3,43125,,"U16",,"Reserved ",,"int",,,,,,
-3,43126,,"U16",,"Reserved ",,"int",,,,,,
-3,43127,,"U16",,"Reserved ",,"int",,,,,,
-3,43128,,"U16",,"Reserved ",,"int",,,,,,
-3,43129,,"U16",,"Reserved ",,"int",,,,,,
-3,43130,,"U16",,"Reserved ",,"int",,,,,,
-3,43131,,"U16",,"Reserved ",,"int",,"Maybe battery max discharge current https://diysolarforum.com/threads/modbus-register-backflow-power-for-solis-hybrid-inverter.60195/post-755016",,,,
-3,43132,,"U16",,"Reserved ",,"int",,"register mentioned in changelog but not documented 		43132-43136 address for RemoteControl and Force Battery Charge function
-Solis Storage control switch value
+3,43124,,"U16","100W","Reserved Backflow power setting",,"float",,"Effective when 43073 BIT06 is 1 only for S6 3PH HV Hybrid","TODO",,,
+3,43125,,"U16","100W","Reserved Backflow power setting phase A",,"float",,"Effective when 43073 BIT06 is 1 only for S6 3PH HV Hybrid",,,,
+3,43126,,"U16","100W","Reserved Backflow power setting phase B",,"float",,"Effective when 43073 BIT06 is 1 only for S6 3PH HV Hybrid",,,,
+3,43127,,"U16","100W","Reserved Backflow power setting phase C",,"float",,"Effective when 43073 BIT06 is 1 only for S6 3PH HV Hybrid",,,,
+3,43128,,"U16","10W ","Remote Control Active Power on Grid Port",,"float",,"Positive Export, Negative Import",,,,
+3,43129,,"U16","10W ","Remote Control Force Battery Discharge Power",,"float",,"Available when 43135 is Force Discharge
+10W up to Device back-up output power ; default 0 
+Battery is charged using PV+Grid
+Limit registers take has priority over Force registers",,,,
+3,43130,,"U16","10W ","Battery Charge Power Limit",,"float",,"10W up to Device back-up output power ; default 0 invalid ; not saved in flash
+Limit registers take has priority over Force registers",,,,
+3,43131,,"U16","10W ","Battery Discharge Power Limit",,"float",,"10W up to Device back-up output power ; default 0 invalid ; not saved in flash
+Limit registers take has priority over Force registers
+https://diysolarforum.com/threads/modbus-register-backflow-power-for-solis-hybrid-inverter.60195/post-755016",,,,
+3,43132,,"U16",,"Remote Control Grid Adjustment",,"int",,"0=OFF
+1=ON with ‘system grid connection point’
+2=ON with ‘inverter AC grid port’
+Default 0. Resets to 0 after 5 min unless written.
+When set to ON, «Remote Control Force Battery Charge» will set to OFF
 https://community.openenergymonitor.org/t/getting-data-from-inverters-via-an-rs485-connection/8377/26",,,,
-3,43133,,"U16",,"Reserved ",,"int",,"register mentioned in changelog but not documented 		43132-43136 address for RemoteControl and Force Battery Charge function",,,,
-3,43134,,"U16",,"Reserved ",,"int",,"register mentioned in changelog but not documented 		43132-43136 address for RemoteControl and Force Battery Charge function",,,,
-3,43135,,"U16",,"Reserved ",,"int",,"register mentioned in changelog but not documented 		43132-43136 address for RemoteControl and Force Battery Charge function",,,,
-3,43136,,"U16",,"Reserved ",,"int",,"register mentioned in changelog but not documented 		43132-43136 address for RemoteControl and Force Battery Charge function",,,,
-3,43137,,"U16",,"Reserved ",,"int",,,,,,
-3,43138,,"U16",,"Reserved ",,"int",,"register mentioned in changelog but not documented 43138-43140 EPS DoD, EPS switchingtime, Meter type and location
-EPS DoD",,,,
-3,43139,,"U16",,"Reserved ",,"int",,"register mentioned in changelog but not documented 43138-43140 EPS DoD, EPS switchingtime, Meter type and location
-EPS switchingtime",,,,
-3,43140,,"U16",,"Meter1 Type and location",,"bitfield",,"register mentioned in changelog but not documented 43138-43140 EPS DoD, EPS switchingtime, Meter type and location
-Reverse engineered
-Meter type and location
-See 33300 Meter1 Type and location",,,,
+3,43133,,"U16","10W ","Remote Control Active Power on System Grid Connection Point",,"float",,"Positive Export, Negative Import, Available when Remote Control Grid Adjustment is ON – System Grid Connection Point",,,,
+3,43134,,"U16","10W ","Remote Control Reactive Power on System Grid Connection Point",,"float",,"Positive Export, Negative Import, Available when Remote Control Grid Adjustment is ON – System Grid Connection Point",,,,
+3,43135,,"U16",,"Remote Control Force Battery Charge Discharge",,"float",,"0=OFF, 1=Battery charge, 2=Battery discharge, default 0
+When set to ON, Remote Control Grid Adjustment will set to OFF",,,,
+3,43136,,"U16","10W ","Remote Control Force Battery Charge Power",,"float",,"Available when 43135 is Force Charge
+10W up to Device back-up output power ; default 0 
+Battery is discharged and power is exported
+Limit registers take has priority over Force registers",,,,
+3,43137,,"U16","1,00 %","Off grid overdischarge SOC",,"int",,,,,,
+3,43138,,"U16","1,00 %","EPS Overdischarge SOC",,"int",,,,,,
+3,43139,,"U16","0.010s ","EPS Switching Time",,"float",,"1 <--> 10ms, 10~99990ms
+0 means EPS parameters invalid",,,,
+3,43140,,"U16",,"Meter1 Type and location",,"bitfield",,"High byte indicates location
+0x0100 Grid
+0x0200 Load
+0x0300 Grid+PV (Two Meter)
+Low byte indicates meter type
+0x0001 General 1Ph
+0x0002 Acrel 3Ph
+0x0003 General 3Ph
+0x0004 Standard Eastron 1Ph
+0x0005 Standard Eastron 3Ph
+0x0006 No Meter Mode",,,,
 3,43141,,"U16 ","0.1A ","Timed charge current ",,"float",,"Maximum: 70A， Default: 50A, Accuracy: 0.1A","TODO",,,
 3,43142,,"U16 ","0.1A ","Timed discharge current",,"float",,"Maximum: 70A， Default: 50A, Accuracy: 0.1A","TODO",,,
 3,43143,,"U16 ","Hour","Timed charge start hour",,"int",,"Example https://community.home-assistant.io/t/solis-inverter-modbus-integration/292553/30
@@ -998,8 +1015,8 @@ BIT03-BIT15:Reserved",,,,
 3,43298,,"U16",,"Reserved ",,"int",,,,,,
 3,43299,,"U16",,"Reserved ",,"int",,,,,,
 3,43300,,"U16",,"Reserved ",,"int",,,,,,
-3,43301,,"U16",,"Reserved ",,"int",,"Implied from description of 43073",,,,
-3,43326,,"S16",,"External EPM power setting",,"int",,"Implied from description of 43073",,,,
-3,43327,,"S16",,"External EPM power setting phase A",,"int",,"Implied from description of 43073",,,,
-3,43328,,"S16",,"External EPM power setting phase B",,"int",,"Implied from description of 43073",,,,
-3,43329,,"S16",,"External EPM power setting phase C",,"int",,"Implied from description of 43073",,,,
+3,43301,,"U16",,"Reserved ",,"int",,,,,,
+3,43326,,"S16",,"Reserved External EPM power setting",,"int",,"Implied from description of 43073, probably absent from S5 EH1P since it’s not compatible with external EPM",,,,
+3,43327,,"S16",,"Reserved External EPM power setting phase A",,"int",,"Implied from description of 43073, probably absent from S5 EH1P since it’s not compatible with external EPM",,,,
+3,43328,,"S16",,"Reserved External EPM power setting phase B",,"int",,"Implied from description of 43073, probably absent from S5 EH1P since it’s not compatible with external EPM",,,,
+3,43329,,"S16",,"Reserved External EPM power setting phase C",,"int",,"Implied from description of 43073, probably absent from S5 EH1P since it’s not compatible with external EPM",,,,

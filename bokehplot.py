@@ -73,6 +73,10 @@ class DataStream( object ):
         else:       ts_cond = "ts > toDateTime64(%(tstart)s,1)"
         where = " WHERE topic=%(topic)s AND " + ts_cond + " "
 
+        # if self.topic=="pv/meter/total_power":
+        #     r = clickhouse.execute( "SELECT avg(value) FROM mqtt.mqtt_float"+where+" AND value>0", args, **kwargs )
+        #     print( r[0] )
+
         t=time.time()
         if lod >= 6000:
             r = clickhouse.execute( "SELECT toStartOfInterval(ts, INTERVAL %(lod)d SECOND) tsi, avg(favg) FROM mqtt.mqtt_100minute"+where+"GROUP BY tsi ORDER BY tsi", args, **kwargs )
@@ -90,7 +94,7 @@ class DataStream( object ):
             
         if r:
             x,y = r
-            print( "LOD: %s LEN %s %.01f ms %s" % (lod,len(x),(time.time()-t)*1000,self.topic))
+            # print( "LOD: %s LEN %s %.01f ms %s" % (lod,len(x),(time.time()-t)*1000,self.topic))
             y = np.array(y)*self.scale
             if "day" in self.mode:
                 y -= y[0]
@@ -110,10 +114,14 @@ PLOTS = { p[1]:DataStream( *p ) for p in (
     ( 0, "pv/meter/total_power"         , "Grid"       , "#FF0000"  , 1.0   , {} ),
     ( 0, "pv/solis1/meter/active_power" , "Solis"      , "cyan"     , 1.0   , {} ),
     ( 0, "pv/solis1/fakemeter/active_power" , "FakeMeter"      , "#FFFFFF"     , 1.0   , {} ),
-    ( 0, "pv/evse/rwr_current_limit"    , "EVSE ILim"   , "#FFFFFF"   , 230, {} ),
-    ( 0, "pv/evse/active_power"         , "EVSE"        , "#FF80FF"  , 1.0   , {} ),
-    ( 0, "pv/router/excess_avg"         , "Route excess", "#FF00FF"  , -1.0   , {} ),
+    # ( 0, "pv/evse/rwr_current_limit"    , "EVSE ILim"   , "#FFFFFF"   , 230, {} ),
+    # ( 0, "pv/evse/active_power"         , "EVSE"        , "#FF80FF"  , 1.0   , {} ),
+    # ( 0, "pv/router/excess_avg"         , "Route excess", "#FF00FF"  , -1.0   , {} ),
     # ( 0, "pv/router/excess_avg_nobat"   , "Route excess nobat", "#8000FF"  , -1.0   , {} ),
+    # ( 0, "pv/solis1/dc_bus_voltage"   , "dc_bus_voltage", "#8000FF"  , -10.0   , {} ),
+    # ( 0, "cmd/pv/write/rwr_battery_discharge_power_limit"   , "rwr_battery_discharge_power_limit", "#8000FF"  , 1.0   , {} ),
+
+
 
     # ( 1, "pv/solis1/bms_battery_current" , "Battery current" , "#FFC080"  ,1.0      , {} ),
     ( 1, "pv/solis1/bms_battery_soc"     , "Battery SOC"   , "green"    , 1.0, {} ),
@@ -323,7 +331,7 @@ class PVDashboard():
         tstart = trange[0] * 0.001
         tend   = trange[1] * 0.001
         lod_length=300 if self.lod_reduce else int(5000 * 10/(10+self.lod_slider_value))
-        print( tstart, tend, event, self.lod_reduce, lod_length )
+        # print( tstart, tend, event, self.lod_reduce, lod_length )
         miny=[]
         maxy = []
         for k,ph in self.plots.items():
@@ -342,13 +350,13 @@ class PVDashboard():
         self.tick.ticked()
 
     def event_lod_start( self, event ):
-        print( event )
+        # print( event )
         self.streaming  = False
         # self.lod_reduce = True
         self.redraw( event )
 
     def event_lod_end( self, event ):
-        print( event )
+        # print( event )
         self.lod_reduce = False
         self.redraw( event, True )
 
