@@ -319,11 +319,14 @@ class FakeSmartmeter( grugbus.LocalServer ):
         # Create Server context and assign previously created datastore to smartmeter_modbus_address, this means our 
         # local server will respond to requests to this address with the contents of this datastore
         self.server_ctx = ModbusServerContext( slave_ctxs, single=False )
+        # self.meter_type = Eastron_SDM120
+        # self.meter_type = Acrel_1_Phase
+        self.meter_type = Acrel_ACR10RD16TE4
+        self.meter_placement = "grid"
+        # self.meter_placement = "load"
         super().__init__( slave_ctxs[1],   # dummy parameter, address is not actually used
               1, key, name, 
-            # Eastron_SDM120.MakeRegisters() ) # build our registers
-            # Acrel_1_Phase.MakeRegisters() ) # build our registers
-            Acrel_ACR10RD16TE4.MakeRegisters() ) # build our registers
+            self.meter_type.MakeRegisters() ) # build our registers
         self.last_request_time = time.time()    # for stats
         self.data_request_timestamp = 0
         self.prev = 0
@@ -357,29 +360,31 @@ class FakeSmartmeter( grugbus.LocalServer ):
             # export when we can afford it, to really keep power drawn from grid to zero
             # instead of "fluctuating around zero""
 
-            # Acrel Three Phase
-            self.active_power           .value = meter.total_power_tweaked
-
-            # Acrel 1 Phase
-            # if mgr.solis1.battery_dcdc_active:    
-            #     # battery DC/DC offline, inverter responds quickly
-            #     self.active_power           .value = meter.total_power_tweaked
-            # else:                                 
-            #     # battery online, inverter responds slowly, tweak for better transient response
-            #     #   Looks like there is a bug in the inverter: when using Acrel_1Ph meter setting,
-            #     #   it seems to add two power samples, which doubles the open loop gain and causes
-            #     #   damped oscillations. So we correct for this.
-            #     self.active_power           .value = meter.total_power_tweaked * 0.5 + min(0, 0.5*(meter.total_power_tweaked+500))
-
-            # meter placement: load
-            # self.active_power           .value = max(0, meter.total_power.value - mgr.solis1.local_meter.active_power.value)
-            # self.active_power           .value = int(self.prev) * 500
-            # print( self.active_power           .value )
-            # self.prev = (self.prev+0.05) % 3.0
+            if self.meter_placement   == "grid":
+                if self.meter_type == Acrel_1_Phase:
+                    # Acrel 1 Phase
+                    if mgr.solis1.battery_dcdc_active:    
+                        # battery DC/DC offline, inverter responds quickly
+                        self.active_power           .value = meter.total_power_tweaked
+                    else:                                 
+                        # battery online, inverter responds slowly, tweak for better transient response
+                        #   Looks like there is a bug in the inverter: when using Acrel_1Ph meter setting,
+                        #   it seems to add two power samples, which doubles the open loop gain and causes
+                        #   damped oscillations. So we correct for this.
+                        self.active_power           .value = meter.total_power_tweaked * 0.5 + min(0, 0.5*(meter.total_power_tweaked+500))
+                else:
+                    # Acrel Three Phase
+                    self.active_power           .value = meter.total_power_tweaked
+            else:
+                # meter placement: load
+                self.active_power           .value = 500 # max(0, meter.total_power.value - mgr.solis1.local_meter.active_power.value)
+                # self.active_power           .value = int(self.prev) * 500
+                # print( self.active_power           .value )
+                # self.prev = (self.prev+0.05) % 3.0
 
         except TypeError:   # if one of the registers was None because it wasn't read yet
             log.warning( "FakeSmartmeter cannot reply to client: real smartmeter missing fields" )
-            return
+            # raise
 
         self.write_regs_to_context() # write data to modbus server context, so it can be served to inverter when it requests it.
 
@@ -585,7 +590,10 @@ class EVSE( grugbus.SlaveDevice ):
         #   Excess power also needs to settle before it can be used to calculate a new current_limit command.
         #   All this means it will be quite slow. Issue a command, ignore excess power during about 4 seconds, then smooth it for 3 seconds, get a new value, update.
         #   The length of the smoothing is in the deque in Router() class.
-        self.command_interval = Timeout( 10, expired=True )
+        self.command_interval       = Timeout( 10, expired=True )
+        self.command_interval_large = Timeout( 10, expired=True )
+        self.settle_timeout         = Timeout( 1, expired=True )
+        self.settle_timeout_wait    = False
 
         # settings, DO NOT CHANGE as these are set in the ISO standard
         self.i_pause = 5.0          # current limit in pause mode
@@ -615,10 +623,10 @@ class EVSE( grugbus.SlaveDevice ):
             pub["rwr_current_limit"]     = self.rwr_current_limit.format_value()
             pub["charging_unpaused"]     = self.is_charging_unpaused()
             mqtt.publish( "pv/evse/", pub, add_heartbeat=True )
-            # line = "%d %-6dW e=%6d s=%04x s=%04x v%6.03fA %6.03fA %6.03fA %6.03fA %6.03fW %6.03fWh %fs" % (fast, p, self.error_code.value, self.charge_state.value, self.socket_state.value, 
-            #     self.virtual_current_limit, self.rwr_current_limit.value, self.current_limit.value, self.current.value, 
-            #     self.active_power.value, self.energy.value, self.last_transaction_duration )
-            # print( line )
+            line = "%d %-6dW e=%6d s=%04x s=%04x v%6.03fA %6.03fA %6.03fA %6.03fA %6.03fW %6.03fWh %fs" % (fast, p, self.error_code.value, self.charge_state.value, self.socket_state.value, 
+                self.virtual_current_limit, self.rwr_current_limit.value, self.current_limit.value, self.current.value, 
+                self.active_power.value, self.energy.value, self.last_transaction_duration )
+            print( line )
             return True
         except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
             return abort()
@@ -674,13 +682,7 @@ class EVSE( grugbus.SlaveDevice ):
             # - Or it is in the final charging/balancing stage, and we want that to finish cleanly no matter what excess PV is.
             # In both cases, we just do nothing.
             self.command_interval.reset( 6 )
-            return
-
-        # Now charge with solar only
-        # EVSE is slow, the car takes 2 seconds to respond to commands, then the inverter needs to adjust,
-        # new value of excess power needs to stabilize, etc, before a new power setting can he issued.
-        # This means we have to wait long enough between commands.
-        if not self.command_interval.expired(): 
+            self.command_interval_large.reset( 6 )
             return
 
         # TODO: if a large current step comes after a small adjustment, ignore the timeout
@@ -690,19 +692,42 @@ class EVSE( grugbus.SlaveDevice ):
         # Since the car imposes 1A steps, if we have a small excess that is lower than the power step
         # then don't bother.
         wait_time = 0
+        delta = 0
         if fast_route:
             if abs(excess) > self.p_dead_band_fast:
-                if await self.adjust_virtual_current_limit( excess * 0.004 ):
-                    wait_time = 6   # above returns true if current_limit register changed, so we must wait
-                                    # SAE J1772 specs: max charger response time to PWM change is 5s
+                delta     = excess * 0.004
+                wait_time = 5   # SAE J1772 specs: max charger response time to PWM change is 5s
         else:
             if abs(excess) > self.p_dead_band_slow:
-                if await self.adjust_virtual_current_limit( excess * 0.004 ):
-                    wait_time = 10
+                delta     = excess * 0.004
+                wait_time = 9  # add some wait time due to slow inverter reaction
 
-        # Wait until the car has acted on the power change command to issue another
-        if wait_time:
-            self.command_interval.reset( wait_time )
+        # Now charge with solar only
+        # EVSE is slow, the car takes 2 seconds to respond to commands, then the inverter needs to adjust,
+        # new value of excess power needs to stabilize, etc, before a new power setting can he issued.
+        # This means we have to wait long enough between commands.
+        change = await self.adjust_virtual_current_limit( delta, dry_run=True )
+        # print( "delta", delta, "change", change, "")
+        if abs(change) <= 1:                   # small change in current
+            if self.command_interval.expired():
+                await self.adjust_virtual_current_limit( delta )
+                self.command_interval.reset( wait_time )
+                self.command_interval_large.reset( 2 )      # allow a large change quickly after a small one    
+        else:     # we need a quick large change
+            if self.command_interval_large.expired(): 
+                # ready to issue command
+                # todo: fine tune this, if the inverters receives the updated meter readings
+                # at the same time it may do the same thing as the router...
+                if not self.settle_timeout_wait:
+                    # large step: wait one extra second for it to settle
+                    self.settle_timeout_wait = True
+                    self.settle_timeout.reset(0.9)
+                else:
+                    if self.settle_timeout.expired():
+                        await self.adjust_virtual_current_limit( delta )
+                        self.command_interval.reset( wait_time )
+                        self.command_interval_large.reset( wait_time )
+                        self.settle_timeout_wait = False
 
         # inform main router that we have requested a power change to the car
         # so it should avoid routing other slow loads during this delay
@@ -715,8 +740,11 @@ class EVSE( grugbus.SlaveDevice ):
     def is_charging_unpaused( self ):
         return self.rwr_current_limit.value >= self.i_start
 
-    async def adjust_virtual_current_limit( self, increment ):
-        return await self.set_virtual_current_limit( self.virtual_current_limit + increment )
+    async def adjust_virtual_current_limit( self, increment, dry_run=False ):
+        if increment:
+            return await self.set_virtual_current_limit( self.virtual_current_limit + increment, dry_run )
+        else:
+            return 0
 
     # Adjusting current when charging takes a few seconds so we can do it often.
     # But pausing and restarting charge is slow (>30s) so we should not do it just because there was a spike in the
@@ -725,22 +753,27 @@ class EVSE( grugbus.SlaveDevice ):
     # So we use a virtual_current_limit that is adjusted according to excess power, then derive the real current limit from it:
     # when the virtual current limit is lower than 6A but not too low, we keep the real current limit at 6A so it keeps charging.
     # This avoids short pause/restart cycles;
-    async def set_virtual_current_limit( self, value ):
+    async def set_virtual_current_limit( self, v_limit, dry_run=False ):
         # clip it
-        self.virtual_current_limit = value = min( self.virtual_i_max, max( self.virtual_i_min, value ))
+        v_limit = min( self.virtual_i_max, max( self.virtual_i_min, v_limit ))
 
         # hysteresis comparator
         threshold = self.virtual_i_pause if self.is_charging_unpaused() else self.virtual_i_unpause
 
-        if value <= threshold:      current_limit = self.i_pause     # very low: pause charging
-        elif value <= self.i_start: current_limit = self.i_start     # low but not too low: keep charging at min power
-        else:                       current_limit = min( self.i_max, value ) # above 6A: send current limit unchanged
+        if v_limit <= threshold:      current_limit = self.i_pause     # very low: pause charging
+        elif v_limit <= self.i_start: current_limit = self.i_start     # low but not too low: keep charging at min power
+        else:                         current_limit = min( self.i_max, v_limit ) # above 6A: send current limit unchanged
 
         # avoid useless writes since the car rounds it
         current_limit = round(current_limit)
 
         # returns True if the value changed
-        return await self.rwr_current_limit.write_if_changed( current_limit )
+        delta = current_limit - self.rwr_current_limit.value
+        if not dry_run:
+            self.virtual_current_limit = v_limit
+            if delta:
+                await self.rwr_current_limit.write( current_limit )
+        return delta
 
 
 
@@ -924,7 +957,7 @@ class Router():
 
         # If the inverter's grid port is maxed out, we can't steal power from the battery 
         # so "steal_from_battery" will be too optimistic, correct for this:
-        steal_from_battery = min( steal_from_battery, self.solis1_max_output_power - solis1_output )
+        steal_from_battery = max( 0, min( steal_from_battery, self.solis1_max_output_power - solis1_output ))
 
         # We now have two excess power measurements
         #   export_avg                      does not include power that can be stolen from the battery
@@ -1103,28 +1136,28 @@ class Solis( grugbus.SlaveDevice ):
 
             self.rwr_epm_export_power_limit,
 
-            self.meter_ac_voltage_a                           ,
-            self.meter_ac_current_a                           ,
-            self.meter_ac_voltage_b                           ,
-            self.meter_ac_current_b                           ,
-            self.meter_ac_voltage_c                           ,
-            self.meter_ac_current_c                           ,
-            self.meter_active_power_a                         ,
-            self.meter_active_power_b                         ,
-            self.meter_active_power_c                         ,
+            # self.meter_ac_voltage_a                           ,
+            # self.meter_ac_current_a                           ,
+            # self.meter_ac_voltage_b                           ,
+            # self.meter_ac_current_b                           ,
+            # self.meter_ac_voltage_c                           ,
+            # self.meter_ac_current_c                           ,
+            # self.meter_active_power_a                         ,
+            # self.meter_active_power_b                         ,
+            # self.meter_active_power_c                         ,
             self.meter_total_active_power                     ,
-            self.meter_reactive_power_a                       ,
-            self.meter_reactive_power_b                       ,
-            self.meter_reactive_power_c                       ,
-            self.meter_total_reactive_power                   ,
-            self.meter_apparent_power_a                       ,
-            self.meter_apparent_power_b                       ,
-            self.meter_apparent_power_c                       ,
-            self.meter_total_apparent_power                   ,
-            self.meter_power_factor                           ,
-            self.meter_grid_frequency                         ,
-            self.meter_total_active_energy_imported_from_grid ,
-            self.meter_total_active_energy_exported_to_grid   ,
+            # self.meter_reactive_power_a                       ,
+            # self.meter_reactive_power_b                       ,
+            # self.meter_reactive_power_c                       ,
+            # self.meter_total_reactive_power                   ,
+            # self.meter_apparent_power_a                       ,
+            # self.meter_apparent_power_b                       ,
+            # self.meter_apparent_power_c                       ,
+            # self.meter_total_apparent_power                   ,
+            # self.meter_power_factor                           ,
+            # self.meter_grid_frequency                         ,
+            # self.meter_total_active_energy_imported_from_grid ,
+            # self.meter_total_active_energy_exported_to_grid   ,
         )
 
         lm = self.local_meter
@@ -1194,6 +1227,54 @@ class Solis( grugbus.SlaveDevice ):
         timeout_blackout  = Timeout( 120, expired=True )
         power_reg = self.rwr_power_on_off
 
+        if   self.fake_meter.meter_type == Acrel_1_Phase:      mt = 1
+        elif self.fake_meter.meter_type == Acrel_ACR10RD16TE4: mt = 2
+        elif self.fake_meter.meter_type == Eastron_SDM120:     mt = 4
+        mt |= {"grid":0x100, "load":0x200}[self.fake_meter.meter_placement]
+        await self.rwr_meter1_type_and_location.read()
+        await self.rwr_meter1_type_and_location.write_if_changed( mt )
+
+        # regs = [
+        #     self.rwr_remote_control_active_power_on_grid_port                      ,
+        #     self.rwr_remote_control_grid_adjustment                                ,
+        #     self.rwr_remote_control_active_power_on_system_grid_connection_point   ,
+        #     self.rwr_remote_control_reactive_power_on_system_grid_connection_point ]
+        # dump_regs = [self.rwr_energy_storage_mode, self.rwr_meter1_type_and_location, self.rwr_epm_settings] + regs
+
+        # try:
+        #     for meter in 0x106, mt:
+        #         for epm in 0x100, 0:
+        #             for storage_mode in 0x20, 0x21, 0x23:
+        #                 for grid_adjust in 2,1:
+        #                     self.rwr_remote_control_grid_adjustment                                .value = grid_adjust
+        #                     self.rwr_remote_control_active_power_on_system_grid_connection_point   .value = 3000
+        #                     self.rwr_remote_control_reactive_power_on_system_grid_connection_point .value = 100
+        #                     self.rwr_remote_control_active_power_on_grid_port                      .value = 4000
+        #                     await self.rwr_energy_storage_mode.write_if_changed( storage_mode )
+        #                     await self.rwr_epm_settings.write_if_changed( epm )
+        #                     await self.rwr_meter1_type_and_location.write_if_changed( meter )
+        #                     await asyncio.sleep(1)
+        #                     await self.write_regs( regs )
+        #                     print("Write")
+        #                     self.dump_regs( regs )
+        #                     await asyncio.sleep(1)
+        #                     print("Readback")
+        #                     await self.read_regs( regs )
+        #                     self.dump_regs( dump_regs )
+        #                     await asyncio.sleep(10)
+
+        # finally:
+        #     self.rwr_remote_control_grid_adjustment                                .value = 0
+        #     self.rwr_remote_control_active_power_on_system_grid_connection_point   .value = 0
+        #     self.rwr_remote_control_reactive_power_on_system_grid_connection_point .value = 0
+        #     self.rwr_remote_control_active_power_on_grid_port                      .value = 0
+        #     await self.write_regs( regs )
+        #     await self.rwr_epm_settings.write( 32 )
+        #     await self.rwr_energy_storage_mode.write( 0x23 )
+        #     await self.rwr_meter1_type_and_location.write_if_changed( mt )
+
+
+
         # try:
         #     tk = Metronome( 1 )
         #     plimit = 0
@@ -1233,13 +1314,12 @@ class Solis( grugbus.SlaveDevice ):
                 regs = await self.read_regs( self.regs_to_read )
 
                 # multitasking: at this point the sign of battery current and power is wrong
-
                 # Add polarity to battery parameters
                 if self.battery_current_direction.value:    # positive current/power means charging, negative means discharging
                     self.battery_current.value     *= -1
                     self.bms_battery_current.value *= -1
                     self.battery_power.value       *= -1
-                self.battery_dcdc_active = self.battery_max_charge_current.value == 0
+                self.battery_dcdc_active = self.battery_max_charge_current.value != 0
 
                 # positive means inverter is consuming power, negative means producing
                 # this line is commented out, we're using unit_value=-1 in the register definitions instead.

@@ -1,6 +1,6 @@
 "function","addr","addr_end","type","unit","name","name_for_id","usertype","decimals","description"
-,"This is a mix of reverse engineering and smartmeter datasheet.
-Scale factors were corrected so the Solis displays correct values.",,,,,,,,
+"This is a mix of reverse engineering and smartmeter datasheet.
+Scale factors were corrected so the Solis displays correct values.",,,,,,,,,
 ,,,,,,,,,
 4,243,,"U16","0,1V","Phase 1 line to neutral volts","Voltage","float",1,
 4,244,,"U16","0,1V","Phase 2 line to neutral volts",,"float",1,

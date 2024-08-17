@@ -115,13 +115,12 @@ PLOTS = { p[1]:DataStream( *p ) for p in (
     ( 0, "pv/solis1/meter/active_power" , "Solis"      , "cyan"     , 1.0   , {} ),
     ( 0, "pv/solis1/fakemeter/active_power" , "FakeMeter"      , "#FFFFFF"     , 1.0   , {} ),
     # ( 0, "pv/evse/rwr_current_limit"    , "EVSE ILim"   , "#FFFFFF"   , 230, {} ),
-    # ( 0, "pv/evse/active_power"         , "EVSE"        , "#FF80FF"  , 1.0   , {} ),
-    # ( 0, "pv/router/excess_avg"         , "Route excess", "#FF00FF"  , -1.0   , {} ),
+    ( 0, "pv/evse/active_power"         , "EVSE"        , "#FF80FF"  , 1.0   , {} ),
+    ( 0, "pv/router/excess_avg"         , "Route excess", "#FF00FF"  , -1.0   , {} ),
     # ( 0, "pv/router/excess_avg_nobat"   , "Route excess nobat", "#8000FF"  , -1.0   , {} ),
+    ( 0, "pv/solis1/meter_total_active_power"         , "SMAP"   , "orange"   , -1.0, {} ),
     # ( 0, "pv/solis1/dc_bus_voltage"   , "dc_bus_voltage", "#8000FF"  , -10.0   , {} ),
     # ( 0, "cmd/pv/write/rwr_battery_discharge_power_limit"   , "rwr_battery_discharge_power_limit", "#8000FF"  , 1.0   , {} ),
-
-
 
     # ( 1, "pv/solis1/bms_battery_current" , "Battery current" , "#FFC080"  ,1.0      , {} ),
     ( 1, "pv/solis1/bms_battery_soc"     , "Battery SOC"   , "green"    , 1.0, {} ),
@@ -131,7 +130,7 @@ PLOTS = { p[1]:DataStream( *p ) for p in (
     # ( 1, "pv/meter/phase_2_line_to_neutral_volts"         , "PH2V"   , "orange"   , 1.0, {} ),
     # ( 1, "pv/meter/phase_3_line_to_neutral_volts"         , "PH3V"   , "orange"   , 1.0, {} ),
 
-    # ( 1, "pv/evse/virtual_current_limit" , "EVSE ILim (virtual)" , "#FF00FF"   , 1.0, {} ),
+    ( 1, "pv/evse/virtual_current_limit" , "EVSE ILim (virtual)" , "#FF00FF"   , 1.0, {} ),
     # ( 1, "pv/evse/current"               , "EVSE I (real)"    , "#FFFFFF"   , 1.0, {} ),
     # ( 1, "pv/solis1/fakemeter/lag"               , "lag"    , "#FFFFFF"   , 1.0, {} ),
     

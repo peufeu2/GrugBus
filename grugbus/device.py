@@ -373,10 +373,15 @@ class SlaveDevice( DeviceBase ):
             self.last_transaction_duration = time.time()-start_time
 
     # for debugging
-    def dump_regs( self, all=False ):
+    def dump_all_regs( self, all=False ):
         for reg in self.registers:
             if all or reg.value != None and not reg.key.startswith("reserved"):
                 print( "%s %5s %40s %s %s" % (reg.fcodes[0], reg.addr, reg.key, reg.value, reg.unit or "") )
+
+    def dump_regs( self, regs ):
+        for reg in regs:
+            print( "%s %5s %40s %8s %2s (%04x)" % (reg.fcodes[0], reg.addr, reg.key, reg.format_value(), reg.unit or "", reg.raw_value) )
+
 
 
 class LocalServer( DeviceBase ):
