@@ -509,6 +509,7 @@ class MainSmartmeter( grugbus.SlaveDevice ):
                 ))
 
         tick = Metronome(config.POLL_PERIOD_METER)  # fires a tick on every period to read periodically, see misc.py
+        last_poll_time = None
         try:
             while STILL_ALIVE:  # set to false by abort()
                 try:
@@ -534,6 +535,9 @@ class MainSmartmeter( grugbus.SlaveDevice ):
                         pub = { reg.key: reg.format_value() for reg in regs_to_publish.intersection(regs) }      # publish what we just read
                     pub[ "is_online" ]    = int( self.is_online )   # set by read_regs(), True if it succeeded, False otherwise
                     pub[ "req_time" ]     = round( self.last_transaction_duration,2 )   # log modbus request time, round it for better compression
+                    if last_poll_time:
+                        pub["req_period"] = data_request_timestamp - last_poll_time
+                    last_poll_time = data_request_timestamp
                     mqtt.publish( "pv/meter/", pub, add_heartbeat=True )
                     await self.router.route()
                 except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
@@ -594,6 +598,7 @@ class EVSE( grugbus.SlaveDevice ):
         self.command_interval_large = Timeout( 10, expired=True )
         self.settle_timeout         = Timeout( 1, expired=True )
         self.settle_timeout_wait    = False
+        self.resend_current_limit_timeout = Timeout( 10, expired=True )
 
         # settings, DO NOT CHANGE as these are set in the ISO standard
         self.i_pause = 5.0          # current limit in pause mode
@@ -614,15 +619,18 @@ class EVSE( grugbus.SlaveDevice ):
         self.p_dead_band_fast = 0.5 * 240
         self.p_dead_band_slow = 0.5 * 240
 
+    def publish( self, all=True ):
+        if all: pub = { reg.key: reg.format_value() for reg in self.regs_to_read }
+        else:   pub = {}
+        pub["virtual_current_limit"] = "%.02f"%self.virtual_current_limit
+        pub["rwr_current_limit"]     = self.rwr_current_limit.format_value()
+        pub["charging_unpaused"]     = self.is_charging_unpaused()
+        mqtt.publish( "pv/evse/", pub )
+
     async def poll( self, p, fast ):
         try:
             await self.read_regs( self.regs_to_read )
-            pub = { reg.key: reg.format_value() for reg in self.regs_to_read }
-            pub["virtual_current_limit"] = "%.02f"%self.virtual_current_limit
-            # pub["fake_power"]            = int(p)
-            pub["rwr_current_limit"]     = self.rwr_current_limit.format_value()
-            pub["charging_unpaused"]     = self.is_charging_unpaused()
-            mqtt.publish( "pv/evse/", pub, add_heartbeat=True )
+            self.publish()
             line = "%d %-6dW e=%6d s=%04x s=%04x v%6.03fA %6.03fA %6.03fA %6.03fA %6.03fW %6.03fWh %fs" % (fast, p, self.error_code.value, self.charge_state.value, self.socket_state.value, 
                 self.virtual_current_limit, self.rwr_current_limit.value, self.current_limit.value, self.current.value, 
                 self.active_power.value, self.energy.value, self.last_transaction_duration )
@@ -771,8 +779,12 @@ class EVSE( grugbus.SlaveDevice ):
         delta = current_limit - self.rwr_current_limit.value
         if not dry_run:
             self.virtual_current_limit = v_limit
-            if delta:
-                await self.rwr_current_limit.write( current_limit )
+            if delta or self.resend_current_limit_timeout.expired():
+                self.resend_current_limit_timeout.reset()
+                self.rwr_current_limit.value = current_limit
+                self.publish( False )   # publish before writing to measure total reaction time (modbus+EVSE+car charger)
+                await self.rwr_current_limit.write( )
+                mqtt.publish( "pv/evse/", { "req_time": round( self.last_transaction_duration,2 ) } )
         return delta
 
 
@@ -820,8 +832,8 @@ class Router():
 
         # queues to smooth measured power, see comment on command_interval in EVSE class
         # "nobat" is for "excess power" and "bat" for "same including power we can steal from battery charging"
-        self.smooth_length_slow = 70
-        self.smooth_length_fast = 10
+        self.smooth_length_slow = 35
+        self.smooth_length_fast = 5
         self.smooth_export = [0] * self.smooth_length_slow
         self.smooth_bp     = [0] * self.smooth_length_slow
 
@@ -831,10 +843,10 @@ class Router():
         #   Note: when inverter is hot or soc>90%, battery charging is reduced to 85A and sometimes 
         #   this does not show up in battery_max_charge_current, so adjust below parameters to avoid
         #   wasting power
-        self.battery_min_soc = 85               # Do not steal power from battery charging if SOC is below this
+        self.battery_min_soc = 70               # Do not steal power from battery charging if SOC is below this
         self.battery_min_soc_scale = 0.98
-        self.battery_max_soc = 90
-        self.battery_max_soc_scale = 0.75
+        self.battery_max_soc = 80
+        self.battery_max_soc_scale = 0.40
 
         # when the inverter is maxed out, we can't redirect battery charging power to the AC output
         # so special case above this output power
@@ -946,18 +958,16 @@ class Router():
         # Smooth it, depending on the slow/fast mode
         smooth_len = - (self.smooth_length_fast if fast_route else self.smooth_length_slow)
         export_avg = average(self.smooth_export[smooth_len:])
-        bp_avg     = average(self.smooth_bp    [smooth_len:])
+        bp_avg     = average(self.smooth_bp[smooth_len:])
 
         # get maximum charging power the battery can take, as determined by inverter, according to BMS info
         bp_max  = (mgr.solis1.battery_max_charge_current.value or 0) * (mgr.solis1.battery_voltage.value or 0)
 
         # how much power do we allocate to charging the battery, according to SOC
         bp_min = bp_max * interpolate( self.battery_min_soc, self.battery_min_soc_scale, self.battery_max_soc, self.battery_max_soc_scale, soc )
-        steal_from_battery = bp_avg - bp_min
 
-        # If the inverter's grid port is maxed out, we can't steal power from the battery 
-        # so "steal_from_battery" will be too optimistic, correct for this:
-        steal_from_battery = max( 0, min( steal_from_battery, self.solis1_max_output_power - solis1_output ))
+        # If the inverter's grid port is maxed out, we can't steal power from the battery, correct for this:
+        steal_from_battery = min( bp_avg - bp_min, max( 0, self.solis1_max_output_power - solis1_output ))
 
         # We now have two excess power measurements
         #   export_avg                      does not include power that can be stolen from the battery

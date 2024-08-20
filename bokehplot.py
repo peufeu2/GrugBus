@@ -16,7 +16,7 @@ from gmqtt import Client as MQTTClient
 import config
 from misc import *
 
-PLOT_LENGTH = 3600    # seconds
+PLOT_LENGTH = 200    # seconds
 PLOT_LENGTH_MIN = 200    # seconds
 PLOT_LENGTH_MAX = 3600    # seconds
 TIME_SHIFT_S = 3600*2
@@ -35,7 +35,7 @@ def get_one( topic ):
         return [0,0]
 
 class DataStream( object ):
-    def __init__( self, pane, topic, label, color, scale, extra_plot_args={}, mode="" ):
+    def __init__( self, pane, topic, label, color, scale, extra_plot_args={}, mode="", minmaxavg="avg" ):
         self.pane = pane
         self.topic = topic
         self.label = label
@@ -43,10 +43,13 @@ class DataStream( object ):
         self.scale = scale
         self.extra_args = extra_plot_args
         self.mode = mode
+        if minmaxavg in ("avg","min","max"):
+            self.sel1 = "%s(f%s)" % (minmaxavg,minmaxavg)
+            self.sel2 = "%s(value)"%minmaxavg
         self.load()
 
     def load( self ):
-        x,y = self.get( time.time()-PLOT_LENGTH_MAX )
+        x,y = self.get( time.time()-PLOT_LENGTH )
         self.x = collections.deque( x )
         self.y = collections.deque( y )
         print( "Loaded %d for %s" % (len(self.x), self.topic))
@@ -63,9 +66,11 @@ class DataStream( object ):
 
         # dynamic level of detail
         lod = int(round( span/lod_length ) or 1)
-        tstart -= TIME_SHIFT_S
+        overscan = 60
+        tstart -= TIME_SHIFT_S + overscan
         if tend:
-            tend -= TIME_SHIFT_S
+            tend -= TIME_SHIFT_S - overscan
+
 
         args   = { "topic":self.topic, "tstart":tstart, "tend":tend, "lod":lod, "lodm":lod//60 }
         kwargs = { "columnar":True, "settings":{"use_numpy":True} }            
@@ -79,13 +84,13 @@ class DataStream( object ):
 
         t=time.time()
         if lod >= 6000:
-            r = clickhouse.execute( "SELECT toStartOfInterval(ts, INTERVAL %(lod)d SECOND) tsi, avg(favg) FROM mqtt.mqtt_100minute"+where+"GROUP BY tsi ORDER BY tsi", args, **kwargs )
+            r = clickhouse.execute( "SELECT toStartOfInterval(ts, INTERVAL %(lod)d SECOND) tsi, "+self.sel1+" FROM mqtt.mqtt_100minute"+where+"GROUP BY tsi ORDER BY tsi", args, **kwargs )
         elif lod >= 600:
-            r = clickhouse.execute( "SELECT toStartOfInterval(ts, INTERVAL %(lod)d SECOND) tsi, avg(favg) FROM mqtt.mqtt_10minute"+where+"GROUP BY tsi ORDER BY tsi", args, **kwargs )
+            r = clickhouse.execute( "SELECT toStartOfInterval(ts, INTERVAL %(lod)d SECOND) tsi, "+self.sel1+" FROM mqtt.mqtt_10minute"+where+"GROUP BY tsi ORDER BY tsi", args, **kwargs )
         elif lod >= 60:
-            r = clickhouse.execute( "SELECT toStartOfInterval(ts, INTERVAL %(lod)d SECOND) tsi, avg(favg) FROM mqtt.mqtt_minute"+where+"GROUP BY tsi ORDER BY tsi", args, **kwargs )
+            r = clickhouse.execute( "SELECT toStartOfInterval(ts, INTERVAL %(lod)d SECOND) tsi, "+self.sel1+" FROM mqtt.mqtt_minute"+where+"GROUP BY tsi ORDER BY tsi", args, **kwargs )
         elif lod > 1:
-            r = clickhouse.execute( "SELECT toStartOfInterval(ts, INTERVAL %(lod)d SECOND) tsi, avg(value) FROM mqtt.mqtt_float"+where+"GROUP BY tsi ORDER BY tsi", args, **kwargs )
+            r = clickhouse.execute( "SELECT toStartOfInterval(ts, INTERVAL %(lod)d SECOND) tsi, "+self.sel2+" FROM mqtt.mqtt_float"+where+"GROUP BY tsi ORDER BY tsi", args, **kwargs )
         else:
             r = clickhouse.execute( "SELECT ts,value FROM mqtt.mqtt_float"+where+"ORDER BY topic,ts", args, **kwargs )
 
@@ -94,6 +99,12 @@ class DataStream( object ):
             
         if r:
             x,y = r
+            if len(x) < 100:    # improve visibility of steps
+                dt = np.timedelta64( 1, 'ms' )
+                x=np.repeat(x,2)
+                y=np.repeat(y,2)
+                x[1:-1:2] = x[2::2] - dt
+
             # print( "LOD: %s LEN %s %.01f ms %s" % (lod,len(x),(time.time()-t)*1000,self.topic))
             y = np.array(y)*self.scale
             if "day" in self.mode:
@@ -108,38 +119,46 @@ class PlotHolder():
 
 PLOTS = { p[1]:DataStream( *p ) for p in (
     # ( 0, "pv/fronius/grid_port_power"   , "Fronius PV" , "#008000"  , -4.5  , {} ),
-    ( 0, "pv/total_pv_power"            , "Total PV"   , "#00FF00"  , 1.0   , {} ),
-    ( 0, "pv/meter/house_power"         , "House"      , "#8080FF"  , 1.0   , {} ),
-    ( 0, "pv/solis1/bms_battery_power"  , "Battery"    , "#FFC080"  , 1.0   , {} ),
-    ( 0, "pv/meter/total_power"         , "Grid"       , "#FF0000"  , 1.0   , {} ),
-    ( 0, "pv/solis1/meter/active_power" , "Solis"      , "cyan"     , 1.0   , {} ),
-    ( 0, "pv/solis1/fakemeter/active_power" , "FakeMeter"      , "#FFFFFF"     , 1.0   , {} ),
-    # ( 0, "pv/evse/rwr_current_limit"    , "EVSE ILim"   , "#FFFFFF"   , 230, {} ),
-    ( 0, "pv/evse/active_power"         , "EVSE"        , "#FF80FF"  , 1.0   , {} ),
-    ( 0, "pv/router/excess_avg"         , "Route excess", "#FF00FF"  , -1.0   , {} ),
+    ( 0, "pv/total_pv_power"                , "Total PV"   , "#00FF00"  , 1.0   , {} ),
+    ( 0, "pv/meter/house_power"             , "House"      , "#8080FF"  , 1.0   , {} ),
+    ( 0, "pv/solis1/battery_power"          , "Battery"    , "#FFC080"  , 1.0   , {} ),
+    ( 0, "pv/meter/total_power"             , "Grid"       , "#FF0000"  , 1.0   , {} ),
+    ( 0, "pv/solis1/meter/active_power"     , "Inverter"      , "cyan"     , 1.0   , {} ),
+    # ( 0, "pv/solis1/fakemeter/active_power" , "FakeMeter"      , "#FFFFFF"     , 1.0   , {"visible":False} ),
+    ( 0, "pv/evse/rwr_current_limit"        , "EVSE ILim"   , "#FFFFFF"   , 230 , {"visible":False} ),
+    # ( 0, "pv/evse/current"                  , "EVSE I (real)"    , "#808080"   , 230, {"visible":False} ),
+    # ( 0, "pv/evse/active_power"             , "EVSE"        , "#FF80FF"  , 1.0   , {} ),
+    ( 0, "pv/router/excess_avg"             , "Route excess", "#FF00FF"  , -1.0   , {} ),
     # ( 0, "pv/router/excess_avg_nobat"   , "Route excess nobat", "#8000FF"  , -1.0   , {} ),
-    ( 0, "pv/solis1/meter_total_active_power"         , "SMAP"   , "orange"   , -1.0, {} ),
+    # ( 0, "pv/solis1/meter_total_active_power"         , "SMAP"   , "#000080"   , -1.0, {"visible":False} ),
+
     # ( 0, "pv/solis1/dc_bus_voltage"   , "dc_bus_voltage", "#8000FF"  , -10.0   , {} ),
     # ( 0, "cmd/pv/write/rwr_battery_discharge_power_limit"   , "rwr_battery_discharge_power_limit", "#8000FF"  , 1.0   , {} ),
-
-    # ( 1, "pv/solis1/bms_battery_current" , "Battery current" , "#FFC080"  ,1.0      , {} ),
-    ( 1, "pv/solis1/bms_battery_soc"     , "Battery SOC"   , "green"    , 1.0, {} ),
-    ( 1, "pv/solis1/temperature"         , "Temperature"   , "orange"   , 1.0, {} ),
 
     # ( 1, "pv/meter/phase_1_line_to_neutral_volts"         , "PH1V"   , "orange"   , 1.0, {} ),
     # ( 1, "pv/meter/phase_2_line_to_neutral_volts"         , "PH2V"   , "orange"   , 1.0, {} ),
     # ( 1, "pv/meter/phase_3_line_to_neutral_volts"         , "PH3V"   , "orange"   , 1.0, {} ),
 
-    ( 1, "pv/evse/virtual_current_limit" , "EVSE ILim (virtual)" , "#FF00FF"   , 1.0, {} ),
-    # ( 1, "pv/evse/current"               , "EVSE I (real)"    , "#FFFFFF"   , 1.0, {} ),
-    # ( 1, "pv/solis1/fakemeter/lag"               , "lag"    , "#FFFFFF"   , 1.0, {} ),
-    
-    ( 1, "pv/solis1/battery_current"     , "Bat current"    , "#008080"   , 1.0, {} ),
-    ( 1, "pv/solis1/battery_max_charge_current"     , "Bat max current"    , "#0080FF"   , 1.0, {} ),
+
+    # ( 1, "pv/solis1/bms_battery_current" , "Battery current" , "#FFC080"  ,1.0  , {"visible":False} ),
+    ( 1, "pv/solis1/bms_battery_soc"     , "Battery SOC"   , "green"    , 1.0   , {"visible":False} ),
+    ( 1, "pv/solis1/temperature"         , "Temperature"   , "orange"   , 1.0   , {"visible":False} ),
+    ( 1, "pv/evse/virtual_current_limit" , "EVSE ILim (virtual)" , "#FF00FF"   , 1.0, {"visible":False} ),
+    # ( 1, "pv/evse/current"               , "EVSE I (real)"    , "#FFFFFF"   , 1.0, {"visible":False} ),
+    # ( 1, "pv/solis1/battery_current"     , "Bat current"    , "#008080"   , 1.0, {"visible":False} ),
+    ( 1, "pv/solis1/battery_max_charge_current"     , "Bat max current"    , "#0080FF"   , 1.0, {"visible":False} ),
+
+    ( 1, "pv/meter/req_time"               , "meter req_time"    , "#FFFFFF"   , 1.0, {}, "", "max" ),
+    ( 1, "pv/evse/req_time"                , "EVSE req_time"     , "#FFFF00"   , 1.0, {}, "", "max" ),
+    # ( 1, "pv/meter/req_period"               , "req_period"    , "#FFFF00"   , 1.0, {}, "", "max" ),
+    # ( 1, "pv/solis1/fakemeter/lag"               , "lag"    , "#FF00FF"   , 1.0, {} ),
+
 
     # ( 1, "pv/solis1/dc_bus_voltage"      , "DC Bus"        , "cyan"     , 1.0, {} ),
     # ( 1, "pv/solis1/mppt1_voltage"       , "mppt1_voltage" , "#FFFF00"  , 1.0, {} ),
     # ( 1, "pv/solis1/mppt2_voltage"       , "mppt2_voltage" , "#FFFFFF"  , 1.0, {} ),
+    # ( 1, "pv/solis1/mppt1_current"       , "mppt1_current" , "#FFFF00"  , 1.0, {} ),
+    # ( 1, "pv/solis1/mppt2_current"       , "mppt2_current" , "#FFFFFF"  , 1.0, {} ),
     # ( 1, "pv/solis1/bms_battery_charge_current_limit"      , "BMS max charge Amps"    , "blue"  ,1.0      , {} ),
     # ( 1, "pv/solis1/bms_battery_discharge_current_limit"   , "BMS max discharge Amps" , "red"  ,1.0      , {} ),
 
@@ -227,6 +246,9 @@ class PVDashboard():
 
             # self.figs[1].extra_y_ranges = {"temp": bokeh.models.Range1d(start=50, end=70)}
             # self.figs[1].add_layout(bokeh.models.LinearAxis(y_range_name="temp"), 'right')
+
+        for fig in self.figs.values():
+            fig.xaxis.ticker.desired_num_ticks = 20
 
         self.range_slider = Slider(start=PLOT_LENGTH_MIN, end=PLOT_LENGTH_MAX, value=PLOT_LENGTH, step=100, title="Range")
         self.range_slider.on_change("value", self.range_slider_on_change)
@@ -331,21 +353,23 @@ class PVDashboard():
         tend   = trange[1] * 0.001
         lod_length=300 if self.lod_reduce else int(5000 * 10/(10+self.lod_slider_value))
         # print( tstart, tend, event, self.lod_reduce, lod_length )
-        miny=[]
-        maxy = []
-        for k,ph in self.plots.items():
-            ds = ph.plot.data_source
-            x,y = ph.stream.get( tstart, tend, lod_length=lod_length )
-            if len(y):
-                miny.append(y.min())
-                maxy.append(y.max())
-            ds.data = {"x":x, "y":y }
-            ds.trigger('data', ds.data, ds.data )
-        if miny:
-            # for fig in self.figs.values():
-            fig = self.figs[0]
-            # fig.y_range.start = max(-6500,min(miny))
-            # fig.y_range.end   = min(12000,max(maxy))
+
+        for fig_k, fig in self.figs.items():
+            miny = []
+            maxy = []
+            for k,ph in self.plots.items():
+                if ph.plot.visible and ph.stream.pane == fig_k:
+                    ds = ph.plot.data_source
+                    x,y = ph.stream.get( tstart, tend, lod_length=lod_length )
+                    if len(y):
+                        miny.append(y.min())
+                        maxy.append(y.max())
+                    ds.data = {"x":x, "y":y }
+                    ds.trigger('data', ds.data, ds.data )
+            if miny:
+                # for fig in self.figs.values():
+                fig.y_range.start = min(miny)
+                fig.y_range.end   = max(maxy)
         self.tick.ticked()
 
     def event_lod_start( self, event ):
