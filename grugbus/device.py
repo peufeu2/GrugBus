@@ -207,6 +207,7 @@ class SlaveDevice( DeviceBase ):
                 if remain:
                     result.append(( fcode, remain ))            # process last record
 
+        # print( self.key, [(chunk[0][0], chunk[-1][1]) for fcode, chunk in result] )
         return result
 
     async def read_regs( self, read_list, retries=None ):
@@ -229,7 +230,7 @@ class SlaveDevice( DeviceBase ):
         """
         retries = retries or self.default_retries
         try:
-            start_time = time.time()
+            start_time = time.monotonic()
             result = []
             update_list = []
             for fcode, chunk in self.reg_list_to_chunks( read_list, None ):
@@ -275,7 +276,7 @@ class SlaveDevice( DeviceBase ):
             self.is_online = False
             raise
         finally:
-            self.last_transaction_duration = time.time()-start_time
+            self.last_transaction_duration = time.monotonic()-start_time
 
 
     async def write_regs( self, write_list, retries=None ):
@@ -307,7 +308,7 @@ class SlaveDevice( DeviceBase ):
         retries = retries or self.default_retries
         try:
             update_list = []
-            start_time = time.time()
+            start_time = time.monotonic()
             for fcode, chunk in self.reg_list_to_chunks( write_list, 0 ):
                 # check address span of this write operation and build data buffer
                 start_addr = chunk[0][0]
@@ -370,7 +371,7 @@ class SlaveDevice( DeviceBase ):
             self.is_online = False
             raise
         finally:
-            self.last_transaction_duration = time.time()-start_time
+            self.last_transaction_duration = time.monotonic()-start_time
 
     # for debugging
     def dump_all_regs( self, all=False ):

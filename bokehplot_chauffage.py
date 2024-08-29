@@ -222,7 +222,7 @@ class PVDashboard():
             # fig.x_range.follow="end"
             # fig.x_range.follow_interval = np.timedelta64( PLOT_LENGTH, 's' )
             # fig.x_range.range_padding=0
-            fig.legend.location = "top_left"
+            fig.legend.location = "top_right"
             fig.legend.click_policy="hide"
 
             fig.on_event( bokeh.events.Reset,        self.event_reset )

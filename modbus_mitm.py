@@ -232,7 +232,7 @@ class MQTT():
             log.error( "Trying to publish %s on unconnected MQTT" % prefix )
             return
 
-        t = time.time()
+        t = time.monotonic()
         to_publish = {}
         if add_heartbeat:
             data["heartbeat"] = int(t) # do not publish more than 1 heartbeat per second
@@ -327,7 +327,7 @@ class FakeSmartmeter( grugbus.LocalServer ):
         super().__init__( slave_ctxs[1],   # dummy parameter, address is not actually used
               1, key, name, 
             self.meter_type.MakeRegisters() ) # build our registers
-        self.last_request_time = time.time()    # for stats
+        self.last_request_time = time.monotonic()    # for stats
         self.data_request_timestamp = 0
         self.prev = 0
 
@@ -388,7 +388,7 @@ class FakeSmartmeter( grugbus.LocalServer ):
 
         self.write_regs_to_context() # write data to modbus server context, so it can be served to inverter when it requests it.
 
-        t = time.time()
+        t = time.monotonic()
         # s = "query _on_getValues fc %3d addr %5d count %3d dt %f" % (fc_as_hex, address, count, t-self.last_request_time)
         # log.debug(s); 
         # mqtt.mqtt.publish("pv/query", s)
@@ -454,13 +454,9 @@ class MainSmartmeter( grugbus.SlaveDevice ):
             self.phase_1_line_to_neutral_volts    ,    # required for fakemeter
             self.phase_2_line_to_neutral_volts    ,
             self.phase_3_line_to_neutral_volts    ,
-        ),(
-            self.total_power                      ,    # required for fakemeter
             self.phase_1_current                  ,    # required for fakemeter
             self.phase_2_current                  ,
             self.phase_3_current                  ,
-        ),(
-            self.total_power                      ,    # required for fakemeter
             self.phase_1_power                    ,
             self.phase_2_power                    ,
             self.phase_3_power                    ,
@@ -471,8 +467,6 @@ class MainSmartmeter( grugbus.SlaveDevice ):
             self.total_power_factor               ,    # required for fakemeter
             self.total_phase_angle                ,    # required for fakemeter
             self.frequency                        ,    # required for fakemeter
-        ),(
-            self.total_power                      ,    # required for fakemeter
             self.total_import_kwh                 ,    # required for fakemeter
             self.total_export_kwh                 ,    # required for fakemeter
             self.total_import_kvarh               ,    # required for fakemeter
@@ -481,6 +475,8 @@ class MainSmartmeter( grugbus.SlaveDevice ):
             self.total_power                      ,    # required for fakemeter
             self.total_kwh                        ,    # required for fakemeter
             self.total_kvarh                      ,    # required for fakemeter
+        ),(
+            self.total_power                      ,    # required for fakemeter
             self.average_line_to_neutral_volts_thd,
             self.average_line_current_thd         ,
         ))
@@ -515,7 +511,7 @@ class MainSmartmeter( grugbus.SlaveDevice ):
                 try:
                     await self.connect()
 
-                    data_request_timestamp = time.time()    # measure lag between modbus request and data delivered to fake smartmeter
+                    data_request_timestamp = time.monotonic()    # measure lag between modbus request and data delivered to fake smartmeter
                     try:
                         read_fast_ctr = (read_fast_ctr+1) % len(read_fast_regs)
                         regs = await self.read_regs( read_fast_regs[read_fast_ctr] )
@@ -538,7 +534,7 @@ class MainSmartmeter( grugbus.SlaveDevice ):
                     if last_poll_time:
                         pub["req_period"] = data_request_timestamp - last_poll_time
                     last_poll_time = data_request_timestamp
-                    mqtt.publish( "pv/meter/", pub, add_heartbeat=True )
+                    mqtt.publish( "pv/meter/", pub )
                     await self.router.route()
                 except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
                     return abort()
@@ -620,8 +616,11 @@ class EVSE( grugbus.SlaveDevice ):
         self.p_dead_band_slow = 0.5 * 240
 
     def publish( self, all=True ):
-        if all: pub = { reg.key: reg.format_value() for reg in self.regs_to_read }
-        else:   pub = {}
+        if all: 
+            pub = { reg.key: reg.format_value() for reg in self.regs_to_read }
+            pub["req_time"] = round( self.last_transaction_duration,2 )
+        else:
+           pub = {}
         pub["virtual_current_limit"] = "%.02f"%self.virtual_current_limit
         pub["rwr_current_limit"]     = self.rwr_current_limit.format_value()
         pub["charging_unpaused"]     = self.is_charging_unpaused()
@@ -631,10 +630,10 @@ class EVSE( grugbus.SlaveDevice ):
         try:
             await self.read_regs( self.regs_to_read )
             self.publish()
-            line = "%d %-6dW e=%6d s=%04x s=%04x v%6.03fA %6.03fA %6.03fA %6.03fA %6.03fW %6.03fWh %fs" % (fast, p, self.error_code.value, self.charge_state.value, self.socket_state.value, 
-                self.virtual_current_limit, self.rwr_current_limit.value, self.current_limit.value, self.current.value, 
-                self.active_power.value, self.energy.value, self.last_transaction_duration )
-            print( line )
+            # line = "%d %-6dW e=%6d s=%04x s=%04x v%6.03fA %6.03fA %6.03fA %6.03fA %6.03fW %6.03fWh %fs" % (fast, p, self.error_code.value, self.charge_state.value, self.socket_state.value, 
+            #     self.virtual_current_limit, self.rwr_current_limit.value, self.current_limit.value, self.current.value, 
+            #     self.active_power.value, self.energy.value, self.last_transaction_duration )
+            # print( line )
             return True
         except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
             return abort()
@@ -895,7 +894,7 @@ class Router():
         soc = mgr.solis1.bms_battery_soc.value or 0     # battery SOC, 0-100
 
         # correct battery power measurement offset when battery is fully charged
-        if not mgr.solis1.battery_dcdc_active and -200 < bp < 200:
+        if not mgr.solis1.battery_dcdc_active and -250 < bp < 200:
             bp = 0
 
         # Solis S5 EH1P has several different behaviors to which we should adapt for better routing.
@@ -979,7 +978,7 @@ class Router():
             pub = {     "excess_avg"       : export_avg + steal_from_battery,
                         "excess_avg_nobat" : export_avg
                     }
-            mqtt.publish( "pv/router/", pub, add_heartbeat=True )
+            mqtt.publish( "pv/router/", pub )
 
         #   Note export_avg_nobat doesn't work that well. It tends to use too much from the battery
         #   because the inverter will lower battery charging power on its own to power the EVSE, but this is
@@ -1138,13 +1137,12 @@ class Solis( grugbus.SlaveDevice ):
             self.battery_max_charge_current       ,
             self.battery_max_discharge_current    ,
 
-            self.rwr_battery_discharge_current_maximum_setting,
-            self.rwr_battery_charge_current_maximum_setting,
+            # self.rwr_battery_discharge_current_maximum_setting,
+            # self.rwr_battery_charge_current_maximum_setting,
 
             self.phase_a_voltage,
             self.rwr_backup_output_enabled,
-
-            self.rwr_epm_export_power_limit,
+            # self.rwr_epm_export_power_limit,
 
             # self.meter_ac_voltage_a                           ,
             # self.meter_ac_current_a                           ,
@@ -1155,7 +1153,7 @@ class Solis( grugbus.SlaveDevice ):
             # self.meter_active_power_a                         ,
             # self.meter_active_power_b                         ,
             # self.meter_active_power_c                         ,
-            self.meter_total_active_power                     ,
+            # self.meter_total_active_power                     ,
             # self.meter_reactive_power_a                       ,
             # self.meter_reactive_power_b                       ,
             # self.meter_reactive_power_c                       ,
@@ -1211,7 +1209,7 @@ class Solis( grugbus.SlaveDevice ):
                 timeout_counter = 0
 
             lm_pub[ "is_online" ] = int(self.local_meter.is_online)
-            mqtt.publish( "pv/%s/meter/"%self.key, lm_pub, add_heartbeat=True )
+            mqtt.publish( "pv/%s/meter/"%self.key, lm_pub )
 
             # Add useful metrics to avoid asof joins in database
             if mgr.meter.is_online:
@@ -1228,7 +1226,11 @@ class Solis( grugbus.SlaveDevice ):
 
     async def read_inverter_coroutine( self ):
         await self.connect()
-        await self.adjust_time()
+        try:
+            await self.adjust_time()
+        except asyncio.exceptions.TimeoutError: # if inverter is disconnected, start anyway
+            pass
+
         tick = Metronome( config.POLL_PERIOD_SOLIS )
         timeout_fan_off = Timeout( 60 )
         bat_power_deque = collections.deque( maxlen=10 )
@@ -1241,8 +1243,12 @@ class Solis( grugbus.SlaveDevice ):
         elif self.fake_meter.meter_type == Acrel_ACR10RD16TE4: mt = 2
         elif self.fake_meter.meter_type == Eastron_SDM120:     mt = 4
         mt |= {"grid":0x100, "load":0x200}[self.fake_meter.meter_placement]
-        await self.rwr_meter1_type_and_location.read()
-        await self.rwr_meter1_type_and_location.write_if_changed( mt )
+
+        try:
+            await self.rwr_meter1_type_and_location.read()
+            await self.rwr_meter1_type_and_location.write_if_changed( mt )
+        except asyncio.exceptions.TimeoutError: # if inverter is disconnected, start anyway
+            pass
 
         # regs = [
         #     self.rwr_remote_control_active_power_on_grid_port                      ,
@@ -1402,10 +1408,17 @@ class Solis( grugbus.SlaveDevice ):
                     mqtt.publish( "cmnd/plugs/tasmota_t3/", {"Power": "0"} )
                     # print("Fan OFF")
 
-                mqtt.publish( "pv/%s/"%self.key, pub, add_heartbeat=True )
+                mqtt.publish( "pv/%s/"%self.key, pub )
 
             except asyncio.exceptions.TimeoutError:
-                pass # This also covers register writes above, not just the first read, so do not move
+                # use defaults so the rest of the code still works if connection to the inverter is lost
+                self.battery_current.value            = 0
+                self.bms_battery_current.value        = 0
+                self.battery_power.value              = 0
+                self.battery_max_charge_current.value = 0
+                self.battery_dcdc_active              = 1
+                self.pv_power.value                   = 0
+
             except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
                 return abort()
             except:
@@ -1462,7 +1475,7 @@ class SolisManager():
 
         main_meter_modbus = AsyncModbusSerialClient(    # open Modbus on serial port
                 port            = config.COM_PORT_METER,
-                timeout         = 1,
+                timeout         = 0.5,
                 retries         = config.MODBUS_RETRIES_METER,
                 retry_on_empty  = True,
                 baudrate        = 19200,

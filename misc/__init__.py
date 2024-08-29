@@ -12,10 +12,10 @@ class Metronome():
         self.next_tick = 0
 
     def reset( self ):
-        self.next_tick = time.time()+self.tick
+        self.next_tick = time.monotonic()+self.tick
 
     async def wait( self ):
-        ct = time.time()
+        ct = time.monotonic()
         if self.next_tick < ct:
             self.next_tick += self.tick * math.ceil((ct-self.next_tick)/self.tick)
         delay = self.next_tick - ct
@@ -23,7 +23,7 @@ class Metronome():
             await asyncio.sleep(delay)
 
     def ticked( self ):
-        ct = time.time()
+        ct = time.monotonic()
         if self.next_tick < ct:
             self.next_tick += self.tick * math.ceil((ct-self.next_tick)/self.tick)
             return True
@@ -39,16 +39,16 @@ class Timeout():
             self.expiry = 0
 
     def reset( self, duration=None ):
-        self.expiry   = time.time() + (duration or self.duration)
+        self.expiry   = time.monotonic() + (duration or self.duration)
 
     def reset_or_extend( self, duration ):
-        self.expiry   = max( self.expiry, time.time() + duration )
+        self.expiry   = max( self.expiry, time.monotonic() + duration )
 
     def expired( self ):
-        return time.time() > self.expiry
+        return time.monotonic() > self.expiry
 
     def remain( self ):
-        return max(0, self.expiry - time.time())
+        return max(0, self.expiry - time.monotonic())
 
 def interpolate( xa, ya, xb, yb, x ):
     if x <= xa:
