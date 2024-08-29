@@ -4,6 +4,27 @@
 import os, pprint, time, sys, serial, socket, traceback, struct, datetime, logging, math, traceback, shutil, collections
 from path import Path
 
+# This program is supposed to run on a potato (Allwinner H3 SoC) and uses async/await,
+# so import the fast async library uvloop
+import uvloop
+import asyncio, signal, aiohttp
+
+# Modbus
+import pymodbus
+from pymodbus.client import AsyncModbusSerialClient, AsyncModbusTcpClient
+from pymodbus.datastore import ModbusServerContext, ModbusSlaveContext, ModbusSequentialDataBlock
+from pymodbus.server import StartAsyncSerialServer
+from pymodbus.transaction import ModbusRtuFramer
+
+# MQTT
+from gmqtt import Client as MQTTClient
+
+# Device wrappers and misc local libraries
+from misc import *
+import grugbus
+from grugbus.devices import Eastron_SDM120, Solis_S5_EH1P_6K_2020_Extras, Eastron_SDM630, Acrel_1_Phase, EVSE_ABB_Terra, Acrel_ACR10RD16TE4
+import config
+
 """
     python3.11
     pymodbus 3.1
@@ -48,27 +69,6 @@ This is sometimes not intuitive, but at least it's the same convention everywher
     etc
 """
 
-
-# This program is supposed to run on a potato (Allwinner H3 SoC) and uses async/await,
-# so import the fast async library uvloop
-import asyncio, signal, uvloop, aiohttp
-
-# Modbus
-import pymodbus
-from pymodbus.client import AsyncModbusSerialClient, AsyncModbusTcpClient
-from pymodbus.datastore import ModbusServerContext, ModbusSlaveContext, ModbusSequentialDataBlock
-from pymodbus.server import StartAsyncSerialServer
-from pymodbus.transaction import ModbusRtuFramer
-
-# MQTT
-from gmqtt import Client as MQTTClient
-
-# Device wrappers and misc local libraries
-from misc import *
-import grugbus
-from grugbus.devices import Eastron_SDM120, Solis_S5_EH1P_6K_2020_Extras, Eastron_SDM630, Acrel_1_Phase, EVSE_ABB_Terra, Acrel_ACR10RD16TE4
-import config
-
 # pymodbus.pymodbus_apply_logging_config( logging.DEBUG )
 logging.basicConfig( encoding='utf-8', 
                      level=logging.INFO,
@@ -78,7 +78,7 @@ logging.basicConfig( encoding='utf-8',
 log = logging.getLogger(__name__)
 
 # set max reconnect wait time for Fronius
-pymodbus.constants.Defaults.ReconnectDelayMax = 60000   # in milliseconds
+# pymodbus.constants.Defaults.ReconnectDelayMax = 60000   # in milliseconds
 
 
 #
@@ -93,12 +93,10 @@ if 0:
                     port            = "COM7",
                     timeout         = 0.3,
                     retries         = 2,
-                    retry_on_empty  = True,
                     baudrate        = 9600,
                     bytesize        = 8,
                     parity          = "N",
                     stopbits        = 1,
-                    strict = False
                     # framer=pymodbus.ModbusRtuFramer,
                 ),
                 1,          # Modbus address
@@ -320,8 +318,8 @@ class FakeSmartmeter( grugbus.LocalServer ):
         # local server will respond to requests to this address with the contents of this datastore
         self.server_ctx = ModbusServerContext( slave_ctxs, single=False )
         # self.meter_type = Eastron_SDM120
-        # self.meter_type = Acrel_1_Phase
-        self.meter_type = Acrel_ACR10RD16TE4
+        self.meter_type = Acrel_1_Phase
+        # self.meter_type = Acrel_ACR10RD16TE4
         self.meter_placement = "grid"
         # self.meter_placement = "load"
         super().__init__( slave_ctxs[1],   # dummy parameter, address is not actually used
@@ -359,22 +357,8 @@ class FakeSmartmeter( grugbus.LocalServer ):
             # report tweaked value, it shifts a little bit to have a small amount of
             # export when we can afford it, to really keep power drawn from grid to zero
             # instead of "fluctuating around zero""
-
             if self.meter_placement   == "grid":
-                if self.meter_type == Acrel_1_Phase:
-                    # Acrel 1 Phase
-                    if mgr.solis1.battery_dcdc_active:    
-                        # battery DC/DC offline, inverter responds quickly
-                        self.active_power           .value = meter.total_power_tweaked
-                    else:                                 
-                        # battery online, inverter responds slowly, tweak for better transient response
-                        #   Looks like there is a bug in the inverter: when using Acrel_1Ph meter setting,
-                        #   it seems to add two power samples, which doubles the open loop gain and causes
-                        #   damped oscillations. So we correct for this.
-                        self.active_power           .value = meter.total_power_tweaked * 0.5 + min(0, 0.5*(meter.total_power_tweaked+500))
-                else:
-                    # Acrel Three Phase
-                    self.active_power           .value = meter.total_power_tweaked
+                self.active_power           .value = meter.total_power_tweaked
             else:
                 # meter placement: load
                 self.active_power           .value = 500 # max(0, meter.total_power.value - mgr.solis1.local_meter.active_power.value)
@@ -908,24 +892,25 @@ class Router():
         #   -> We can route as fast as possible, but keep meter_export > 0
         #
         # 1a) EPM Export power limit (per inverter setting)
-        #   Feedback loop operated. Inverter controls export power.
+        #   Feedback loop operating. Inverter controls export power.
         #   In this mode, the feedback loop is very quick: it reads the meter once per second and reacts almost
-        #   immediately, taking more power from PV if available. So if EPM limit is set to a high enough value, 
-        #   we can ignore this mode and treat it like the previous one. 
+        #   immediately, taking more power from PV if available.
         #   -> Again, route as fast as possible, taking into account the inverter will react one second later.
         #   
         # 2) Inverter grid port is maxed out
         #   The inverter gets more power from PV than its grid port can export. This power can be used to charge 
         #   the battery, if needed. This mode is relevant for routing because while it would appear we can steal
         #   power from the battery (because we see it is charging), in reality we can't because the inverter 
-        #   can't output more power ont the grid port. So any extra load being switched on would draw from the grid.
+        #   can't output more power on the grid port. So any extra load being switched on would draw from the grid.
         #   -> Detect this and avoid this mistake
+        #   -> Inverter is maxed out, so the router is actually in control of everything
         #
         # 3) Battery DC-DC is operating
         #     Unless the battery DC-DC is maxed out, this corresponds to meter_export being near zero.
         #     When the inverter is working with the battery (doesn't matter if charging or discharging) the control 
-        #   loop becomes much slower. A few seconds delay is inserted into the loop, causing damped oscillations 
-        #   at each load step for up to 10s. This makes meter_export look like a mess as it oscillates around zero. 
+        #   loop becomes much slower. A few seconds delay is inserted into the loop, which may cause damped oscillations 
+        #   at each load step for up to 10s, depending on the meter setting. Acrel 3 phase seems to have the best
+        #   behaviour. When oscillations occur, this makes meter_export look like a mess as it oscillates around zero. 
         #   Battery power also suffers from damped oscillations.
         #     The main problem in this mode is our control variables (battery_power and meter_export) are no longer
         #   usable to make routing decisions quickly due to the oscillations.
@@ -940,13 +925,8 @@ class Router():
         #
         fast_route = not mgr.solis1.battery_dcdc_active
 
-        # set desired average export power according to mode
+        # set desired average export power, tweak it a bit considering battery soc
         meter_export -= self.p_export_target_base + self.p_export_target_soc_factor * soc
-
-        # Note battery power should always be taken into account for routing, especially
-        # if we want to keep it charging! Because some drift always occurs, so we may divert a little bit
-        # more power than we should, and the inverter will provide... to do so it will reduce battery charging power
-        # until it's no longer charging...
 
         # Store it in a deque to smooth it, to avoid jerky behavior on power spikes
         self.smooth_export.append( meter_export )          # TODO: this was previously meter_export
@@ -959,14 +939,29 @@ class Router():
         export_avg = average(self.smooth_export[smooth_len:])
         bp_avg     = average(self.smooth_bp[smooth_len:])
 
-        # get maximum charging power the battery can take, as determined by inverter, according to BMS info
+        ######## Battery Management ########
+
+        # Note battery power should always be taken into account for routing, especially
+        # if we want to keep it charging! Because some drift always occurs, so we may divert a little bit
+        # more power than we should, and the inverter will provide... to do so it will reduce battery charging power
+        # until it's no longer charging...
+
+        # Get maximum charging power the battery can take, as determined by inverter, according to BMS info
         bp_max  = (mgr.solis1.battery_max_charge_current.value or 0) * (mgr.solis1.battery_voltage.value or 0)
+        
+        # When SOC is 100%, Solis will not charge even if the battery requests current, so don't reserve any power
+        if soc == 100:
+            bp_max = 0  
 
         # how much power do we allocate to charging the battery, according to SOC
         bp_min = bp_max * interpolate( self.battery_min_soc, self.battery_min_soc_scale, self.battery_max_soc, self.battery_max_soc_scale, soc )
 
-        # If the inverter's grid port is maxed out, we can't steal power from the battery, correct for this:
-        steal_from_battery = min( bp_avg - bp_min, max( 0, self.solis1_max_output_power - solis1_output ))
+        # If the inverter's grid port is maxed out, we can't steal power from the battery, correct for this.
+        steal_max = max( 0, self.solis1_max_output_power - solis1_output )
+
+        # This is how much we can steal from battery charging. If battery is discharging, it will be negative 
+        # which is what we want, since we don't want to route on battery power.
+        steal_from_battery = min( bp_avg - bp_min, steal_max )
 
         # We now have two excess power measurements
         #   export_avg                      does not include power that can be stolen from the battery
@@ -1472,42 +1467,7 @@ class Solis( grugbus.SlaveDevice ):
 ########################################################################################
 class SolisManager():
     def __init__( self ):
-
-        main_meter_modbus = AsyncModbusSerialClient(    # open Modbus on serial port
-                port            = config.COM_PORT_METER,
-                timeout         = 0.5,
-                retries         = config.MODBUS_RETRIES_METER,
-                retry_on_empty  = True,
-                baudrate        = 19200,
-                bytesize        = 8,
-                parity          = "N",
-                stopbits        = 1,
-                strict = False
-                # framer=pymodbus.ModbusRtuFramer,
-            )
-        self.meter = MainSmartmeter( main_meter_modbus )
-        self.evse  = EVSE( main_meter_modbus )
-
-        # Port for inverters COM and local meters
-        local_meter_modbus = AsyncModbusSerialClient(
-                port            = config.COM_PORT_SOLIS,
-                timeout         = 0.3,
-                retries         = config.MODBUS_RETRIES_METER,
-                retry_on_empty  = True,
-                baudrate        = 9600,
-                bytesize        = 8,
-                parity          = "N",
-                stopbits        = 1,
-                strict = False
-                # framer=pymodbus.ModbusRtuFramer,
-            )
-        self.solis1 = Solis( 
-            modbus=local_meter_modbus, 
-            modbus_addr = 1, 
-            key = "solis1", name = "Solis 1", 
-            meter = grugbus.SlaveDevice( local_meter_modbus, 3, "ms1", "SDM120 Smartmeter on Solis 1", Eastron_SDM120.MakeRegisters() ),
-            fakemeter = FakeSmartmeter( config.COM_PORT_FAKE_METER1, "fake_meter_1", "Fake SDM120 for Inverter 1" )
-        )
+        pass
 
         # self.fronius = Fronius( '192.168.0.17', 1 )
 
@@ -1527,6 +1487,36 @@ class SolisManager():
         # loop.run_until_complete( self.astart() )
 
     async def astart( self ):
+        main_meter_modbus = AsyncModbusSerialClient(    # open Modbus on serial port
+                port            = config.COM_PORT_METER,
+                timeout         = 0.5,
+                retries         = config.MODBUS_RETRIES_METER,
+                baudrate        = 19200,
+                bytesize        = 8,
+                parity          = "N",
+                stopbits        = 1,
+            )
+        self.meter = MainSmartmeter( main_meter_modbus )
+        self.evse  = EVSE( main_meter_modbus )
+
+        # Port for inverters COM and local meters
+        local_meter_modbus = AsyncModbusSerialClient(
+                port            = config.COM_PORT_SOLIS,
+                timeout         = 0.3,
+                retries         = config.MODBUS_RETRIES_METER,
+                baudrate        = 9600,
+                bytesize        = 8,
+                parity          = "N",
+                stopbits        = 1,
+            )
+        self.solis1 = Solis( 
+            modbus=local_meter_modbus, 
+            modbus_addr = 1, 
+            key = "solis1", name = "Solis 1", 
+            meter = grugbus.SlaveDevice( local_meter_modbus, 3, "ms1", "SDM120 Smartmeter on Solis 1", Eastron_SDM120.MakeRegisters() ),
+            fakemeter = FakeSmartmeter( config.COM_PORT_FAKE_METER1, "fake_meter_1", "Fake SDM120 for Inverter 1" )
+        )
+
         loop = asyncio.get_event_loop()
         loop.add_signal_handler(signal.SIGINT,  abort)
         loop.add_signal_handler(signal.SIGTERM, abort)
