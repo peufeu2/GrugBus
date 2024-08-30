@@ -6,24 +6,19 @@ from path import Path
 
 # This program is supposed to run on a potato (Allwinner H3 SoC) and uses async/await,
 # so import the fast async library uvloop
-import uvloop
-import asyncio, signal, aiohttp
+import uvloop, asyncio, signal, aiohttp
 
 # Modbus
 import pymodbus
 from pymodbus.client import AsyncModbusSerialClient, AsyncModbusTcpClient
-from pymodbus.datastore import ModbusServerContext, ModbusSlaveContext, ModbusSequentialDataBlock
-from pymodbus.server import StartAsyncSerialServer
-from pymodbus.transaction import ModbusRtuFramer
-
-# MQTT
-from gmqtt import Client as MQTTClient
 
 # Device wrappers and misc local libraries
+import config
 from misc import *
+from pv.mqtt_wrapper import MQTTWrapper
 import grugbus
 from grugbus.devices import Eastron_SDM120, Solis_S5_EH1P_6K_2020_Extras, Eastron_SDM630, Acrel_1_Phase, EVSE_ABB_Terra, Acrel_ACR10RD16TE4
-import config
+from pv.fake_meter import FakeSmartmeter
 
 """
     python3.11
@@ -80,291 +75,19 @@ log = logging.getLogger(__name__)
 # set max reconnect wait time for Fronius
 # pymodbus.constants.Defaults.ReconnectDelayMax = 60000   # in milliseconds
 
-
-#
-#   Helper to set modbus address of a SDM120 smartmeter during installation:
-#       
-#       It has default address 1, so use this function to change it.
-#
-if 0:
-    async def set_sdm120_address( new_address=4 ):
-        d = grugbus.SlaveDevice( 
-                AsyncModbusSerialClient(
-                    port            = "COM7",
-                    timeout         = 0.3,
-                    retries         = 2,
-                    baudrate        = 9600,
-                    bytesize        = 8,
-                    parity          = "N",
-                    stopbits        = 1,
-                    # framer=pymodbus.ModbusRtuFramer,
-                ),
-                1,          # Modbus address
-                "meter", "SDM630 Smartmeter", 
-                Eastron_SDM120.MakeRegisters() )
-        await d.modbus.connect()
-
-        print("Checking meter on address %s" % d.bus_address )
-        await d.rwr_modbus_node_address.read()
-        print( "current address", d.rwr_modbus_node_address.value )
-
-        input( "Long press button on meter until display --SET-- to enable modbus writes (otherwise it is protected) and press ENTER" )
-        d.rwr_modbus_node_address.value = new_address
-        await d.rwr_modbus_node_address.write()
-
-        print( "Write done, if it was successful the meter should not respond to the old address and this should raise a Timeout...")
-
-        await d.rwr_modbus_node_address.read()
-        print( "current address", d.rwr_modbus_node_address.value )
-
-    asyncio.run( set_sdm120_address() )
-    stop
-
-#
-#   Housekeeping for async multitasking:
-#   If one thread coroutine abort(), fire STOP event to allow program exit
-#   and set STILL_ALIVE to False to stop all other threads.
-#
-STILL_ALIVE = True
-STOP = asyncio.Event()
-def abort():
-    STOP.set()
-    global STILL_ALIVE
-    STILL_ALIVE = False
-
-# Helper to abort program when the coroutine passed as parameter exits
-async def abort_on_exit( awaitable ):
-    await awaitable
-    log.info("*** Exited: %s", awaitable)
-    return abort()
-
 ########################################################################################
 #   MQTT
 ########################################################################################
-class MQTT():
+class MQTT( MQTTWrapper ):
     def __init__( self ):
-        self.mqtt = MQTTClient("pv")
-        self.mqtt.on_connect    = self.on_connect
-        self.mqtt.on_message    = self.on_message
-        self.mqtt.on_disconnect = self.on_disconnect
-        self.mqtt.on_subscribe  = self.on_subscribe
-        self.mqtt.set_auth_credentials( config.MQTT_USER, config.MQTT_PASSWORD )
-        self.published_data = {}
+        super().__init__( "pv" )
 
-    def on_connect(self, client, flags, rc, properties):
-        self.mqtt.subscribe('cmd/pv/#', qos=0)
-
-    def on_disconnect(self, client, packet, exc=None):
-        pass
-
-    async def on_message(self, client, topic, payload, qos, properties):
-        print( "MQTT", topic, payload )
-        if topic=="cmd/pv/backup_output_enabled":
-            v = bool(int( payload ))
-            reg = mgr.solis1.rwr_backup_power_enable_setting
-            await reg.read()
-            print( reg.key, reg.value, "->", v )
-            await reg.write( v )
-        elif topic=="cmd/pv/power_on":
-            v = (0xDE,0xBE) [bool(int( payload ))]
-            reg = mgr.solis1.rwr_power_on_off
-            await reg.read()
-            print( reg.key, reg.value, "->", v )
-            await reg.write( v )
-        elif topic=="cmd/pv/write":
-            addr,value = payload.split(b" ",1)
-            addr = int(addr)
-            value = int(value)
-            reg = mgr.solis1.regs_by_addr.get(addr)
-            if not reg:
-                print("Unknown register", addr)
-            await reg.read()
-            print( reg.key, reg.value, "->", value )
-            self.mqtt.publish( "cmd/pv/write/"+reg.key, str(reg.value), qos=0 )
-            await reg.write( value )
-            self.mqtt.publish( "cmd/pv/write/"+reg.key, str(value), qos=0 )
-            print( reg.key, reg.value )
-        elif topic=="cmd/pv/writeonly":
-            addr,value = payload.split(b" ",1)
-            addr = int(addr)
-            value = int(value)
-            reg = mgr.solis1.regs_by_addr.get(addr)
-            if not reg:
-                print("Unknown register", addr)
-            print( reg.key, "->", value )
-            await reg.write( value )
-        elif topic=="cmd/pv/write2":
-            addr,value = payload.split(b" ",1)
-            addr = int(addr)
-            value = int(value)
-            reg = mgr.solis1.regs_by_addr.get(addr)
-            if not reg:
-                print("Unknown register", addr)
-            await reg.read()
-            print( reg.key, reg.value, "->", value )
-            await reg.write( value )
-            await asyncio.sleep(1)
-            await reg.write( value )
-            v = reg.value
-            await reg.read()
-            print( reg.key, v, reg.value )
-        elif topic=="cmd/pv/read":
-            addr = int(payload)
-            s = mgr.solis1
-            reg = s.regs_by_addr.get(addr)
-            if reg:
-                await reg.read()
-                print( reg.key, reg.value )
-            else:
-                print("Unknown register", addr)
-                m = s.modbus
-                async with m._async_mutex:
-                    r = await m.read_holding_registers( addr, 1, mgr.solis1.bus_address )
-                    print( addr, r.registers )
-
-    def on_subscribe(self, client, mid, qos, properties):
-        print('MQTT SUBSCRIBED')
-
-    def publish( self, prefix, data, add_heartbeat=False ):
-        if not self.mqtt.is_connected:
-            log.error( "Trying to publish %s on unconnected MQTT" % prefix )
-            return
-
-        t = time.monotonic()
-        to_publish = {}
-        if add_heartbeat:
-            data["heartbeat"] = int(t) # do not publish more than 1 heartbeat per second
-
-        #   do not publish duplicate data
-        for k,v in data.items():
-            k = prefix+k
-            p = self.published_data.get(k)
-            if p:
-                if p[0] == v and t<p[1]:
-                    continue
-            self.published_data[k] = v,t+60 # set timeout to only publish constant data every N seconds
-            to_publish[k] = v
-
-        for k,v in to_publish.items():
-            self.mqtt.publish( k, str(v), qos=0 )
-
-        return True
+    # def on_connect(self, client, flags, rc, properties):
+    #     self.mqtt.subscribe('cmd/pv/#', qos=0)
 
 mqtt = MQTT()
 
-###########################################################################################
-#
-#       Fake smartmeter
-#       Modbus server emulating a fake smartmeter to feed data to inverter via meter port
-#
-#       https://pymodbus.readthedocs.io/en/v1.3.2/examples/asynchronous-server.html
-#
-###########################################################################################
-#
-#   Modbus server is a slave (client is master)
-#   pymodbus requires ModbusSlaveContext which contains data to serve
-#   This ModbusSlaveContext has a hook to generate values on the fly when requested
-#
-class HookModbusSlaveContext(ModbusSlaveContext):
-    def getValues(self, fc_as_hex, address, count=1):
-        if self._on_getValues( fc_as_hex, address, count, self ):
-            # print("Meter read:", fc_as_hex, address, count, time.time() )
-            return super().getValues( fc_as_hex, address, count )
 
-###########################################################################################
-#   
-#   Fake smartmeter emulator
-#
-#   Base class is grugbus.LocalServer which extends pymodbus server class to allow
-#   registers to be accessed by name with full type conversion, instead of just
-#   address and raw data.
-#   
-###########################################################################################
-#   Meter setting on Solis: "Acrel 1 Phase" ; reads fcode 3 addr 0 count 65
-#   Note the Modbus manual for Acrel ACR10H corresponds to the wrong version of the meter.
-#   Register map in Acrel_1_Phase.py was reverse engineered from inverter requests.
-#   This meter is queried every second, which allows Solis to update its output power
-#   twice as fast as with Eastron meter, which is queried every two seconds.
-#
-#   Note: for Solis inverters, the modbus address of the meter and the inverter are the same
-#   although they are on two different buses. So if you set address to 2 in the inverter GUI, 
-#   it will respond to that address on the COM port, and it will query the meter with that
-#   address on the meter port.
-class FakeSmartmeter( grugbus.LocalServer ):
-    #
-    #   port    serial port name
-    #   key     machine readable name for logging, like "fake_meter_1", 
-    #   name    human readable name like "Fake SDM120 for Inverter 1"
-    #
-    def __init__( self, port, key, name, modbus_address=1 ):
-        self.port = port
-
-        # Create slave context for our local server
-        slave_ctxs = {}
-        # Create datastore corresponding to registers available in Eastron SDM120 smartmeter
-        data_store = ModbusSequentialDataBlock( 0, [0]*750 )   
-        slave_ctx = HookModbusSlaveContext(
-            zero_mode = True,   # addresses start at zero
-            di = ModbusSequentialDataBlock( 0, [0] ), # Discrete Inputs  (not used, so just one zero register)
-            co = ModbusSequentialDataBlock( 0, [0] ), # Coils            (not used, so just one zero register)
-            hr = data_store, # Holding Registers, we will write fake values to this datastore
-            ir = data_store  # Input Registers (use the same datastore, so we don't have to check the opcode)
-            )
-        slave_ctx._on_getValues = self._on_getValues # hook to update datastore when we get a request
-        slave_ctx.modbus_address = modbus_address
-        slave_ctxs[modbus_address] = slave_ctx
-
-        # Create Server context and assign previously created datastore to smartmeter_modbus_address, this means our 
-        # local server will respond to requests to this address with the contents of this datastore
-        self.server_ctx = ModbusServerContext( slave_ctxs, single=False )
-        # self.meter_type = Eastron_SDM120
-        self.meter_type = Acrel_1_Phase
-        # self.meter_type = Acrel_ACR10RD16TE4
-        self.meter_placement = "grid"
-        # self.meter_placement = "load"
-        super().__init__( slave_ctxs[1],   # dummy parameter, address is not actually used
-              1, key, name, 
-            self.meter_type.MakeRegisters() ) # build our registers
-
-    # This is called when the inverter sends a request to this server
-    def _on_getValues( self, fc_as_hex, address, count, ctx ):
-
-        #   The main meter is read in another coroutine, so data is already available and up to date
-        #   but we still have to check if the meter is actually working
-        #
-        meter = mgr.meter
-        if not meter.is_online:
-            log.warning( "FakeSmartmeter cannot reply to client: real smartmeter offline" )
-            # return value is False so pymodbus server will abort the request, which the inverter
-            # correctly interprets as the meter being offline
-            return False
-
-        t = time.monotonic()
-        if self.data_timestamp:    # how fresh is this data?
-            mqtt.publish( "pv/solis1/fakemeter/", {
-                "lag": round( t-self.data_timestamp, 2 ), # lag between getting data from the real meter and forwarding it to the inverter
-                self.active_power.key: self.active_power.format_value(), # log what we sent to the inverter
-                })
-        return True
-
-    # This function starts and runs the modbus server, and never returns as long as the server is running.
-    # Before starting it, communication with the real meter should be initiated, registers read,
-    # dummy registers in this object populated with correct values, and write_regs_to_context() called
-    # to setup the server context, so that we serve correct value to the inverter when it makes a request.
-    async def start_server( self ):
-        self.server = await StartAsyncSerialServer( context=self.server_ctx, 
-            framer          = ModbusRtuFramer,
-            ignore_missing_slaves = True,
-            auto_reconnect = True,
-            port            = self.port,
-            timeout         = 0.3,      # parameters used by Solis inverter on meter port
-            baudrate        = 9600,
-            bytesize        = 8,
-            parity          = "N",
-            stopbits        = 1,
-            strict = False,
-            )
-        await self.server.start()
 
 ########################################################################################
 #
@@ -451,7 +174,7 @@ class MainSmartmeter( grugbus.SlaveDevice ):
         tick = Metronome(config.POLL_PERIOD_METER)  # fires a tick on every period to read periodically, see misc.py
         last_poll_time = None
         try:
-            while STILL_ALIVE:  # set to false by abort()
+            while True:
                 for reg_set in reg_sets:
                     try:
                         await self.connect()
@@ -482,8 +205,8 @@ class MainSmartmeter( grugbus.SlaveDevice ):
                             fm.export_active_energy   .value = self.total_export_kwh              .value
                             fm.active_power           .value = self.total_power_tweaked
                             fm.data_timestamp = data_request_timestamp
+                            fm.is_online = self.is_online
                             fm.write_regs_to_context()
-                            await asyncio.sleep(0.003)
 
                             pub = { reg.key: reg.format_value() for reg in regs_to_publish.intersection(regs) }      # publish what we just read
 
@@ -495,7 +218,7 @@ class MainSmartmeter( grugbus.SlaveDevice ):
                         mqtt.publish( "pv/meter/", pub )
                         await self.router.route()
                     except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
-                        return abort()
+                        return
                     except:
                         s = traceback.format_exc()
                         log.error(s)
@@ -593,7 +316,7 @@ class EVSE( grugbus.SlaveDevice ):
             # print( line )
             return True
         except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
-            return abort()
+            raise
         except:
             s = traceback.format_exc()
             log.error(s)
@@ -1157,7 +880,7 @@ class Solis( grugbus.SlaveDevice ):
     async def read_meter_coroutine( self ):
         tick = Metronome( config.POLL_PERIOD_SOLIS_METER )
         timeout_counter = 0
-        while STILL_ALIVE:
+        while True:
             await self.connect()
             try:
                 lm_regs = await self.local_meter.read_regs( self.local_meter_regs_to_read )
@@ -1166,7 +889,7 @@ class Solis( grugbus.SlaveDevice ):
                 self.local_meter.active_power.value = None if timeout_counter<10 else 0 # if it times out, there is no measured power
                 timeout_counter += 1
             except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
-                return abort()
+                raise
             except:
                 s = traceback.format_exc()
                 log.error(s)
@@ -1287,7 +1010,7 @@ class Solis( grugbus.SlaveDevice ):
         #         await self.rwr_battery_discharge_power_limit.write( 0 )
         # return
 
-        while STILL_ALIVE:
+        while True:
             try:
                 # mqtt.mqtt.publish( "cmd/pv/write/rwr_battery_discharge_power_limit", str(v) )
                 # v = foo * 200 + 200
@@ -1388,7 +1111,7 @@ class Solis( grugbus.SlaveDevice ):
                 self.pv_power.value                   = 0
 
             except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
-                return abort()
+                raise
             except:
                 s = traceback.format_exc()
                 log.error(s)
@@ -1487,30 +1210,30 @@ class SolisManager():
             modbus_addr = 1, 
             key = "solis1", name = "Solis 1", 
             meter = grugbus.SlaveDevice( local_meter_modbus, 3, "ms1", "SDM120 Smartmeter on Solis 1", Eastron_SDM120.MakeRegisters() ),
-            fakemeter = FakeSmartmeter( config.COM_PORT_FAKE_METER1, "fake_meter_1", "Fake SDM120 for Inverter 1" )
+            fakemeter = FakeSmartmeter( port=config.COM_PORT_FAKE_METER1, key="fake_meter_1",
+                                        name="Fake SDM120 for Inverter 1",
+                                        modbus_address=1, meter_type=Acrel_1_Phase )
         )
-
-        loop = asyncio.get_event_loop()
-        loop.add_signal_handler(signal.SIGINT,  abort)
-        loop.add_signal_handler(signal.SIGTERM, abort)
-
-        asyncio.create_task( self.solis1.fake_meter.start_server() )
-        asyncio.create_task( abort_on_exit( self.meter.read_coroutine() ))
-        # asyncio.create_task( abort_on_exit( self.fronius.read_coroutine() ))
-        asyncio.create_task( abort_on_exit( self.solis1.read_inverter_coroutine() ))
-        asyncio.create_task( abort_on_exit( self.solis1.read_meter_coroutine() ))
-        asyncio.create_task( abort_on_exit( self.sysinfo_coroutine() ))
-        asyncio.create_task( self.display_coroutine() )
-        asyncio.create_task( self.mqtt_start() )
 
         app = aiohttp.web.Application()
         app.add_routes([aiohttp.web.get('/', self.webresponse), aiohttp.web.get('/solar_api/v1/GetInverterRealtimeData.cgi', self.webresponse)])
         runner = aiohttp.web.AppRunner(app, access_log=False)
         await runner.setup()
         site = aiohttp.web.TCPSite(runner,host=config.SOLARPI_IP,port=8080)
-        await site.start()
 
-        await STOP.wait()
+        try:
+            async with asyncio.TaskGroup() as tg:
+                tg.create_task( self.solis1.fake_meter.start_server() )
+                tg.create_task( self.meter.read_coroutine() )
+                tg.create_task( self.solis1.read_inverter_coroutine() )
+                tg.create_task( self.solis1.read_meter_coroutine() )
+                tg.create_task( self.sysinfo_coroutine() )
+                tg.create_task( self.display_coroutine() )
+                tg.create_task( self.mqtt_start() )
+                tg.create_task( site.start() )
+        except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
+            print("Terminated.")
+
         await mqtt.mqtt.disconnect()
 
     ########################################################################################
@@ -1536,7 +1259,7 @@ class SolisManager():
 
     async def sysinfo_coroutine( self ):
         prev_cpu_timings = None
-        while STILL_ALIVE:
+        while True:
             try:
                 pub = {}
                 with open("/proc/stat") as f:
@@ -1555,7 +1278,7 @@ class SolisManager():
 
                 await asyncio.sleep(10)
             except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
-                return abort()
+                raise
             except:
                 log.error(traceback.format_exc())
 
@@ -1564,7 +1287,7 @@ class SolisManager():
     ########################################################################################
 
     async def display_coroutine( self ):
-        while STILL_ALIVE:
+        while True:
             await asyncio.sleep(1)
             meter = self.meter
             ms1   = self.solis1.local_meter
@@ -1655,7 +1378,7 @@ class SolisManager():
 
                 # print( "\n".join(r) )
             except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
-                return abort()
+                raise
             except:
                 log.error(traceback.format_exc())
 

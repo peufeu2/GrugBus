@@ -1,10 +1,8 @@
-import asyncio, os, time, datetime, traceback, logging, sys, uvloop, dateparser, urllib.request, pprint, math
-import orjson, socket
-from gmqtt import Client as MQTTClient
+import asyncio, os, time, datetime, logging, sys, uvloop, dateparser, urllib.request, math, orjson
 from path import Path
-from xopen import xopen
+
 import config
-from path import Path
+from pv.mqtt_wrapper import MQTTWrapper
 
 logging.basicConfig( #encoding='utf-8', 
                      level=logging.INFO,
@@ -32,54 +30,6 @@ RELAYS = {
     "VALVE_PCBT_ETAGE"         : 15,
 }
 
-
-########################################################################################
-#   MQTT
-########################################################################################
-class MQTT():
-    def __init__( self ):
-        self.mqtt = MQTTClient("chauffage")
-        self.mqtt.on_connect    = self.on_connect
-        self.mqtt.on_message    = self.on_message
-        self.mqtt.on_disconnect = self.on_disconnect
-        self.mqtt.on_subscribe  = self.on_subscribe
-        self.mqtt.set_auth_credentials( config.MQTT_USER, config.MQTT_PASSWORD )
-        self.published_data = {}
-
-    def on_connect(self, client, flags, rc, properties):
-        pass
-
-    def on_disconnect(self, client, packet, exc=None):
-        pass
-
-    async def on_message(self, client, topic, payload, qos, properties):
-        pass
-
-    def on_subscribe(self, client, mid, qos, properties):
-        print('MQTT SUBSCRIBED')
-
-    def publish( self, prefix, data, add_heartbeat=False ):
-        if not self.mqtt.is_connected:
-            log.error( "Trying to publish %s on unconnected MQTT" % prefix )
-            return
-
-        t = time.time()
-        to_publish = {}
-
-        #   do not publish duplicate data
-        for k,v in data.items():
-            k = prefix+k
-            p = self.published_data.get(k)
-            if p:
-                if p[0] == v and t<p[1]:
-                    continue
-            self.published_data[k] = v,t+60 # set timeout to only publish constant data every N seconds
-            to_publish[k] = v
-
-        for k,v in to_publish.items():
-            self.mqtt.publish( k, str(v), qos=0 )
-
-mqtt = MQTT()
 
 def valid_temp( t ):
     if t>-120:
@@ -153,47 +103,43 @@ def get():
 
 sleep_delay = 5.0
 
-async def run():
-    await mqtt.mqtt.connect( config.MQTT_BROKER_LOCAL )
+async def start():
+    mqtt = MQTTWrapper( "mqtt_chauffage" )
+    try:
+        await mqtt.mqtt.connect( config.MQTT_BROKER_LOCAL )
+        await run( mqtt )
+    except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
+        print("Terminated.")
+        return
+    except:
+        log.exception( "Exception" )
+        await asyncio.sleep(1)
+
+async def run(mqtt ):
     last_line = None
     timeout = None
     while True:
-        try:
-            data = {}
-            for k,v in get():
-                if isinstance( v,float ):
-                    v = round( v, 2 )
-                if isinstance( v,bool ):
-                    v = int(v)
-                print(k,v)
-                data[k]=v
-            # pprint.pprint(data)
-            mqtt.publish( "chauffage/", data )
-
-            lines = urllib.request.urlopen("http://192.168.0.16/log",timeout=2).read().decode("windows-1252").split("\n")
-            for line in lines:
-                line = line.strip()
-                if not line:
-                    continue
-                if line == last_line:
-                    continue
-                last_line = line
-                mqtt.mqtt.publish("chauffage/log", line)
-        except KeyboardInterrupt:
-            return
-        except:
-            log.error( "%s", traceback.format_exc() )
-
         await asyncio.sleep( sleep_delay )
+        data = {}
+        for k,v in get():
+            if isinstance( v,float ):
+                v = round( v, 2 )
+            if isinstance( v,bool ):
+                v = int(v)
+            print(k,v)
+            data[k]=v
+        mqtt.publish( "chauffage/", data )
+
+        lines = urllib.request.urlopen("http://192.168.0.16/log",timeout=2).read().decode("windows-1252").split("\n")
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            if line == last_line:
+                continue
+            last_line = line
+            mqtt.mqtt.publish("chauffage/log", line)
 
 
-        
-
-
-if sys.version_info >= (3, 11):
-    with asyncio.Runner(loop_factory=uvloop.new_event_loop) as runner:
-    # with asyncio.Runner() as runner:
-        runner.run(run())
-else:
-    uvloop.install()
-    asyncio.run(run())
+with asyncio.Runner(loop_factory=uvloop.new_event_loop) as runner:
+    runner.run(start())

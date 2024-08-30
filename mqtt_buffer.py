@@ -5,9 +5,10 @@ import asyncio, os, time, traceback, collections, orjson, zstandard, logging, sy
 import collections
 from xopen import xopen
 from path import Path
-from gmqtt import Client as MQTTClient
+
 import config
 from misc import *
+from pv.mqtt_wrapper import MQTTWrapper
 
 """
     To log MQTT traffic into a database, we need a computer that runs a database.
@@ -37,34 +38,14 @@ logging.basicConfig( encoding='utf-8',
                             logging.StreamHandler(stream=sys.stdout)])
 log = logging.getLogger(__name__)
 
-#
-#   Housekeeping
-#
-STILL_ALIVE = True
-STOP = asyncio.Event()
-def abort():
-    STOP.set()
-    global STILL_ALIVE
-    STILL_ALIVE = False
-
-# No zombie coroutines allowed
-async def abort_on_exit( awaitable ):
-    await awaitable
-    log.info("*** Exited: %s", awaitable)
-    return abort()
-
-
-class Buffer():
+class Buffer( MQTTWrapper ):
     def __init__( self, basedir ):
-
-        # Init MQTT
-        self.mqtt = MQTTClient("buffer2")
-        self.mqtt.on_connect    = self.on_connect
-        self.mqtt.on_message    = self.on_message
-        self.mqtt.set_auth_credentials( config.MQTT_USER, config.MQTT_PASSWORD )
+        super().__init__( "mqtt_buffer" )
 
         # MQTT -> thread deque
         self.queue_socket = collections.deque( maxlen=65536 )
+        self.msgcount = 0
+        self.msgcount_tick = Metronome( 2 )
 
         # Logging to files
         self.basedir = Path( basedir )
@@ -78,64 +59,49 @@ class Buffer():
         #    7       9MB RAM                10.16x  <- best compromise
         #    5       6MB RAM                 8.57x 
         self.cctx = zstandard.ZstdCompressor( level=7 )
+
+    def __enter__(self):
         self.file_new()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.file_close()
 
     ########################################################
     #   Housekeeping
     ########################################################
     def start( self ):
-        if sys.version_info >= (3, 11):
-            with asyncio.Runner(loop_factory=uvloop.new_event_loop) as runner:
-            # with asyncio.Runner() as runner:
-                runner.run(self.astart())
-        else:
-            uvloop.install()
-            asyncio.run(self.astart())
+        with asyncio.Runner(loop_factory=uvloop.new_event_loop) as runner:
+            runner.run(self.astart())
 
     async def astart( self ):
-        loop = asyncio.get_event_loop()
-        loop.add_signal_handler(signal.SIGINT,  abort)
-        loop.add_signal_handler(signal.SIGTERM, abort)
-
-        try:
-            # This blocks until connected (or fails if mosquitto is down).
-            # If it connects once, it will reconnect automatically.
-            await self.mqtt.connect( config.MQTT_BROKER_LOCAL ) 
-
-            server = await asyncio.start_server( 
-                self.handle_client, config.MQTT_BUFFER_IP, config.MQTT_BUFFER_PORT )
-            asyncio.create_task( server.serve_forever() )
-            await STOP.wait()
-        except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
-            log.info( "Terminating..." )
-        except:
-            log.exception('Exception')
-            raise
-        finally:
-            self.file_close()
-            await self.mqtt.disconnect()
-
+        server = await asyncio.start_server( self.handle_client, config.MQTT_BUFFER_IP, config.MQTT_BUFFER_PORT )
+        await self.mqtt.connect( config.MQTT_BROKER_LOCAL )
+        await server.serve_forever()
 
     ########################################################
     #   MQTT
     ########################################################
-    def on_connect(self, client, flags, rc, properties):
-        self.mqtt.subscribe('#', qos=0)
 
-    async def on_message(self, client, topic, payload, qos, properties):
-        try:
-            # Encode MQTT message into json
-            jl = orjson.dumps( [ round(time.time(),2), topic, payload.decode() ], option=orjson.OPT_APPEND_NEWLINE )
-            # Queue it. deque() with maxlen is a ring buffer and will discard oldest items when full.
-            self.queue_socket.append( jl )
-            self.compressor.write( jl )
-            if self.flush_tick.ticked():
-                self.compressor.flush()
-            if self.new_file_tick.ticked():
-                self.file_new()
-        except:
-            log.exception('Exception')
-            raise
+    def on_connect( self, client, flags, rc, properties ):
+        self.mqtt.subscribe( "#" )
+
+    async def on_message( self, client, topic, payload, qos, properties ):
+        # Encode MQTT message into json
+        jl = orjson.dumps( [ round(time.time(),2), topic, payload.decode() ], option=orjson.OPT_APPEND_NEWLINE )
+        self.msgcount += 1
+
+        # Queue it. deque() with maxlen is a ring buffer and will discard oldest items when full.
+        self.queue_socket.append( jl )
+        self.compressor.write( jl )
+        if self.flush_tick.ticked():
+            self.compressor.flush()
+        if self.new_file_tick.ticked():
+            self.file_new()
+        if self.msgcount_tick.ticked():
+            print("Queue %d ; %f messages/s" % (len(self.queue_socket), self.msgcount/self.msgcount_tick.tick))
+            self.msgcount = 0
+
 
     ########################################################
     #   Log storage
@@ -248,10 +214,7 @@ class Buffer():
                 log.info("Send real time, queue %d", len(self.queue_socket))
                 await writer.drain()
                 writer.write( b"-1 -1\n" )
-                timer = Metronome(2)
                 while True:
-                    if timer.ticked():
-                        print("Queue %d" % len(self.queue_socket))
                     while self.queue_socket:
                         writer.write( self.queue_socket.popleft() )
                     await writer.drain()
@@ -268,15 +231,9 @@ class Buffer():
 if __name__ == '__main__':
     try:
         log.info("MQTT logger starting.")
-        buf = Buffer( config.MQTT_BUFFER_PATH )
-        buf.start()
-    except:
-        log.exception('Exception')            
+        with Buffer( config.MQTT_BUFFER_PATH ) as buf:
+            buf.start()
     finally:
-        try:
-            buf.file_close()
-        finally:
-            pass
         log.info("MQTT logger stopping.")
         logging.shutdown()
 
