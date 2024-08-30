@@ -325,9 +325,6 @@ class FakeSmartmeter( grugbus.LocalServer ):
         super().__init__( slave_ctxs[1],   # dummy parameter, address is not actually used
               1, key, name, 
             self.meter_type.MakeRegisters() ) # build our registers
-        self.last_request_time = time.monotonic()    # for stats
-        self.data_request_timestamp = 0
-        self.prev = 0
 
     # This is called when the inverter sends a request to this server
     def _on_getValues( self, fc_as_hex, address, count, ctx ):
@@ -342,44 +339,10 @@ class FakeSmartmeter( grugbus.LocalServer ):
             # correctly interprets as the meter being offline
             return False
 
-        try:    # Fill our registers with up-to-date data
-            self.voltage                .value = meter.phase_1_line_to_neutral_volts .value
-            self.current                .value = meter.phase_1_current               .value
-            self.apparent_power         .value = meter.total_volt_amps               .value
-            self.reactive_power         .value = meter.total_var                     .value
-            self.power_factor           .value = (meter.total_power_factor            .value % 1.0)
-            self.frequency              .value = meter.frequency                     .value
-            self.import_active_energy   .value = meter.total_import_kwh              .value
-            self.export_active_energy   .value = meter.total_export_kwh              .value
-            # self.active_power           .value = max( meter.total_power                   .value + self.power_offset, -self.power_elimit ) + (time.time()%2)
-            # meter placement: grid
-
-            # report tweaked value, it shifts a little bit to have a small amount of
-            # export when we can afford it, to really keep power drawn from grid to zero
-            # instead of "fluctuating around zero""
-            if self.meter_placement   == "grid":
-                self.active_power           .value = meter.total_power_tweaked
-            else:
-                # meter placement: load
-                self.active_power           .value = 500 # max(0, meter.total_power.value - mgr.solis1.local_meter.active_power.value)
-                # self.active_power           .value = int(self.prev) * 500
-                # print( self.active_power           .value )
-                # self.prev = (self.prev+0.05) % 3.0
-
-        except TypeError:   # if one of the registers was None because it wasn't read yet
-            log.warning( "FakeSmartmeter cannot reply to client: real smartmeter missing fields" )
-            # raise
-
-        self.write_regs_to_context() # write data to modbus server context, so it can be served to inverter when it requests it.
-
         t = time.monotonic()
-        # s = "query _on_getValues fc %3d addr %5d count %3d dt %f" % (fc_as_hex, address, count, t-self.last_request_time)
-        # log.debug(s); 
-        # mqtt.mqtt.publish("pv/query", s)
-        self.last_request_time = t
-        if meter.data_timestamp and self.active_power.value != None:    # how fresh is this data?
+        if self.data_timestamp:    # how fresh is this data?
             mqtt.publish( "pv/solis1/fakemeter/", {
-                "lag": round( t-meter.data_timestamp, 2 ), # lag between getting data from the real meter and forwarding it to the inverter
+                "lag": round( t-self.data_timestamp, 2 ), # lag between getting data from the real meter and forwarding it to the inverter
                 self.active_power.key: self.active_power.format_value(), # log what we sent to the inverter
                 })
         return True
@@ -400,7 +363,6 @@ class FakeSmartmeter( grugbus.LocalServer ):
             parity          = "N",
             stopbits        = 1,
             strict = False,
-            # response_manipulator = self.response_manipulator
             )
         await self.server.start()
 
@@ -432,19 +394,7 @@ class MainSmartmeter( grugbus.SlaveDevice ):
         # ALL registers every time. Instead, gather the unimportant ones in little groups
         # and frequently read THE important register (total_power) + one group.
         # Unimportant registers will be updated less often, who cares.
-        read_fast_ctr = -1
-        read_fast_regs = ((
-            self.total_power                      ,    # required for fakemeter
-            self.phase_1_line_to_neutral_volts    ,    # required for fakemeter
-            self.phase_2_line_to_neutral_volts    ,
-            self.phase_3_line_to_neutral_volts    ,
-            self.phase_1_current                  ,    # required for fakemeter
-            self.phase_2_current                  ,
-            self.phase_3_current                  ,
-            self.phase_1_power                    ,
-            self.phase_2_power                    ,
-            self.phase_3_power                    ,
-        ),(
+        reg_sets = ((
             self.total_power                      ,    # required for fakemeter
             self.total_volt_amps                  ,    # required for fakemeter
             self.total_var                        ,    # required for fakemeter
@@ -455,6 +405,17 @@ class MainSmartmeter( grugbus.SlaveDevice ):
             self.total_export_kwh                 ,    # required for fakemeter
             self.total_import_kvarh               ,    # required for fakemeter
             self.total_export_kvarh               ,    # required for fakemeter
+        ),(
+            self.total_power                      ,    # required for fakemeter
+            self.phase_1_line_to_neutral_volts    ,    # required for fakemeter
+            self.phase_2_line_to_neutral_volts    ,
+            self.phase_3_line_to_neutral_volts    ,
+            self.phase_1_current                  ,    # required for fakemeter
+            self.phase_2_current                  ,
+            self.phase_3_current                  ,
+            self.phase_1_power                    ,
+            self.phase_2_power                    ,
+            self.phase_3_power                    ,
         ),(
             self.total_power                      ,    # required for fakemeter
             self.total_kwh                        ,    # required for fakemeter
@@ -485,49 +446,61 @@ class MainSmartmeter( grugbus.SlaveDevice ):
             self.total_phase_angle                ,    # required for fakemeter
             self.average_line_to_neutral_volts_thd,
             self.average_line_current_thd         ,
-
                 ))
 
         tick = Metronome(config.POLL_PERIOD_METER)  # fires a tick on every period to read periodically, see misc.py
         last_poll_time = None
         try:
             while STILL_ALIVE:  # set to false by abort()
-                try:
-                    await self.connect()
-
-                    data_request_timestamp = time.monotonic()    # measure lag between modbus request and data delivered to fake smartmeter
+                for reg_set in reg_sets:
                     try:
-                        read_fast_ctr = (read_fast_ctr+1) % len(read_fast_regs)
-                        regs = await self.read_regs( read_fast_regs[read_fast_ctr] )
+                        await self.connect()
+                        await tick.wait()
+                        data_request_timestamp = time.monotonic()    # measure lag between modbus request and data delivered to fake smartmeter
+                        try:
+                            regs = await self.read_regs( reg_set )
+                        except asyncio.exceptions.TimeoutError:
+                            # Nothing special to do: in case of error, read_regs() above already set self.is_online to False
+                            pub = {}
+                        else:
+                            # offset measured power a little bit to ensure a small value of export
+                            # even if the battery is not fully charged
+                            self.total_power_tweaked = self.total_power.value
+                            bp  = mgr.solis1.battery_power.value or 0       # Battery charging power. Positive if charging, negative if discharging.
+                            soc = mgr.solis1.bms_battery_soc.value or 0     # battery soc, 0-100
+                            if bp > 200:        self.total_power_tweaked += soc*bp*0.0001
 
-                    except asyncio.exceptions.TimeoutError:
-                        # Nothing special to do: in case of error, read_regs() above already set self.is_online to False
-                        pub = {}
-                    else:
-                        # offset measured power a little bit to ensure a small value of export
-                        # even if the battery is not fully charged
-                        self.total_power_tweaked = self.total_power.value
-                        bp  = mgr.solis1.battery_power.value or 0       # Battery charging power. Positive if charging, negative if discharging.
-                        soc = mgr.solis1.bms_battery_soc.value or 0     # battery soc, 0-100
-                        if bp > 200:        self.total_power_tweaked += soc*bp*0.0001
+                            #   Fill fakemeter fields
+                            fm = mgr.solis1.fake_meter
+                            fm.voltage                .value = self.phase_1_line_to_neutral_volts .value
+                            fm.current                .value = self.phase_1_current               .value
+                            fm.apparent_power         .value = self.total_volt_amps               .value
+                            fm.reactive_power         .value = self.total_var                     .value
+                            fm.power_factor           .value =(self.total_power_factor            .value % 1.0)
+                            fm.frequency              .value = self.frequency                     .value
+                            fm.import_active_energy   .value = self.total_import_kwh              .value
+                            fm.export_active_energy   .value = self.total_export_kwh              .value
+                            fm.active_power           .value = self.total_power_tweaked
+                            fm.data_timestamp = data_request_timestamp
+                            fm.write_regs_to_context()
+                            await asyncio.sleep(0.003)
 
-                        self.data_timestamp = data_request_timestamp
-                        pub = { reg.key: reg.format_value() for reg in regs_to_publish.intersection(regs) }      # publish what we just read
-                    pub[ "is_online" ]    = int( self.is_online )   # set by read_regs(), True if it succeeded, False otherwise
-                    pub[ "req_time" ]     = round( self.last_transaction_duration,2 )   # log modbus request time, round it for better compression
-                    if last_poll_time:
-                        pub["req_period"] = data_request_timestamp - last_poll_time
-                    last_poll_time = data_request_timestamp
-                    mqtt.publish( "pv/meter/", pub )
-                    await self.router.route()
-                except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
-                    return abort()
-                except:
-                    s = traceback.format_exc()
-                    log.error(s)
-                    mqtt.mqtt.publish( "pv/exception", s )
-                    await asyncio.sleep(0.5)
-                await tick.wait()
+                            pub = { reg.key: reg.format_value() for reg in regs_to_publish.intersection(regs) }      # publish what we just read
+
+                        pub[ "is_online" ]    = int( self.is_online )   # set by read_regs(), True if it succeeded, False otherwise
+                        pub[ "req_time" ]     = round( self.last_transaction_duration,2 )   # log modbus request time, round it for better compression
+                        if last_poll_time:
+                            pub["req_period"] = data_request_timestamp - last_poll_time
+                        last_poll_time = data_request_timestamp
+                        mqtt.publish( "pv/meter/", pub )
+                        await self.router.route()
+                    except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
+                        return abort()
+                    except:
+                        s = traceback.format_exc()
+                        log.error(s)
+                        mqtt.mqtt.publish( "pv/exception", s )
+                        await asyncio.sleep(0.5)
         finally:
             await self.router.stop()
 
