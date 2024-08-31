@@ -17,17 +17,12 @@ import config
 from misc import *
 from pv.mqtt_wrapper import MQTTWrapper
 import grugbus
-from grugbus.devices import Eastron_SDM120, Eastron_SDM630, Acrel_1_Phase, EVSE_ABB_Terra, Acrel_ACR10RD16TE4
-from pv.fake_meter import FakeSmartmeter
-import pv.solis_s5_eh1p, pv.inverter_local_meter, pv.main_meter
+from grugbus.devices import Eastron_SDM120, Eastron_SDM630, Acrel_1_Phase, Acrel_ACR10RD16TE4
+import pv.solis_s5_eh1p, pv.inverter_local_meter, pv.main_meter, pv.evse_abb_terra, pv.fake_meter
 
 """
     python3.11
-    pymodbus 3.1
-
-TODO: move init after event loop is created
-https://github.com/pymodbus-dev/pymodbus/issues/2102
-
+    pymodbus 3.7.x
 
 #### WARNING ####
 This file is both the example code and the manual.
@@ -89,246 +84,6 @@ class MQTT( MQTTWrapper ):
 mqtt = MQTT()
 
 
-
-
-########################################################################################
-#
-#       ABB Terra EVSE, controlled via Modbus
-#
-#       See grugbus/devices/EVSE_ABB_Terra.txt for important notes!
-#
-########################################################################################
-class EVSE( grugbus.SlaveDevice ):
-    def __init__( self, modbus ):
-        super().__init__(
-            modbus,                # Initialize grugbus.SlaveDevice
-            3,                     # Modbus address
-            "evse",                # Name (for logging etc)
-            "ABB Terra",    # Pretty name 
-            # List of registers is in another file, which is auto-generated from spreadsheet
-            # so import it now
-            EVSE_ABB_Terra.MakeRegisters() )
-
-        self.rwr_current_limit.value = 0.0
-
-        self.regs_to_read = (
-            self.charge_state       ,
-            self.current_limit      ,
-            self.current            ,
-            self.active_power       ,
-            self.energy             ,
-            self.error_code         ,
-            self.socket_state
-        )
-
-        self.tick_poll = Metronome( config.POLL_PERIOD_EVSE )   # how often we poll it over modbus
-
-        #   This setting deserves a comment... This is the time interval between current_limit commands to the EVSE.
-        #   After each command:
-        #       The car's charger takes 2-3s to react, but we don't know yet if the charger will decide to use all of the allowed power, or only some.
-        #       Then the solar inverter adjusts its output power, which takes another 1-2s. 
-        #   During all the above, excess PV power calculated by the Router class is not really valid, and should not be used to trigger some other loads
-        #   which would result in "overbooking" of PV power.
-        #   In addition, excess PV power needs to be smoothed (see Router class) to avoid freaking out every time a motor is started in the house
-        #   and causes a short power spike. Say over Ts seconds. 
-        #   Excess power also needs to settle before it can be used to calculate a new current_limit command.
-        #   All this means it will be quite slow. Issue a command, ignore excess power during about 4 seconds, then smooth it for 3 seconds, get a new value, update.
-        #   The length of the smoothing is in the deque in Router() class.
-        self.command_interval       = Timeout( 10, expired=True )
-        self.command_interval_large = Timeout( 10, expired=True )
-        self.settle_timeout         = Timeout( 1, expired=True )
-        self.settle_timeout_wait    = False
-        self.resend_current_limit_timeout = Timeout( 10, expired=True )
-
-        # settings, DO NOT CHANGE as these are set in the ISO standard
-        self.i_pause = 5.0          # current limit in pause mode
-        self.i_start = 6.0          # minimum current limit for charge, can be set to below 6A if charge should pause when solar not available
-        self.i_max   = 30.0         # maximum current limit
-
-        # see comments in set_virtual_current_limit()
-        self.virtual_current_limit = 0
-        self.virtual_i_min   = -5.0   # bounds
-        self.virtual_i_max   = 32.0  # bounds
-        self.virtual_i_pause   = -3.0 # hysteresis comparator: virtual_current_limit threshold to go from charge to pause
-        self.virtual_i_unpause = 1.0 # hysteresis comparator: virtual_current_limit threshold to go from pause to charge
-
-        self.ensure_i   = 6         # guarantee this charge current
-        self.ensure_Wh  = 0       # until this energy has been delivered
-        self.p_threshold_start = 1400   # minimum excess power to start charging
-
-        self.p_dead_band_fast = 0.5 * 240
-        self.p_dead_band_slow = 0.5 * 240
-
-    def publish( self, all=True ):
-        if all: 
-            pub = { reg.key: reg.format_value() for reg in self.regs_to_read }
-            pub["req_time"] = round( self.last_transaction_duration,2 )
-        else:
-           pub = {}
-        pub["virtual_current_limit"] = "%.02f"%self.virtual_current_limit
-        pub["rwr_current_limit"]     = self.rwr_current_limit.format_value()
-        pub["charging_unpaused"]     = self.is_charging_unpaused()
-        mqtt.publish( "pv/evse/", pub )
-
-    async def poll( self, p, fast ):
-        try:
-            await self.read_regs( self.regs_to_read )
-            self.publish()
-            # line = "%d %-6dW e=%6d s=%04x s=%04x v%6.03fA %6.03fA %6.03fA %6.03fA %6.03fW %6.03fWh %fs" % (fast, p, self.error_code.value, self.charge_state.value, self.socket_state.value, 
-            #     self.virtual_current_limit, self.rwr_current_limit.value, self.current_limit.value, self.current.value, 
-            #     self.active_power.value, self.energy.value, self.last_transaction_duration )
-            # print( line )
-            return True
-        except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
-            raise
-        except:
-            s = traceback.format_exc()
-            log.error(s)
-            mqtt.mqtt.publish( "pv/exception", s )
-            await asyncio.sleep(0.5)
-
-    async def stop( self ):
-        await self.set_virtual_current_limit( self.virtual_i_min )
-
-    async def route( self, excess, fast_route ):
-        # Poll charging station
-        if not self.tick_poll.ticked():         # polling interval
-            return
-
-        # poll EVSE over modbus
-        if not await self.poll( excess, fast_route ):
-            self.tick_poll.tick = 30.0  # If it did not respond, poll it less often to not disturb the shared smartmeter modbus line
-            self.default_retries = 1
-            return
-        self.tick_poll.tick = 1.0   # EVSE is online, use short poll interval
-        self.default_retries = 2
-
-        # EV is not plugged, or init register at startup
-        if (self.socket_state.value) != 0x111 or (not self.rwr_current_limit.value):    
-            # set charge to paused, it will take many loops to increment this enough to start
-            await self.set_virtual_current_limit( self.virtual_i_min )
-            return
-
-        # TODO: do not trip breaker     mgr.meter.phase_1_current
-
-        # now, EV is plugged in, but not necessarily authorized or willing to charge.
-        # charge_state 500     : waiting for RFID authorization or other causes.
-        #              1-2-300 : waiting for the car or current limit below 6A, not charging
-        #              400     : charging
-
-        # At the beginning of charge, deliver requested amount of power no matter what
-        if self.energy.value < self.ensure_Wh:
-            await self.set_virtual_current_limit( self.ensure_i )    # set current to minimum value to allow charging to begin
-            return
-
-        if self.is_charging_paused():
-            # Increment it slowly, so we need to see enough excess for long enough to start a charge
-            await self.adjust_virtual_current_limit( 0.5 if excess > self.p_threshold_start else -0.5 )
-            return
-
-        if self.current.value < 5.5:    
-            # Current is low. This either means:
-            # - Charge hasn't started yet, so we shouldn't issue new current adjustments that will be ignored... as the result of that
-            # would be incrementing the current limit too much and when charging starts, a big current spike.
-            # - Or it is in the final charging/balancing stage, and we want that to finish cleanly no matter what excess PV is.
-            # In both cases, we just do nothing.
-            self.command_interval.reset( 6 )
-            self.command_interval_large.reset( 6 )
-            return
-
-        # TODO: if a large current step comes after a small adjustment, ignore the timeout
-        # basically add a load turn on/off detector
-
-        # Finally... adjust current.
-        # Since the car imposes 1A steps, if we have a small excess that is lower than the power step
-        # then don't bother.
-        wait_time = 0
-        delta = 0
-        if fast_route:
-            if abs(excess) > self.p_dead_band_fast:
-                delta     = excess * 0.004
-                wait_time = 5   # SAE J1772 specs: max charger response time to PWM change is 5s
-        else:
-            if abs(excess) > self.p_dead_band_slow:
-                delta     = excess * 0.004
-                wait_time = 9  # add some wait time due to slow inverter reaction
-
-        # Now charge with solar only
-        # EVSE is slow, the car takes 2 seconds to respond to commands, then the inverter needs to adjust,
-        # new value of excess power needs to stabilize, etc, before a new power setting can he issued.
-        # This means we have to wait long enough between commands.
-        change = await self.adjust_virtual_current_limit( delta, dry_run=True )
-        # print( "delta", delta, "change", change, "")
-        if abs(change) <= 1:                   # small change in current
-            if self.command_interval.expired():
-                await self.adjust_virtual_current_limit( delta )
-                self.command_interval.reset( wait_time )
-                self.command_interval_large.reset( 2 )      # allow a large change quickly after a small one    
-        else:     # we need a quick large change
-            if self.command_interval_large.expired(): 
-                # ready to issue command
-                # todo: fine tune this, if the inverters receives the updated meter readings
-                # at the same time it may do the same thing as the router...
-                if not self.settle_timeout_wait:
-                    # large step: wait one extra second for it to settle
-                    self.settle_timeout_wait = True
-                    self.settle_timeout.reset(0.9)
-                else:
-                    if self.settle_timeout.expired():
-                        await self.adjust_virtual_current_limit( delta )
-                        self.command_interval.reset( wait_time )
-                        self.command_interval_large.reset( wait_time )
-                        self.settle_timeout_wait = False
-
-        # inform main router that we have requested a power change to the car
-        # so it should avoid routing other slow loads during this delay
-        return wait_time    
-
-
-    def is_charging_paused( self ):
-        return self.rwr_current_limit.value < self.i_start
-
-    def is_charging_unpaused( self ):
-        return self.rwr_current_limit.value >= self.i_start
-
-    async def adjust_virtual_current_limit( self, increment, dry_run=False ):
-        if increment:
-            return await self.set_virtual_current_limit( self.virtual_current_limit + increment, dry_run )
-        else:
-            return 0
-
-    # Adjusting current when charging takes a few seconds so we can do it often.
-    # But pausing and restarting charge is slow (>30s) so we should not do it just because there was a spike in the
-    # exported power measured by the meter.
-    # When current limit is 6A, EVSE will start charging. Below that it will pause.
-    # So we use a virtual_current_limit that is adjusted according to excess power, then derive the real current limit from it:
-    # when the virtual current limit is lower than 6A but not too low, we keep the real current limit at 6A so it keeps charging.
-    # This avoids short pause/restart cycles;
-    async def set_virtual_current_limit( self, v_limit, dry_run=False ):
-        # clip it
-        v_limit = min( self.virtual_i_max, max( self.virtual_i_min, v_limit ))
-
-        # hysteresis comparator
-        threshold = self.virtual_i_pause if self.is_charging_unpaused() else self.virtual_i_unpause
-
-        if v_limit <= threshold:      current_limit = self.i_pause     # very low: pause charging
-        elif v_limit <= self.i_start: current_limit = self.i_start     # low but not too low: keep charging at min power
-        else:                         current_limit = min( self.i_max, v_limit ) # above 6A: send current limit unchanged
-
-        # avoid useless writes since the car rounds it
-        current_limit = round(current_limit)
-
-        # returns True if the value changed
-        delta = current_limit - self.rwr_current_limit.value
-        if not dry_run:
-            self.virtual_current_limit = v_limit
-            if delta or self.resend_current_limit_timeout.expired():
-                self.resend_current_limit_timeout.reset()
-                self.rwr_current_limit.value = current_limit
-                self.publish( False )   # publish before writing to measure total reaction time (modbus+EVSE+car charger)
-                await self.rwr_current_limit.write( )
-                mqtt.publish( "pv/evse/", { "req_time": round( self.last_transaction_duration,2 ) } )
-        return delta
 
 
 
@@ -596,55 +351,46 @@ class SolisManager():
     def __init__( self ):
         pass
 
-        # self.fronius = Fronius( '192.168.0.17', 1 )
-
-    ########################################################################################
-    #   Start async processes
-    ########################################################################################
-
+    #
+    #   Async entry point
+    #
     def start( self ):
-        if sys.version_info >= (3, 11):
-            with asyncio.Runner(loop_factory=uvloop.new_event_loop) as runner:
-            # with asyncio.Runner() as runner:
-                runner.run(self.astart())
-        else:
-            uvloop.install()
-            asyncio.run(self.astart())
-        # loop = asyncio.get_event_loop()
-        # loop.run_until_complete( self.astart() )
+        with asyncio.Runner(loop_factory=uvloop.new_event_loop) as runner:
+            runner.run(self.astart())
 
+    #
+    #   Build hardware
+    #
     async def astart( self ):
+        #
+        #   Open RS485 ports
+        #
         main_meter_modbus = AsyncModbusSerialClient(    # open Modbus on serial port
-                port            = config.COM_PORT_METER,
-                timeout         = 0.5,
-                retries         = config.MODBUS_RETRIES_METER,
-                baudrate        = 19200,
-                bytesize        = 8,
-                parity          = "N",
-                stopbits        = 1,
+                port            = config.COM_PORT_METER,        timeout         = 0.5,
+                retries         = config.MODBUS_RETRIES_METER,  baudrate        = 19200,
+                bytesize        = 8,    parity          = "N",  stopbits        = 1,
             )
+        local_meter_modbus = AsyncModbusSerialClient(
+                port            = config.COM_PORT_SOLIS,        timeout         = 0.3,
+                retries         = config.MODBUS_RETRIES_METER,  baudrate        = 9600,
+                bytesize        = 8,    parity          = "N",  stopbits        = 1,
+            )
+
+        #
+        #   Instantiate hardware objects
+        #
         self.meter = pv.main_meter.SDM630( main_meter_modbus, modbus_addr=1, key="meter", name="SDM630 Smartmeter", mqtt=mqtt, mqtt_topic="pv/meter/", mgr=self )
-        self.evse  = EVSE( main_meter_modbus )
+        self.evse  = pv.evse_abb_terra.EVSE( main_meter_modbus, modbus_addr=3, key="evse", name="ABB Terra", mqtt=mqtt, mqtt_topic="pv/evse/" )
+
         self.meter.router = Router()
 
         # Instantiate inverters and local meters
 
-        local_meter_modbus = AsyncModbusSerialClient(
-                port            = config.COM_PORT_SOLIS,
-                timeout         = 0.3,
-                retries         = config.MODBUS_RETRIES_METER,
-                baudrate        = 9600,
-                bytesize        = 8,
-                parity          = "N",
-                stopbits        = 1,
-            )
         local_meter = pv.inverter_local_meter.SDM120( local_meter_modbus, modbus_addr=3, key="ms1", name="SDM120 Smartmeter on Solis 1", mqtt=mqtt, mqtt_topic="pv/solis1/meter/" )
 
         self.solis1 = pv.solis_s5_eh1p.Solis( 
-                modbus=local_meter_modbus, modbus_addr = 1, 
-                key = "solis1", name = "Solis 1", 
-                local_meter = local_meter,
-                fake_meter = FakeSmartmeter( port=config.COM_PORT_FAKE_METER1, key="fake_meter_1", name="Fake meter for Solis 1",
+                modbus=local_meter_modbus,      modbus_addr = 1,       key = "solis1", name = "Solis 1",    local_meter = local_meter,
+                fake_meter = pv.fake_meter.FakeSmartmeter( port=config.COM_PORT_FAKE_METER1, key="fake_meter_1", name="Fake meter for Solis 1",
                                             modbus_address=1, meter_type=Acrel_1_Phase ),
                 mqtt = mqtt, mqtt_topic = "pv/solis1/"
         )
@@ -720,10 +466,10 @@ class SolisManager():
                     if s.temperature.value > 40 or sum(bat_power_deque) / len(bat_power_deque) > 2000:
                         timeout_fan_off.reset()
                         s.mqtt.publish( "cmnd/plugs/tasmota_t3/", {"Power": "1"} )
-                        print("Fan ON")
+                        # print("Fan ON")
                     elif s.temperature.value < 35 and timeout_fan_off.expired():
                         s.mqtt.publish( "cmnd/plugs/tasmota_t3/", {"Power": "0"} )
-                        print("Fan OFF")
+                        # print("Fan OFF")
 
                 except (asyncio.exceptions.TimeoutError, pymodbus.exceptions.ModbusException):
                     pass
@@ -749,7 +495,6 @@ class SolisManager():
                 tg.create_task( self.solis1.read_coroutine() )
                 tg.create_task( self.solis1.local_meter.read_coroutine() )
                 tg.create_task( self.sysinfo_coroutine() )
-                tg.create_task( self.display_coroutine() )
                 tg.create_task( self.mqtt_start() )
                 tg.create_task( site.start() )
                 tg.create_task( test_coro() )
@@ -804,107 +549,6 @@ class SolisManager():
                 raise
             except:
                 log.error(traceback.format_exc())
-
-    ########################################################################################
-    #   Local display
-    ########################################################################################
-
-    async def display_coroutine( self ):
-        while True:
-            await asyncio.sleep(1)
-            meter = self.meter
-            ms1   = self.solis1.local_meter
-            solis = self.solis1
-            r = [""]
-
-            try:
-                for reg in (
-                    solis.fault_status_1_grid              ,
-                    solis.fault_status_2_backup            ,
-                    solis.fault_status_3_battery           ,
-                    solis.fault_status_4_inverter          ,
-                    solis.fault_status_5_inverter          ,
-                    # solis.inverter_status                  ,
-                    solis.operating_status                 ,
-                    # solis.energy_storage_mode              ,
-                    solis.rwr_energy_storage_mode          ,
-                ):
-                    r.extend( reg.get_on_bits() )
-
-
-                for reg in (
-                    meter.phase_1_power                    ,
-                    meter.phase_2_power                    ,
-                    meter.phase_3_power                    ,
-                    "",
-                    meter.total_power               ,
-                    solis.pv_power,      
-                    solis.battery_power,                      
-                    # self.fronius.grid_port_power,
-                    ms1.active_power,
-                    # solis.house_load_power,                   
-                    solis.backup_load_power,                  
-                    "",
-                    solis.dc_bus_voltage,      
-                    solis.temperature,
-                    "",
-                    solis.battery_voltage,                    
-                    solis.bms_battery_voltage,                
-                    # solis.battery_current_direction,                    
-                    solis.battery_current,                    
-                    solis.bms_battery_current,                
-                    solis.bms_battery_charge_current_limit,   
-                    solis.bms_battery_discharge_current_limit,
-                    solis.bms_battery_soc,                    
-                    solis.bms_battery_health_soh,   
-                    solis.rwr_power_on_off,          
-
-            #         solis.energy_generated_today,
-
-            #         solis.phase_a_voltage,
-
-            # solis.rwr_power_limit_switch,
-            # solis.rwr_actual_power_limit_adjustment_value,
-
-                    "",
-
-            # solis.meter_ac_voltage_a                           ,
-            # solis.meter_ac_current_a                           ,
-            # solis.meter_ac_voltage_b                           ,
-            # solis.meter_ac_current_b                           ,
-            # solis.meter_ac_voltage_c                           ,
-            # solis.meter_ac_current_c                           ,
-            # solis.meter_active_power_a                         ,
-            # solis.meter_active_power_b                         ,
-            # solis.meter_active_power_c                         ,
-            # solis.meter_total_active_power                     ,
-            # solis.meter_reactive_power_a                       ,
-            # solis.meter_reactive_power_b                       ,
-            # solis.meter_reactive_power_c                       ,
-            # solis.meter_total_reactive_power                   ,
-            # solis.meter_apparent_power_a                       ,
-            # solis.meter_apparent_power_b                       ,
-            # solis.meter_apparent_power_c                       ,
-            # solis.meter_total_apparent_power                   ,
-            # solis.meter_power_factor                           ,
-            # solis.meter_grid_frequency                         ,
-            # solis.meter_total_active_energy_imported_from_grid ,
-            # solis.meter_total_active_energy_exported_to_grid   ,
-
-
-                    ):
-                    if isinstance( reg, str ):
-                        r.append(reg)
-                    else:
-                        if reg.value != None:
-                            r.append( "%40s %10s %10s" % (reg.key, reg.device.key, reg.format_value() ) )
-
-                # print( "\n".join(r) )
-            except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
-                raise
-            except:
-                log.error(traceback.format_exc())
-
 
 
 if 1:
