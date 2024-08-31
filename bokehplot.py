@@ -122,6 +122,7 @@ PLOTS = { p[1]:DataStream( *p ) for p in (
     ( 0, "pv/total_pv_power"                , "Total PV"   , "#00FF00"  , 1.0   , {} ),
     ( 0, "pv/meter/house_power"             , "House"      , "#8080FF"  , 1.0   , {} ),
     ( 0, "pv/solis1/battery_power"          , "Battery"    , "#FFC080"  , 1.0   , {} ),
+    ( 0, "pv/solis1/input_power"            , "Battery (proxy)"    , "#C08040"  , 1.0   , {} ),
     # ( 0, "pv/solis1/bms_battery_power"          , "Battery"    , "#FFC080"  , 1.0   , {} ),
     ( 0, "pv/meter/total_power"             , "Grid"       , "#FF0000"  , 1.0   , {} ),
     ( 0, "pv/solis1/meter/active_power"     , "Inverter"      , "cyan"     , 1.0   , {} ),
@@ -141,24 +142,24 @@ PLOTS = { p[1]:DataStream( *p ) for p in (
     # ( 1, "pv/meter/phase_3_line_to_neutral_volts"         , "PH3V"   , "orange"   , 1.0, {} ),
 
 
-    ( 1, "pv/solis1/bms_battery_current" , "Battery current" , "#FFC080"  ,1.0  , {"visible":False} ),
+    # ( 1, "pv/solis1/bms_battery_current" , "Battery current" , "#FFC080"  ,1.0  , {"visible":False} ),
     ( 1, "pv/solis1/bms_battery_soc"     , "Battery SOC"   , "green"    , 1.0   , {"visible":False} ),
     ( 1, "pv/solis1/temperature"         , "Temperature"   , "orange"   , 1.0   , {"visible":False} ),
     ( 1, "pv/evse/virtual_current_limit" , "EVSE ILim (virtual)" , "#FF00FF"   , 1.0, {"visible":False} ),
     ( 1, "pv/evse/current"               , "EVSE I (real)"    , "#FFFFFF"   , 1.0, {"visible":False} ),
-    # ( 1, "pv/solis1/battery_current"     , "Bat current"    , "#008080"   , 1.0, {"visible":False} ),
+    # ( 1, "pv/solis1/battery_current"     , "Bat current"    , "#FF8000"   , 1.0, {"visible":False} ),
+    # ( 1, "pv/solis1/battery_voltage"     , "Bat voltage"    , "#FFFF00"   , 1.0, {"visible":False} ),
     ( 1, "pv/solis1/battery_max_charge_current"     , "Bat max current"    , "#0080FF"   , 1.0, {"visible":False} ),
 
-    ( 1, "pv/meter/req_time"               , "meter req_time"    , "#FFFFFF"   , 1.0, {}, "", "max" ),
-    ( 1, "pv/evse/req_time"                , "EVSE req_time"     , "#FFFF00"   , 1.0, {}, "", "max" ),
-    ( 1, "pv/meter/req_period"             , "req_period"        , "#00FF00"   , 1.0, {}, "", "max" ),
-    ( 1, "pv/solis1/fakemeter/lag"               , "lag"    , "#FF00FF"   , 1.0, {} ),
+    # ( 1, "pv/meter/req_time"               , "meter req_time"    , "#FFFFFF"   , 1.0, {}, "", "max" ),
+    # ( 1, "pv/evse/req_time"                , "EVSE req_time"     , "#FFFF00"   , 1.0, {}, "", "max" ),
+    # ( 1, "pv/meter/req_period"             , "req_period"        , "#00FF00"   , 1.0, {}, "", "max" ),
+    # ( 1, "pv/solis1/fakemeter/lag"               , "lag"    , "#FF00FF"   , 1.0, {} ),
 
     # ( 0, "pv/solis1/mppt1_power"       , "mppt1_power" , "#FFFF00"  , 1.0, {} ),
     # ( 0, "pv/solis1/mppt2_power"       , "mppt2_power" , "#FFFFFF"  , 1.0, {} ),
 
-
-    # ( 1, "pv/solis1/dc_bus_voltage"      , "DC Bus"        , "cyan"     , 1.0, {} ),
+    # ( 1, "pv/solis1/dc_bus_voltage"      , "DC Bus"        ,    "#FFFFFF"     , 1.0, {} ),
     # ( 1, "pv/solis1/mppt1_voltage"       , "mppt1_voltage" , "#FFFF00"  , 1.0, {} ),
     # ( 1, "pv/solis1/mppt2_voltage"       , "mppt2_voltage" , "#FFFFFF"  , 1.0, {} ),
     # ( 1, "pv/solis1/mppt1_current"       , "mppt1_current" , "#FFFF00"  , 1.0, {} ),

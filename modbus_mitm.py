@@ -17,8 +17,9 @@ import config
 from misc import *
 from pv.mqtt_wrapper import MQTTWrapper
 import grugbus
-from grugbus.devices import Eastron_SDM120, Solis_S5_EH1P_6K_2020_Extras, Eastron_SDM630, Acrel_1_Phase, EVSE_ABB_Terra, Acrel_ACR10RD16TE4
+from grugbus.devices import Eastron_SDM120, Eastron_SDM630, Acrel_1_Phase, EVSE_ABB_Terra, Acrel_ACR10RD16TE4
 from pv.fake_meter import FakeSmartmeter
+import pv.solis_s5_eh1p, pv.inverter_local_meter, pv.main_meter
 
 """
     python3.11
@@ -89,143 +90,6 @@ mqtt = MQTT()
 
 
 
-########################################################################################
-#
-#       Main house smartmeter, grid side, meters total power for solar+home
-#
-#       This class reads the meter and publishes it on MQTT
-#
-#       Meter is read very often, so it gets its own serial port
-#
-########################################################################################
-class MainSmartmeter( grugbus.SlaveDevice ):
-    def __init__( self, modbus ):
-        super().__init__(  
-            modbus,
-            1,                      # Modbus address
-            "meter",                # Name (for logging etc)
-            "SDM630 Smartmeter",    # Pretty name 
-            # List of registers is in another file, which is auto-generated from spreadsheet
-            # so import it now
-            Eastron_SDM630.MakeRegisters() )
-
-        self.router = Router()
-        self.total_power_tweaked = 0.0
-
-    async def read_coroutine( self ):
-        # For power routing to work we need to read total_power frequently. So we don't read 
-        # ALL registers every time. Instead, gather the unimportant ones in little groups
-        # and frequently read THE important register (total_power) + one group.
-        # Unimportant registers will be updated less often, who cares.
-        reg_sets = ((
-            self.total_power                      ,    # required for fakemeter
-            self.total_volt_amps                  ,    # required for fakemeter
-            self.total_var                        ,    # required for fakemeter
-            self.total_power_factor               ,    # required for fakemeter
-            self.total_phase_angle                ,    # required for fakemeter
-            self.frequency                        ,    # required for fakemeter
-            self.total_import_kwh                 ,    # required for fakemeter
-            self.total_export_kwh                 ,    # required for fakemeter
-            self.total_import_kvarh               ,    # required for fakemeter
-            self.total_export_kvarh               ,    # required for fakemeter
-        ),(
-            self.total_power                      ,    # required for fakemeter
-            self.phase_1_line_to_neutral_volts    ,    # required for fakemeter
-            self.phase_2_line_to_neutral_volts    ,
-            self.phase_3_line_to_neutral_volts    ,
-            self.phase_1_current                  ,    # required for fakemeter
-            self.phase_2_current                  ,
-            self.phase_3_current                  ,
-            self.phase_1_power                    ,
-            self.phase_2_power                    ,
-            self.phase_3_power                    ,
-        ),(
-            self.total_power                      ,    # required for fakemeter
-            self.total_kwh                        ,    # required for fakemeter
-            self.total_kvarh                      ,    # required for fakemeter
-        ),(
-            self.total_power                      ,    # required for fakemeter
-            self.average_line_to_neutral_volts_thd,
-            self.average_line_current_thd         ,
-        ))
-
-        # publish these to MQTT
-        regs_to_publish = set((
-            self.phase_1_line_to_neutral_volts    ,
-            self.phase_2_line_to_neutral_volts    ,
-            self.phase_3_line_to_neutral_volts    ,
-            self.phase_1_current                  ,
-            self.phase_2_current                  ,
-            self.phase_3_current                  ,
-            self.phase_1_power                    ,
-            self.phase_2_power                    ,
-            self.phase_3_power                    ,
-            self.total_power                      ,
-            self.total_import_kwh                 ,
-            self.total_export_kwh                 ,
-            self.total_volt_amps                  ,    # required for fakemeter
-            self.total_var                        ,    # required for fakemeter
-            self.total_power_factor               ,    # required for fakemeter
-            self.total_phase_angle                ,    # required for fakemeter
-            self.average_line_to_neutral_volts_thd,
-            self.average_line_current_thd         ,
-                ))
-
-        tick = Metronome(config.POLL_PERIOD_METER)  # fires a tick on every period to read periodically, see misc.py
-        last_poll_time = None
-        try:
-            while True:
-                for reg_set in reg_sets:
-                    try:
-                        await self.connect()
-                        await tick.wait()
-                        data_request_timestamp = time.monotonic()    # measure lag between modbus request and data delivered to fake smartmeter
-                        try:
-                            regs = await self.read_regs( reg_set )
-                        except asyncio.exceptions.TimeoutError:
-                            # Nothing special to do: in case of error, read_regs() above already set self.is_online to False
-                            pub = {}
-                        else:
-                            # offset measured power a little bit to ensure a small value of export
-                            # even if the battery is not fully charged
-                            self.total_power_tweaked = self.total_power.value
-                            bp  = mgr.solis1.battery_power.value or 0       # Battery charging power. Positive if charging, negative if discharging.
-                            soc = mgr.solis1.bms_battery_soc.value or 0     # battery soc, 0-100
-                            if bp > 200:        self.total_power_tweaked += soc*bp*0.0001
-
-                            #   Fill fakemeter fields
-                            fm = mgr.solis1.fake_meter
-                            fm.voltage                .value = self.phase_1_line_to_neutral_volts .value
-                            fm.current                .value = self.phase_1_current               .value
-                            fm.apparent_power         .value = self.total_volt_amps               .value
-                            fm.reactive_power         .value = self.total_var                     .value
-                            fm.power_factor           .value =(self.total_power_factor            .value % 1.0)
-                            fm.frequency              .value = self.frequency                     .value
-                            fm.import_active_energy   .value = self.total_import_kwh              .value
-                            fm.export_active_energy   .value = self.total_export_kwh              .value
-                            fm.active_power           .value = self.total_power_tweaked
-                            fm.data_timestamp = data_request_timestamp
-                            fm.is_online = self.is_online
-                            fm.write_regs_to_context()
-
-                            pub = { reg.key: reg.format_value() for reg in regs_to_publish.intersection(regs) }      # publish what we just read
-
-                        pub[ "is_online" ]    = int( self.is_online )   # set by read_regs(), True if it succeeded, False otherwise
-                        pub[ "req_time" ]     = round( self.last_transaction_duration,2 )   # log modbus request time, round it for better compression
-                        if last_poll_time:
-                            pub["req_period"] = data_request_timestamp - last_poll_time
-                        last_poll_time = data_request_timestamp
-                        mqtt.publish( "pv/meter/", pub )
-                        await self.router.route()
-                    except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
-                        return
-                    except:
-                        s = traceback.format_exc()
-                        log.error(s)
-                        mqtt.mqtt.publish( "pv/exception", s )
-                        await asyncio.sleep(0.5)
-        finally:
-            await self.router.stop()
 
 ########################################################################################
 #
@@ -576,6 +440,9 @@ class Router():
         # correct battery power measurement offset when battery is fully charged
         if not mgr.solis1.battery_dcdc_active and -250 < bp < 200:
             bp = 0
+        else:
+            # use fast proxy instead
+            bp = mgr.solis1.input_power
 
         # Solis S5 EH1P has several different behaviors to which we should adapt for better routing.
         #
@@ -620,6 +487,7 @@ class Router():
         #   From the above, we distinguish two routing modes: fast and slow.
         #
         fast_route = not mgr.solis1.battery_dcdc_active
+        fast_route = True
 
         # set desired average export power, tweak it a bit considering battery soc
         meter_export -= self.p_export_target_base + self.p_export_target_soc_factor * soc
@@ -718,443 +586,6 @@ class Router():
 
 
 
-########################################################################################
-#
-#       Fronius Primo Inverter, modbus over TCP
-#
-########################################################################################
-# class Fronius( grugbus.SlaveDevice ):
-#     def __init__( self, ip, modbus_addr ):
-#         super().__init__( AsyncModbusTcpClient( ip ), modbus_addr , "fronius", "Fronius", [ 
-#             grugbus.registers.RegFloat( (3, 6, 16), 40095, 1, 'grid_port_power', 1, "W", 'float', None, 'Grid Port Power', '' ) 
-#             ] )
-
-#     async def read_coroutine( self ):
-#         tick = Metronome( config.POLL_PERIOD_FRONIUS )
-#         try:    # It powers down at night, which disconnects TCP. 
-#                 # pymodbus reconnects automatically, no need to put this in the while loop below
-#                 # otherwise it will leak sockets
-#             await self.connect()
-#         except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
-#             return abort()
-
-#         while STILL_ALIVE:
-#             try:
-#                 await tick.wait()
-#                 try:
-#                     # t = time.time()
-#                     await self.grid_port_power.read()
-#                     # print("Fronius", time.time()-t, self.grid_port_power.value)
-#                 except (asyncio.exceptions.TimeoutError, pymodbus.exceptions.ConnectionException):
-#                     self.grid_port_power.value = 0.
-#                     pub = {}
-#                     # await asyncio.sleep(5)
-#                 else:
-#                     self.grid_port_power.value = -(self.grid_port_power.value or 0)
-#                     pub = { 
-#                         self.grid_port_power.key: self.grid_port_power.format_value(),
-#                         }
-#                 pub["is_online"] = int( self.is_online )
-#                 mqtt.publish( "pv/fronius/", pub, add_heartbeat=True )
-#             except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
-#                 return abort()
-#             except:
-#                 s = traceback.format_exc()
-#                 log.error(s)
-#                 mqtt.mqtt.publish( "pv/exception", s )
-#                 await asyncio.sleep(0.5)
-
-########################################################################################
-#
-#       Solis inverter
-#
-#       COM port and local smartmeter on the same modbus interface
-#       Fake meter is on its own other interface
-#
-########################################################################################
-class Solis( grugbus.SlaveDevice ):
-    def __init__( self, modbus, modbus_addr, key, name, meter, fakemeter ):
-        super().__init__( modbus, modbus_addr, key, name, Solis_S5_EH1P_6K_2020_Extras.MakeRegisters() )
-
-        self.local_meter = meter        # on AC grid port
-        self.fake_meter  = fakemeter    # meter emulation on meter port
-
-        self.battery_dcdc_active = True # inverter reacts slower when battery works (charge or discharge), see comments in Router
-
-        self.regs_to_read = (
-            self.mppt1_voltage,              
-            self.mppt1_current,              
-            self.mppt2_voltage,              
-            self.mppt2_current,        
-            self.pv_power,      
-            self.dc_bus_voltage,      
-            self.temperature,
-
-            self.battery_voltage,                    
-            self.battery_current,                    
-            self.battery_current_direction,          
-            self.bms_battery_soc,                    
-            self.bms_battery_health_soh,             
-            self.bms_battery_voltage,                
-            self.bms_battery_current,                
-            self.bms_battery_charge_current_limit,   
-            self.bms_battery_discharge_current_limit,
-            self.house_load_power,                   
-            self.backup_load_power,                  
-            self.battery_power,                      
-            self.grid_port_power,        
-
-            self.battery_over_discharge_soc,
-            self.rwr_power_on_off,              
-
-            self.energy_generated_today,
-            self.energy_generated_yesterday,
-            self.battery_charge_energy_today,
-            self.battery_discharge_energy_today,
-
-            self.fault_status_1_grid              ,
-            self.fault_status_2_backup            ,
-            self.fault_status_3_battery           ,
-            self.fault_status_4_inverter          ,
-            self.fault_status_5_inverter          ,
-            self.inverter_status                  ,
-            self.operating_status                 ,
-            self.energy_storage_mode              ,
-            # self.rwr_energy_storage_mode              ,
-            self.bms_battery_fault_information_01 ,
-            self.bms_battery_fault_information_02 ,
-            self.backup_voltage                   ,
-            self.backup_output_enabled            ,
-            self.battery_max_charge_current       ,
-            self.battery_max_discharge_current    ,
-
-            # self.rwr_battery_discharge_current_maximum_setting,
-            # self.rwr_battery_charge_current_maximum_setting,
-
-            self.phase_a_voltage,
-            self.rwr_backup_output_enabled,
-            # self.rwr_epm_export_power_limit,
-
-            # self.meter_ac_voltage_a                           ,
-            # self.meter_ac_current_a                           ,
-            # self.meter_ac_voltage_b                           ,
-            # self.meter_ac_current_b                           ,
-            # self.meter_ac_voltage_c                           ,
-            # self.meter_ac_current_c                           ,
-            # self.meter_active_power_a                         ,
-            # self.meter_active_power_b                         ,
-            # self.meter_active_power_c                         ,
-            # self.meter_total_active_power                     ,
-            # self.meter_reactive_power_a                       ,
-            # self.meter_reactive_power_b                       ,
-            # self.meter_reactive_power_c                       ,
-            # self.meter_total_reactive_power                   ,
-            # self.meter_apparent_power_a                       ,
-            # self.meter_apparent_power_b                       ,
-            # self.meter_apparent_power_c                       ,
-            # self.meter_total_apparent_power                   ,
-            # self.meter_power_factor                           ,
-            # self.meter_grid_frequency                         ,
-            # self.meter_total_active_energy_imported_from_grid ,
-            # self.meter_total_active_energy_exported_to_grid   ,
-        )
-
-        lm = self.local_meter
-        self.local_meter_regs_to_read = ( 
-                    # lm.voltage               ,
-                    # lm.current               ,
-                    lm.active_power          ,
-                    # lm.apparent_power        ,
-                    # lm.reactive_power        ,
-                    # lm.power_factor          ,
-                    # lm.phase_angle           ,
-                    # lm.frequency             ,
-                    lm.import_active_energy  ,
-                    lm.export_active_energy  ,
-                    # lm.import_reactive_energy,
-                    # lm.export_reactive_energy,
-                    # lm.total_active_energy   ,
-                    # lm.total_reactive_energy ,
-                )
-
-    async def read_meter_coroutine( self ):
-        tick = Metronome( config.POLL_PERIOD_SOLIS_METER )
-        timeout_counter = 0
-        while True:
-            await self.connect()
-            try:
-                lm_regs = await self.local_meter.read_regs( self.local_meter_regs_to_read )
-            except asyncio.exceptions.TimeoutError:
-                lm_pub = {}
-                self.local_meter.active_power.value = None if timeout_counter<10 else 0 # if it times out, there is no measured power
-                timeout_counter += 1
-            except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
-                raise
-            except:
-                s = traceback.format_exc()
-                log.error(s)
-                mqtt.mqtt.publish( "pv/exception", s )
-                await asyncio.sleep(0.5)
-            else:
-                lm_pub = { reg.key: reg.format_value() for reg in lm_regs }
-                timeout_counter = 0
-
-            lm_pub[ "is_online" ] = int(self.local_meter.is_online)
-            mqtt.publish( "pv/%s/meter/"%self.key, lm_pub )
-
-            # Add useful metrics to avoid asof joins in database
-            if mgr.meter.is_online:
-                meter_pub = { "house_power" :  float(int(  (mgr.meter.total_power.value or 0)
-                                                        - (self.local_meter.active_power.value or 0)
-                                                        # - (mgr.fronius.grid_port_power.value or 0) 
-                                                        )) }
-                mqtt.publish( "pv/meter/", meter_pub )
-            mqtt.publish( "pv/", {"total_pv_power": float(int(
-                              (self.pv_power.value or 0) 
-                            # - (mgr.fronius.grid_port_power.value or 0)
-                            ))} )
-            await tick.wait()
-
-    async def read_inverter_coroutine( self ):
-        await self.connect()
-        try:
-            await self.adjust_time()
-        except asyncio.exceptions.TimeoutError: # if inverter is disconnected, start anyway
-            pass
-
-        tick = Metronome( config.POLL_PERIOD_SOLIS )
-        timeout_fan_off = Timeout( 60 )
-        bat_power_deque = collections.deque( maxlen=10 )
-        timeout_power_on  = Timeout( 60, expired=True )
-        timeout_power_off = Timeout( 600 )
-        timeout_blackout  = Timeout( 120, expired=True )
-        power_reg = self.rwr_power_on_off
-
-        if   self.fake_meter.meter_type == Acrel_1_Phase:      mt = 1
-        elif self.fake_meter.meter_type == Acrel_ACR10RD16TE4: mt = 2
-        elif self.fake_meter.meter_type == Eastron_SDM120:     mt = 4
-        mt |= {"grid":0x100, "load":0x200}[self.fake_meter.meter_placement]
-
-        try:
-            await self.rwr_meter1_type_and_location.read()
-            await self.rwr_meter1_type_and_location.write_if_changed( mt )
-        except asyncio.exceptions.TimeoutError: # if inverter is disconnected, start anyway
-            pass
-
-        # regs = [
-        #     self.rwr_remote_control_active_power_on_grid_port                      ,
-        #     self.rwr_remote_control_grid_adjustment                                ,
-        #     self.rwr_remote_control_active_power_on_system_grid_connection_point   ,
-        #     self.rwr_remote_control_reactive_power_on_system_grid_connection_point ]
-        # dump_regs = [self.rwr_energy_storage_mode, self.rwr_meter1_type_and_location, self.rwr_epm_settings] + regs
-
-        # try:
-        #     for meter in 0x106, mt:
-        #         for epm in 0x100, 0:
-        #             for storage_mode in 0x20, 0x21, 0x23:
-        #                 for grid_adjust in 2,1:
-        #                     self.rwr_remote_control_grid_adjustment                                .value = grid_adjust
-        #                     self.rwr_remote_control_active_power_on_system_grid_connection_point   .value = 3000
-        #                     self.rwr_remote_control_reactive_power_on_system_grid_connection_point .value = 100
-        #                     self.rwr_remote_control_active_power_on_grid_port                      .value = 4000
-        #                     await self.rwr_energy_storage_mode.write_if_changed( storage_mode )
-        #                     await self.rwr_epm_settings.write_if_changed( epm )
-        #                     await self.rwr_meter1_type_and_location.write_if_changed( meter )
-        #                     await asyncio.sleep(1)
-        #                     await self.write_regs( regs )
-        #                     print("Write")
-        #                     self.dump_regs( regs )
-        #                     await asyncio.sleep(1)
-        #                     print("Readback")
-        #                     await self.read_regs( regs )
-        #                     self.dump_regs( dump_regs )
-        #                     await asyncio.sleep(10)
-
-        # finally:
-        #     self.rwr_remote_control_grid_adjustment                                .value = 0
-        #     self.rwr_remote_control_active_power_on_system_grid_connection_point   .value = 0
-        #     self.rwr_remote_control_reactive_power_on_system_grid_connection_point .value = 0
-        #     self.rwr_remote_control_active_power_on_grid_port                      .value = 0
-        #     await self.write_regs( regs )
-        #     await self.rwr_epm_settings.write( 32 )
-        #     await self.rwr_energy_storage_mode.write( 0x23 )
-        #     await self.rwr_meter1_type_and_location.write_if_changed( mt )
-
-
-
-        # try:
-        #     tk = Metronome( 1 )
-        #     plimit = 0
-        #     await self.rwr_remote_control_force_battery_discharge_power.write( 4500 )
-        #     await self.rwr_remote_control_force_battery_charge_discharge.write( 2 )
-
-        #     while STILL_ALIVE:
-        #         try:
-        #             plimit += min( mgr.meter.total_power_tweaked, 2500 )
-        #             plimit = min( 4000, max( 200, plimit ))
-        #             mqtt.mqtt.publish( "cmd/pv/write/rwr_battery_discharge_power_limit", str(plimit) )
-        #             await self.rwr_battery_discharge_power_limit.write( plimit )
-        #         except asyncio.exceptions.TimeoutError:
-        #             pass # This also covers register writes above, not just the first read, so do not move
-        #         except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
-        #             return abort()
-        #         except:
-        #             s = traceback.format_exc()
-        #             log.error(s)
-        #             mqtt.mqtt.publish( "pv/exception", s )
-        #             await asyncio.sleep(0.5)
-        #         await tk.wait()
-        # finally:
-        #         await self.rwr_remote_control_force_battery_discharge_power.write( 0 )
-        #         await self.rwr_remote_control_force_battery_charge_discharge.write( 0 )
-        #         await self.rwr_battery_discharge_power_limit.write( 0 )
-        # return
-
-        while True:
-            try:
-                # mqtt.mqtt.publish( "cmd/pv/write/rwr_battery_discharge_power_limit", str(v) )
-                # v = foo * 200 + 200
-                # mqtt.mqtt.publish( "cmd/pv/write/rwr_battery_discharge_power_limit", str(v) )
-                # await self.rwr_battery_discharge_power_limit.write( v )
-                # foo = (foo+1) % 5
-
-                regs = await self.read_regs( self.regs_to_read )
-
-                # multitasking: at this point the sign of battery current and power is wrong
-                # Add polarity to battery parameters
-                if self.battery_current_direction.value:    # positive current/power means charging, negative means discharging
-                    self.battery_current.value     *= -1
-                    self.bms_battery_current.value *= -1
-                    self.battery_power.value       *= -1
-                self.battery_dcdc_active = self.battery_max_charge_current.value != 0
-
-                # positive means inverter is consuming power, negative means producing
-                # this line is commented out, we're using unit_value=-1 in the register definitions instead.
-                # self.grid_port_power.value *= -1    
-
-                # Add useful metrics to avoid asof joins in database
-                pub = { reg.key: reg.format_value() for reg in regs  }
-                del pub["battery_current_direction"]  # we put it in the current sign, no need to puclish it
-                pub["mppt1_power"] = int( self.mppt1_current.value*self.mppt1_voltage.value )
-                pub["mppt2_power"] = int( self.mppt2_current.value*self.mppt2_voltage.value )
-                pub["is_online"]   = int( self.is_online )
-                pub["bms_battery_power"] = int( self.bms_battery_current.value * self.bms_battery_voltage.value )
-
-                # Blackout logic: enable backup output in case of blackout
-                blackout = self.fault_status_1_grid.bit_is_active( "No grid" ) and self.phase_a_voltage.value < 100
-                if blackout:
-                    log.info( "Blackout" )
-                    await self.rwr_backup_output_enabled.write_if_changed( 1 )      # enable backup output
-                    await self.rwr_power_on_off         .write_if_changed( self.rwr_power_on_off.value_on )   # Turn inverter on (if it was off)
-                    await self.rwr_energy_storage_mode  .write_if_changed( 0x32 )   # mode = Backup, optimal revenue, charge from grid
-                    timeout_blackout.reset()
-                elif not timeout_blackout.expired():        # stay in backup mode with backup output enabled for a while
-                    log.info( "Remain in backup mode for %d s", timeout_blackout.remain() )
-                    timeout_power_on.reset()
-                    timeout_power_off.reset()
-                else:
-                    await self.rwr_backup_output_enabled.write_if_changed( 0 )      # disable backup output
-                    await self.rwr_energy_storage_mode  .write_if_changed( 0x23 )   # Self use, optimal revenue, charge from grid
-
-                    # Auto on/off: turn it off at night when the batery is below specified SOC
-                    # so it doesn't keep draining it while doing nothing useful
-                    inverter_is_on = power_reg.value == power_reg.value_on
-                    mpptv = max( self.mppt1_voltage.value, self.mppt2_voltage.value )
-                    if inverter_is_on:
-                        if mpptv < config.SOLIS_TURNOFF_MPPT_VOLTAGE and self.bms_battery_soc.value <= config.SOLIS_TURNOFF_BATTERY_SOC:
-                            timeout_power_on.reset()
-                            if timeout_power_off.expired():
-                                log.info("Powering OFF %s"%self.key)
-                                await power_reg.write_if_changed( power_reg.value_off )
-                            else:
-                                log.info( "Power off %s in %d s", self.key, timeout_power_off.remain() )
-                        else:
-                            timeout_power_off.reset()
-                    else:
-                        if mpptv > config.SOLIS_TURNON_MPPT_VOLTAGE:                        
-                            timeout_power_off.reset()
-                            if timeout_power_on.expired():
-                                log.info("Powering ON %s"%self.key)
-                                await power_reg.write_if_changed( power_reg.value_on )
-                            else:
-                                log.info( "Power on %s in %d s", self.key, timeout_power_on.remain() )
-                        else:
-                            timeout_power_on.reset()
-
-                ######################################
-                # Battery discharge management
-                # Avoid short battery cycles 
-                inverter_is_on = power_reg.value == power_reg.value_on       # in case it was changed by write above
-
-                # self.rwr_battery_discharge_current_maximum_setting.set_value( 50 )
-                # await self.rwr_battery_discharge_current_maximum_setting.write()
-
-                # start fan if temperature too high or average battery power high
-                bat_power_deque.append( abs(pub["bms_battery_power"]) )
-                if self.temperature.value > 40 or sum(bat_power_deque) / len(bat_power_deque) > 2000:
-                    timeout_fan_off.reset()
-                    mqtt.publish( "cmnd/plugs/tasmota_t3/", {"Power": "1"} )
-                    # print("Fan ON")
-                elif self.temperature.value < 35 and timeout_fan_off.expired():
-                    mqtt.publish( "cmnd/plugs/tasmota_t3/", {"Power": "0"} )
-                    # print("Fan OFF")
-
-                mqtt.publish( "pv/%s/"%self.key, pub )
-
-            except asyncio.exceptions.TimeoutError:
-                # use defaults so the rest of the code still works if connection to the inverter is lost
-                self.battery_current.value            = 0
-                self.bms_battery_current.value        = 0
-                self.battery_power.value              = 0
-                self.battery_max_charge_current.value = 0
-                self.battery_dcdc_active              = 1
-                self.pv_power.value                   = 0
-
-            except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
-                raise
-            except:
-                s = traceback.format_exc()
-                log.error(s)
-                mqtt.mqtt.publish( "pv/exception", s )
-                await asyncio.sleep(0.5)
-            await tick.wait()
-
-    def get_time_regs( self ):
-        return ( self.rwr_real_time_clock_year, self.rwr_real_time_clock_month,  self.rwr_real_time_clock_day,
-         self.rwr_real_time_clock_hour, self.rwr_real_time_clock_minute, self.rwr_real_time_clock_seconds )
-
-    async def get_time( self ):
-        regs = self.get_time_regs()
-        await self.read_regs( regs )
-        dt = [ reg.value for reg in regs ]
-        dt[0] += 2000
-        return datetime.datetime( *dt )
-
-    async def set_time( self, dt  ):
-        self.rwr_real_time_clock_year   .value = dt.year - 2000   
-        self.rwr_real_time_clock_month  .value = dt.month   
-        self.rwr_real_time_clock_day    .value = dt.day   
-        self.rwr_real_time_clock_hour   .value = dt.hour   
-        self.rwr_real_time_clock_minute .value = dt.minute   
-        self.rwr_real_time_clock_seconds.value = dt.second
-        await self.write_regs( self.get_time_regs() )
-
-    async def adjust_time( self ):
-        inverter_time = await self.get_time()
-        dt = datetime.datetime.now()
-        log.info( "Inverter time: %s, Pi time: %s" % (inverter_time.isoformat(), dt.isoformat()))
-        deltat = abs( dt-inverter_time )
-        if deltat < datetime.timedelta( seconds=2 ):
-            log.info( "Inverter time is OK, we won't set it." )
-        else:
-            if deltat > datetime.timedelta( seconds=4000 ):
-                log.info( "Pi time seems old, is NTP active?")
-            else:
-                log.info( "Setting inverter time to Pi time" )
-                await self.set_time( dt )
-                inverter_time = await self.get_time()
-                log.info( "Inverter time: %s, Pi time: %s" % (inverter_time.isoformat(), dt.isoformat()))
-
 
 ########################################################################################
 #
@@ -1192,10 +623,12 @@ class SolisManager():
                 parity          = "N",
                 stopbits        = 1,
             )
-        self.meter = MainSmartmeter( main_meter_modbus )
+        self.meter = pv.main_meter.SDM630( main_meter_modbus, modbus_addr=1, key="meter", name="SDM630 Smartmeter", mqtt=mqtt, mqtt_topic="pv/meter/", mgr=self )
         self.evse  = EVSE( main_meter_modbus )
+        self.meter.router = Router()
 
-        # Port for inverters COM and local meters
+        # Instantiate inverters and local meters
+
         local_meter_modbus = AsyncModbusSerialClient(
                 port            = config.COM_PORT_SOLIS,
                 timeout         = 0.3,
@@ -1205,15 +638,103 @@ class SolisManager():
                 parity          = "N",
                 stopbits        = 1,
             )
-        self.solis1 = Solis( 
-            modbus=local_meter_modbus, 
-            modbus_addr = 1, 
-            key = "solis1", name = "Solis 1", 
-            meter = grugbus.SlaveDevice( local_meter_modbus, 3, "ms1", "SDM120 Smartmeter on Solis 1", Eastron_SDM120.MakeRegisters() ),
-            fakemeter = FakeSmartmeter( port=config.COM_PORT_FAKE_METER1, key="fake_meter_1",
-                                        name="Fake SDM120 for Inverter 1",
-                                        modbus_address=1, meter_type=Acrel_1_Phase )
+        local_meter = pv.inverter_local_meter.SDM120( local_meter_modbus, modbus_addr=3, key="ms1", name="SDM120 Smartmeter on Solis 1", mqtt=mqtt, mqtt_topic="pv/solis1/meter/" )
+
+        self.solis1 = pv.solis_s5_eh1p.Solis( 
+                modbus=local_meter_modbus, modbus_addr = 1, 
+                key = "solis1", name = "Solis 1", 
+                local_meter = local_meter,
+                fake_meter = FakeSmartmeter( port=config.COM_PORT_FAKE_METER1, key="fake_meter_1", name="Fake meter for Solis 1",
+                                            modbus_address=1, meter_type=Acrel_1_Phase ),
+                mqtt = mqtt, mqtt_topic = "pv/solis1/"
         )
+
+        async def test_coro():
+            while True:
+                lm = self.solis1.local_meter
+                try:
+                    await lm.event_power.wait()
+                    if lm.is_online:
+                        meter_pub = { "house_power" :  float(int(  (self.meter.total_power.value or 0)
+                                                                - (lm.active_power.value or 0) )) }
+                        mqtt.publish( "pv/meter/", meter_pub )            
+                except:
+                    log.exception(lm.key+":")
+
+        async def test_coro2():
+            s = self.solis1
+            timeout_fan_off = Timeout( 60 )
+            bat_power_deque = collections.deque( maxlen=10 )
+            timeout_power_on  = Timeout( 60, expired=True )
+            timeout_power_off = Timeout( 600 )
+            timeout_blackout  = Timeout( 120, expired=True )
+            power_reg = s.rwr_power_on_off
+
+            while True:
+                try:
+                    await s.event_all.wait()
+
+                    # Blackout logic: enable backup output in case of blackout
+                    blackout = s.fault_status_1_grid.bit_is_active( "No grid" ) and s.phase_a_voltage.value < 100
+                    if blackout:
+                        log.info( "Blackout" )
+                        await s.rwr_backup_output_enabled.write_if_changed( 1 )      # enable backup output
+                        await s.rwr_power_on_off         .write_if_changed( s.rwr_power_on_off.value_on )   # Turn inverter on (if it was off)
+                        await s.rwr_energy_storage_mode  .write_if_changed( 0x32 )   # mode = Backup, optimal revenue, charge from grid
+                        timeout_blackout.reset()
+                    elif not timeout_blackout.expired():        # stay in backup mode with backup output enabled for a while
+                        log.info( "Remain in backup mode for %d s", timeout_blackout.remain() )
+                        timeout_power_on.reset()
+                        timeout_power_off.reset()
+                    else:
+                        await s.rwr_backup_output_enabled.write_if_changed( 0 )      # disable backup output
+                        await s.rwr_energy_storage_mode  .write_if_changed( 0x23 )   # Self use, optimal revenue, charge from grid
+
+                    # Auto on/off: turn it off at night when the batery is below specified SOC
+                    # so it doesn't keep draining it while doing nothing useful
+                    inverter_is_on = power_reg.value == power_reg.value_on
+                    mpptv = max( s.mppt1_voltage.value, s.mppt2_voltage.value )
+                    if inverter_is_on:
+                        if mpptv < config.SOLIS_TURNOFF_MPPT_VOLTAGE and s.bms_battery_soc.value <= config.SOLIS_TURNOFF_BATTERY_SOC:
+                            timeout_power_on.reset()
+                            if timeout_power_off.expired():
+                                log.info("Powering OFF %s"%s.key)
+                                await power_reg.write_if_changed( power_reg.value_off )
+                            else:
+                                log.info( "Power off %s in %d s", s.key, timeout_power_off.remain() )
+                        else:
+                            timeout_power_off.reset()
+                    else:
+                        if mpptv > config.SOLIS_TURNON_MPPT_VOLTAGE:                        
+                            timeout_power_off.reset()
+                            if timeout_power_on.expired():
+                                log.info("Powering ON %s"%s.key)
+                                await power_reg.write_if_changed( power_reg.value_on )
+                            else:
+                                log.info( "Power on %s in %d s", s.key, timeout_power_on.remain() )
+                        else:
+                            timeout_power_on.reset()
+
+                    # start fan if temperature too high or average battery power high
+                    bat_power_deque.append( abs(s.battery_power.value) )
+                    if s.temperature.value > 40 or sum(bat_power_deque) / len(bat_power_deque) > 2000:
+                        timeout_fan_off.reset()
+                        s.mqtt.publish( "cmnd/plugs/tasmota_t3/", {"Power": "1"} )
+                        print("Fan ON")
+                    elif s.temperature.value < 35 and timeout_fan_off.expired():
+                        s.mqtt.publish( "cmnd/plugs/tasmota_t3/", {"Power": "0"} )
+                        print("Fan OFF")
+
+                except (asyncio.exceptions.TimeoutError, pymodbus.exceptions.ModbusException):
+                    pass
+                except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
+                    raise
+                except:
+                    log.exception(s.key+":")
+                    # s = traceback.format_exc()
+                    # log.error(self.key+":"+s)
+                    # self.mqtt.mqtt.publish( "pv/exception", s )
+                    await asyncio.sleep(5)            
 
         app = aiohttp.web.Application()
         app.add_routes([aiohttp.web.get('/', self.webresponse), aiohttp.web.get('/solar_api/v1/GetInverterRealtimeData.cgi', self.webresponse)])
@@ -1225,12 +746,14 @@ class SolisManager():
             async with asyncio.TaskGroup() as tg:
                 tg.create_task( self.solis1.fake_meter.start_server() )
                 tg.create_task( self.meter.read_coroutine() )
-                tg.create_task( self.solis1.read_inverter_coroutine() )
-                tg.create_task( self.solis1.read_meter_coroutine() )
+                tg.create_task( self.solis1.read_coroutine() )
+                tg.create_task( self.solis1.local_meter.read_coroutine() )
                 tg.create_task( self.sysinfo_coroutine() )
                 tg.create_task( self.display_coroutine() )
                 tg.create_task( self.mqtt_start() )
                 tg.create_task( site.start() )
+                tg.create_task( test_coro() )
+                tg.create_task( test_coro2() )
         except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
             print("Terminated.")
 

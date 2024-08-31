@@ -1,0 +1,228 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+
+import time, asyncio, datetime, logging, collections, traceback, pymodbus
+
+# Device wrappers and misc local libraries
+import grugbus
+from grugbus.devices import Solis_S5_EH1P_6K_2020_Extras, Eastron_SDM120, Eastron_SDM630, Acrel_1_Phase, EVSE_ABB_Terra, Acrel_ACR10RD16TE4
+import config
+from misc import *
+
+log = logging.getLogger(__name__)
+
+########################################################################################
+#
+#       Solis inverter
+#
+#       This class communicates with the inverter's COM port
+#
+########################################################################################
+class Solis( grugbus.SlaveDevice ):
+    def __init__( self, modbus, modbus_addr, key, name, local_meter, fake_meter, mqtt, mqtt_topic ):
+        super().__init__( modbus, modbus_addr, key, name, Solis_S5_EH1P_6K_2020_Extras.MakeRegisters() )
+
+        self.local_meter = local_meter        # on AC grid port
+        self.fake_meter  = fake_meter    # meter emulation on meter port
+        self.mqtt        = mqtt
+        self.mqtt_topic  = mqtt_topic
+
+        # These are computed using values polled from the inverter
+        self.battery_dcdc_active = True # inverter reacts slower when battery works (charge or discharge), see comments in Router
+
+        # For power routing we need to know battery power, in order to steal some of it when we want to.
+        # The inverter's report of battery_power is slow (2 seconds lag) and does not account for energy stored
+        # into the DC bus capacitors. However, for quick routing, we don't need it. What we need is the amount of power
+        # going into the inverter: input_power = pv_power + grid_port_power
+        # This has no lag, as pv_power is reported in real time.
+        # TODO: this also includes backup output power, so we should substract it
+        self.input_power = 0
+
+        #   Other coroutines that need inverter register values can wait on these events to 
+        #   grab the values when they are read
+        self.event_power = asyncio.Event()  # Fires every time frequent_regs below are read
+        self.event_all   = asyncio.Event()  # Fires when all registers are read, for slower processes
+
+        frequent_regs = [
+                self.pv_power                   ,
+
+                self.battery_voltage            ,
+                self.battery_current            ,
+                self.battery_current_direction  ,
+            ]
+
+        self.reg_sets = [ frequent_regs + regs for regs in [[
+                self.energy_generated_today               ,  
+                self.energy_generated_yesterday           ,      
+            ],[
+                self.mppt1_voltage                        ,
+                self.mppt1_current                        ,
+                self.mppt2_voltage                        ,
+                self.mppt2_current                        ,
+            ],[
+                self.dc_bus_voltage                       ,
+                self.dc_bus_half_voltage                  ,
+                self.phase_a_voltage                      ,
+            ],[
+                self.temperature                          ,
+                self.inverter_status                      ,
+            ],[
+                self.fault_status_1_grid                  ,
+                self.fault_status_2_backup                ,
+                self.fault_status_3_battery               ,
+                self.fault_status_4_inverter              ,
+                self.fault_status_5_inverter              ,
+                self.operating_status                     ,
+            ],[
+                self.backup_voltage                       ,
+            ],[
+                self.bms_battery_soc                      ,
+                self.bms_battery_health_soh               ,
+                self.bms_battery_voltage                  ,
+                self.bms_battery_current                  ,
+                self.bms_battery_charge_current_limit     ,
+                self.bms_battery_discharge_current_limit  ,
+                self.bms_battery_fault_information_01     ,
+                self.bms_battery_fault_information_02     ,
+                self.backup_load_power                    ,
+            ],[
+                self.battery_charge_energy_today          ,
+                self.battery_discharge_energy_today       ,
+            ],[
+                self.battery_max_charge_current           ,
+                self.battery_max_discharge_current        ,
+            ],[
+                self.rwr_power_on_off                     ,              
+            ],[
+                self.rwr_energy_storage_mode              ,
+                self.rwr_backup_output_enabled            ,
+            ]]]
+
+    async def read_coroutine( self ):
+        await self.connect()
+
+        tick = Metronome( config.POLL_PERIOD_SOLIS )
+
+        # set meter type remotely to make it easy to emulate different fakemeters
+        if   self.fake_meter.meter_type == Acrel_1_Phase:      mt = 1
+        elif self.fake_meter.meter_type == Acrel_ACR10RD16TE4: mt = 2
+        elif self.fake_meter.meter_type == Eastron_SDM120:     mt = 4
+        mt |= {"grid":0x100, "load":0x200}[self.fake_meter.meter_placement]
+
+        try:
+            await self.adjust_time()
+            await self.rwr_meter1_type_and_location.read()
+            await self.rwr_meter1_type_and_location.write_if_changed( mt )
+        except (asyncio.exceptions.TimeoutError, pymodbus.exceptions.ModbusException): 
+            # if inverter is disconnected because the Solis Wifi Stick is in, do not abort the rest of the program
+            pass
+
+        while True:
+            try:
+                await self.connect()
+                for reg_set in self.reg_sets:
+                    await tick.wait()
+                    regs = await self.read_regs( reg_set, max_hole_size=4 )
+
+                    #
+                    #   Process values. Do not await until it is done, to prevent other tasks from seeing partial results
+                    #   Code below is all conditional, depending on which registers were read
+                    #
+
+                    # Prepare MQTT publish
+                    pub = { reg.key: reg.format_value() for reg in regs  }
+
+                    # Add polarity to battery parameters
+                    if "battery_current_direction" in pub:
+                        del pub["battery_current_direction"]        # no need to publish it, we use it below
+                        if self.battery_current_direction.value:    # positive current/power means charging, negative means discharging
+                            self.battery_current.value     *= -1
+                            # no need to fetch it, we can calculate it
+                        self.battery_power.value       = self.battery_current.value * self.battery_voltage.value
+                        pub["battery_power"] = self.battery_power.format_value()
+
+                    if "battery_max_charge_current" in pub:
+                        self.battery_dcdc_active = self.battery_max_charge_current.value != 0
+
+                    # Add useful metrics to avoid asof joins in database
+                    if "mppt1_voltage" in pub:
+                        pub["mppt1_power"] = int( self.mppt1_current.value * self.mppt1_voltage.value )
+                        pub["mppt2_power"] = int( self.mppt2_current.value * self.mppt2_voltage.value )
+
+                    if "bms_battery_current" in pub:
+                        if self.battery_current_direction.value:    # positive current/power means charging, negative means discharging
+                            self.bms_battery_current.value *= -1
+                        pub["bms_battery_power"] = int( self.bms_battery_current.value * self.bms_battery_voltage.value )
+
+                    # compute input_power for routing
+                    self.input_power = self.pv_power.value + self.local_meter.active_power.value
+                    pub["input_power"] = int( self.input_power )
+
+                    # publish
+                    self.mqtt.publish( self.mqtt_topic, pub )
+                    if "pv_power" in pub:
+                        self.mqtt.publish( "pv/", { "total_pv_power": pub["pv_power"] })
+
+                    # wake up other coroutines waiting for fresh values
+                    self.event_power.set()
+                    self.event_power.clear()
+
+                # wake up other coroutines waiting for fresh values
+                self.event_all.set()
+                self.event_all.clear()
+
+            except (asyncio.exceptions.TimeoutError, pymodbus.exceptions.ModbusException):
+                # use defaults so the rest of the code still works if connection to the inverter is lost
+                # note self.is_online is set to False by grugbus.Device when communication fails, no need
+                # to set it again here
+                self.battery_current.value            = 0
+                self.bms_battery_current.value        = 0
+                self.battery_power.value              = 0
+                self.battery_max_charge_current.value = 0
+                self.battery_dcdc_active              = 1
+                self.pv_power.value                   = 0
+
+            except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
+                raise
+            except:
+                log.exception(self.key+":")
+                # s = traceback.format_exc()
+                # log.error(self.key+":"+s)
+                # self.mqtt.mqtt.publish( "pv/exception", s )
+                await asyncio.sleep(5)
+
+    def get_time_regs( self ):
+        return ( self.rwr_real_time_clock_year, self.rwr_real_time_clock_month,  self.rwr_real_time_clock_day,
+         self.rwr_real_time_clock_hour, self.rwr_real_time_clock_minute, self.rwr_real_time_clock_seconds )
+
+    async def get_time( self ):
+        regs = self.get_time_regs()
+        await self.read_regs( regs )
+        dt = [ reg.value for reg in regs ]
+        dt[0] += 2000
+        return datetime.datetime( *dt )
+
+    async def set_time( self, dt  ):
+        self.rwr_real_time_clock_year   .value = dt.year - 2000   
+        self.rwr_real_time_clock_month  .value = dt.month   
+        self.rwr_real_time_clock_day    .value = dt.day   
+        self.rwr_real_time_clock_hour   .value = dt.hour   
+        self.rwr_real_time_clock_minute .value = dt.minute   
+        self.rwr_real_time_clock_seconds.value = dt.second
+        await self.write_regs( self.get_time_regs() )
+
+    async def adjust_time( self ):
+        inverter_time = await self.get_time()
+        dt = datetime.datetime.now()
+        log.info( "Inverter time: %s, Pi time: %s" % (inverter_time.isoformat(), dt.isoformat()))
+        deltat = abs( dt-inverter_time )
+        if deltat < datetime.timedelta( seconds=2 ):
+            log.info( "Inverter time is OK, we won't set it." )
+        else:
+            if deltat > datetime.timedelta( seconds=4000 ):
+                log.info( "Pi time seems old, is NTP active?")
+            else:
+                log.info( "Setting inverter time to Pi time" )
+                await self.set_time( dt )
+                inverter_time = await self.get_time()
+                log.info( "Inverter time: %s, Pi time: %s" % (inverter_time.isoformat(), dt.isoformat()))

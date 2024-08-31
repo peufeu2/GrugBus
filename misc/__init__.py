@@ -7,9 +7,9 @@ class Metronome():
     """
         Simple class to periodically trigger an event
     """
-    def __init__( self, tick ):
+    def __init__( self, tick, base=0 ):
         self.tick = tick
-        self.next_tick = 0
+        self.next_tick = base
 
     def reset( self ):
         self.next_tick = time.monotonic()+self.tick

@@ -105,40 +105,40 @@ sleep_delay = 5.0
 
 async def start():
     mqtt = MQTTWrapper( "mqtt_chauffage" )
-    try:
-        await mqtt.mqtt.connect( config.MQTT_BROKER_LOCAL )
-        await run( mqtt )
-    except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
-        print("Terminated.")
-        return
-    except:
-        log.exception( "Exception" )
-        await asyncio.sleep(1)
+    await mqtt.mqtt.connect( config.MQTT_BROKER_LOCAL )
+    await run( mqtt )
 
 async def run(mqtt ):
     last_line = None
     timeout = None
     while True:
-        await asyncio.sleep( sleep_delay )
-        data = {}
-        for k,v in get():
-            if isinstance( v,float ):
-                v = round( v, 2 )
-            if isinstance( v,bool ):
-                v = int(v)
-            print(k,v)
-            data[k]=v
-        mqtt.publish( "chauffage/", data )
+        try:
+            await asyncio.sleep( sleep_delay )
+            data = {}
+            for k,v in get():
+                if isinstance( v,float ):
+                    v = round( v, 2 )
+                if isinstance( v,bool ):
+                    v = int(v)
+                print(k,v)
+                data[k]=v
+            mqtt.publish( "chauffage/", data )
 
-        lines = urllib.request.urlopen("http://192.168.0.16/log",timeout=2).read().decode("windows-1252").split("\n")
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-            if line == last_line:
-                continue
-            last_line = line
-            mqtt.mqtt.publish("chauffage/log", line)
+            lines = urllib.request.urlopen("http://192.168.0.16/log",timeout=2).read().decode("windows-1252").split("\n")
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                if line == last_line:
+                    continue
+                last_line = line
+                mqtt.mqtt.publish("chauffage/log", line)
+        except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
+            print("Terminated.")
+            return
+        except:
+            log.exception( "Exception" )
+            await asyncio.sleep(1)
 
 
 with asyncio.Runner(loop_factory=uvloop.new_event_loop) as runner:

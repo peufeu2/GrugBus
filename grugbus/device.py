@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import logging, functools, asyncio, time
+import pymodbus
 from pymodbus.pdu import ExceptionResponse
 
 log = logging.getLogger(__name__)
@@ -124,14 +125,6 @@ class DeviceBase( ):
     #         else:
     #             start_addr += 1
 
-    # def make_chunks( self, fcode, start_addr, end_addr ):
-    #     """Cut interval into chunks of max_regs_in_command size"""
-    #     while start_addr < end_addr:
-    #         chunk_len = min( end_addr-start_addr, self.max_regs_in_command[fcode] )
-    #         yield start_addr, chunk_len
-    #         start_addr += chunk_len
-
-
 class SlaveDevice( DeviceBase ):
     """######################
 
@@ -207,10 +200,10 @@ class SlaveDevice( DeviceBase ):
                 if remain:
                     result.append(( fcode, remain ))            # process last record
 
-        # print( self.key, [(chunk[0][0], chunk[-1][1]) for fcode, chunk in result] )
+        print( self.key, [(chunk[0][0], chunk[-1][1]-chunk[0][0]) for fcode, chunk in result] )
         return result
 
-    async def read_regs( self, read_list, retries=None ):
+    async def read_regs( self, read_list, retries=None, max_hole_size=None ):
         """
             Reads multiple registers. It is much faster than reading registers individually and is
             the preferred way versus calling read() on each register.
@@ -233,7 +226,7 @@ class SlaveDevice( DeviceBase ):
             start_time = time.monotonic()
             result = []
             update_list = []
-            for fcode, chunk in self.reg_list_to_chunks( read_list, None ):
+            for fcode, chunk in self.reg_list_to_chunks( read_list, max_hole_size ):
                 # print( fcode, ":", " ".join( "%d-%d" % (c[0],c[1]) for c in chunk ))
                 func = self._read_funcs.get( fcode )
                 if not func: 
@@ -245,6 +238,7 @@ class SlaveDevice( DeviceBase ):
                 for retry in range( retries ):
                     try:
                         async with self.modbus._async_mutex:    # can share same serial port between various devices
+                            t = time.monotonic()
                             resp = await func( start_addr, end_addr-start_addr, self.bus_address )
                             if isinstance( resp, ExceptionResponse ):
                                 raise ModbusException( str( resp ) )
@@ -272,9 +266,9 @@ class SlaveDevice( DeviceBase ):
                     reg.decode( fcode, reg_data[ offset:(offset+reg.word_length) ] )
                     result.append( reg )
             return result
-        except asyncio.exceptions.TimeoutError:
+        except (asyncio.exceptions.TimeoutError, pymodbus.exceptions.ModbusException) as e:
             self.is_online = False
-            raise
+            raise asyncio.exceptions.TimeoutError( str(e) )
         finally:
             self.last_transaction_duration = time.monotonic()-start_time
 
@@ -367,7 +361,7 @@ class SlaveDevice( DeviceBase ):
                             logging.error( "Modbus write timeout: %s after %d/%d retries", self.key, retry+1, retries )
                             raise
 
-        except asyncio.exceptions.TimeoutError:
+        except (asyncio.exceptions.TimeoutError, pymodbus.exceptions.ModbusException) as e:
             self.is_online = False
             raise
         finally:
