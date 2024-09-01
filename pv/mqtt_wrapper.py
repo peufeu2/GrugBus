@@ -20,6 +20,7 @@ class MQTTWrapper:
         self.mqtt.on_subscribe  = self.on_subscribe
         self.mqtt.set_auth_credentials( config.MQTT_USER, config.MQTT_PASSWORD )
         self.published_data = {}
+        self.is_connected = False
 
     # multi-publish
     # this is not declared async, and gmqtt publish() is not async either.
@@ -46,10 +47,10 @@ class MQTTWrapper:
             self.mqtt.publish( k, str(v), qos=0 )
 
     def on_connect(self, client, flags, rc, properties):
-        pass
+        self.is_connected = True
 
     def on_disconnect(self, client, packet, exc=None):
-        pass
+        self.is_connected = False
 
     async def on_message(self, client, topic, payload, qos, properties):
         pass

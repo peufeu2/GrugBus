@@ -270,7 +270,8 @@ class SlaveDevice( DeviceBase ):
             self.is_online = False
             raise asyncio.exceptions.TimeoutError( str(e) )
         finally:
-            self.last_transaction_duration = time.monotonic()-start_time
+            self.last_transaction_timestamp = t = time.monotonic()
+            self.last_transaction_duration = t-start_time
 
 
     async def write_regs( self, write_list, retries=None ):
@@ -365,7 +366,8 @@ class SlaveDevice( DeviceBase ):
             self.is_online = False
             raise
         finally:
-            self.last_transaction_duration = time.monotonic()-start_time
+            self.last_transaction_timestamp = t = time.monotonic()
+            self.last_transaction_duration = t-start_time
 
     # for debugging
     def dump_all_regs( self, all=False ):

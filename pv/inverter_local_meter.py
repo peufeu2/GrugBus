@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-import time, asyncio, datetime, logging, collections, traceback
+import time, asyncio, datetime, logging, collections, traceback, pymodbus
 
 # Device wrappers and misc local libraries
 import grugbus

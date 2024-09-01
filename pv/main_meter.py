@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-import time, asyncio, datetime, logging, collections, traceback
+import time, asyncio, datetime, logging, collections, traceback, pymodbus
 
 # Device wrappers and misc local libraries
 import grugbus
@@ -99,51 +99,38 @@ class SDM630( grugbus.SlaveDevice ):
                     try:
                         await self.connect()
                         await tick.wait()
-                        data_request_timestamp = time.monotonic()    # measure lag between modbus request and data delivered to fake smartmeter
                         try:
                             regs = await self.read_regs( reg_set )
-                        except asyncio.exceptions.TimeoutError:
+                        except (asyncio.exceptions.TimeoutError, pymodbus.exceptions.ModbusException):
                             # Nothing special to do: in case of error, read_regs() above already set self.is_online to False
                             pub = {}
                         else:
-                            # offset measured power a little bit to ensure a small value of export
-                            # even if the battery is not fully charged
-                            self.total_power_tweaked = self.total_power.value
-                            bp  = self.mgr.solis1.battery_power.value or 0       # Battery charging power. Positive if charging, negative if discharging.
-                            soc = self.mgr.solis1.bms_battery_soc.value or 0     # battery soc, 0-100
-                            if bp > 200:        self.total_power_tweaked += soc*bp*0.0001
-
-                            #   Fill fakemeter fields
-                            fm = self.mgr.solis1.fake_meter
-                            fm.voltage                .value = self.phase_1_line_to_neutral_volts .value
-                            fm.current                .value = self.phase_1_current               .value
-                            fm.apparent_power         .value = self.total_volt_amps               .value
-                            fm.reactive_power         .value = self.total_var                     .value
-                            fm.power_factor           .value =(self.total_power_factor            .value % 1.0)
-                            fm.frequency              .value = self.frequency                     .value
-                            fm.import_active_energy   .value = self.total_import_kwh              .value
-                            fm.export_active_energy   .value = self.total_export_kwh              .value
-                            fm.active_power           .value = self.total_power_tweaked
-                            fm.data_timestamp = data_request_timestamp
-                            fm.is_online = self.is_online
-                            fm.write_regs_to_context()
-
+                            # wake up other coroutines waiting for fresh values
+                            self.event_power.set()
+                            self.event_power.clear()
                             pub = { reg.key: reg.format_value() for reg in regs_to_publish.intersection(regs) }      # publish what we just read
 
                         pub[ "is_online" ]    = int( self.is_online )   # set by read_regs(), True if it succeeded, False otherwise
                         pub[ "req_time" ]     = round( self.last_transaction_duration,2 )   # log modbus request time, round it for better compression
                         if last_poll_time:
-                            pub["req_period"] = data_request_timestamp - last_poll_time
-                        last_poll_time = data_request_timestamp
+                            pub["req_period"] = self.last_transaction_timestamp - last_poll_time
+                        last_poll_time = self.last_transaction_timestamp
                         self.mqtt.publish( self.mqtt_topic, pub )
                         await self.router.route()
+
                     except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
                         return
                     except:
                         log.exception(self.key+":")
-                        # s = traceback.format_exc()
-                        # log.error(s)
-                        # self.mqtt.mqtt.publish( "pv/exception", s )
                         await asyncio.sleep(0.5)
+
+                    # wake up other coroutines waiting for fresh values
+                    self.event_all.set()
+                    self.event_all.clear()
+
+
         finally:
             await self.router.stop()
+
+
+

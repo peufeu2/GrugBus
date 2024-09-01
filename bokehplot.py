@@ -148,7 +148,7 @@ PLOTS = { p[1]:DataStream( *p ) for p in (
     ( 1, "pv/evse/virtual_current_limit" , "EVSE ILim (virtual)" , "#FF00FF"   , 1.0, {"visible":False} ),
     ( 1, "pv/evse/current"               , "EVSE I (real)"    , "#FFFFFF"   , 1.0, {"visible":False} ),
     # ( 1, "pv/solis1/battery_current"     , "Bat current"    , "#FF8000"   , 1.0, {"visible":False} ),
-    ( 1, "pv/solis1/battery_voltage"     , "Bat voltage"    , "#FFFF00"   , 1.0, {"visible":False} ),
+    # ( 1, "pv/solis1/battery_voltage"     , "Bat voltage"    , "#FFFF00"   , 1.0, {"visible":False} ),
     ( 1, "pv/solis1/battery_max_charge_current"     , "Bat max current"    , "#0080FF"   , 1.0, {"visible":False} ),
 
     # ( 1, "pv/meter/req_time"               , "meter req_time"    , "#FFFFFF"   , 1.0, {}, "", "max" ),

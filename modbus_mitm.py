@@ -340,6 +340,12 @@ class Router():
                     d.off()
 
 
+async def log_coroutine( title, fut ):
+    log.info("Start:"+title )
+    try:
+        await fut
+    finally:
+        log.info("Exit: "+title )
 
 
 ########################################################################################
@@ -352,6 +358,145 @@ class SolisManager():
         pass
 
     #
+    #   Blackout logic
+    #
+    async def inverter_blackout_coroutine( self, solis ):
+        timeout_blackout  = Timeout( 120, expired=True )
+        while True:
+            await solis.event_all.wait()
+            try:
+                # Blackout logic: enable backup output in case of blackout
+                blackout = solis.fault_status_1_grid.bit_is_active( "No grid" ) and solis.phase_a_voltage.value < 100
+                if blackout:
+                    log.info( "Blackout" )
+                    await solis.rwr_backup_output_enabled.write_if_changed( 1 )      # enable backup output
+                    await solis.rwr_power_on_off         .write_if_changed( solis.rwr_power_on_off.value_on )   # Turn inverter on (if it was off)
+                    await solis.rwr_energy_storage_mode  .write_if_changed( 0x32 )   # mode = Backup, optimal revenue, charge from grid
+                    timeout_blackout.reset()
+                elif not timeout_blackout.expired():        # stay in backup mode with backup output enabled for a while
+                    log.info( "Remain in backup mode for %d s", timeout_blackout.remain() )
+                    timeout_power_on.reset()
+                    timeout_power_off.reset()
+                else:
+                    await solis.rwr_backup_output_enabled.write_if_changed( 0 )      # disable backup output
+                    await solis.rwr_energy_storage_mode  .write_if_changed( 0x23 )   # Self use, optimal revenue, charge from grid
+
+            except (asyncio.exceptions.TimeoutError, pymodbus.exceptions.ModbusException):  pass
+            except (KeyboardInterrupt, asyncio.exceptions.CancelledError):                  raise
+            except:
+                log.exception(s.key+":")
+                await asyncio.sleep(5)           
+
+    #
+    #   Low battery power save logic
+    #
+    async def inverter_powersave_coroutine( self, solis ):
+        timeout_power_on  = Timeout( 60, expired=True )
+        timeout_power_off = Timeout( 600 )
+        power_reg = solis.rwr_power_on_off
+        while True:
+            await solis.event_all.wait()
+            try:
+                # Auto on/off: turn it off at night when the battery is below specified SOC
+                # so it doesn't keep draining it while doing nothing useful
+                inverter_is_on = power_reg.value == power_reg.value_on
+                mpptv = max( solis.mppt1_voltage.value, solis.mppt2_voltage.value )
+                if inverter_is_on:
+                    if mpptv < config.SOLIS_TURNOFF_MPPT_VOLTAGE and solis.bms_battery_soc.value <= config.SOLIS_TURNOFF_BATTERY_SOC:
+                        timeout_power_on.reset()
+                        if timeout_power_off.expired():
+                            log.info("Powering OFF %s"%solis.key)
+                            await power_reg.write_if_changed( power_reg.value_off )
+                        else:
+                            log.info( "Power off %s in %d s", solis.key, timeout_power_off.remain() )
+                    else:
+                        timeout_power_off.reset()
+                else:
+                    if mpptv > config.SOLIS_TURNON_MPPT_VOLTAGE:                        
+                        timeout_power_off.reset()
+                        if timeout_power_on.expired():
+                            log.info("Powering ON %s"%solis.key)
+                            await power_reg.write_if_changed( power_reg.value_on )
+                        else:
+                            log.info( "Power on %s in %d s", solis.key, timeout_power_on.remain() )
+                    else:
+                        timeout_power_on.reset()
+                        
+            except (asyncio.exceptions.TimeoutError, pymodbus.exceptions.ModbusException):  pass
+            except (KeyboardInterrupt, asyncio.exceptions.CancelledError):                  raise
+            except:
+                log.exception(s.key+":")
+                await asyncio.sleep(5)      
+
+    #
+    #   start fan if temperature too high or average battery power high
+    #
+    async def inverter_fan_coroutine( self, solis ):
+        timeout_fan_off = Timeout( 60 )
+        bat_power_deque = collections.deque( maxlen=10 )
+        while True:
+            await solis.event_all.wait()
+            try:
+                bat_power_deque.append( abs(solis.battery_power.value) )
+                if solis.temperature.value > 40 or sum(bat_power_deque) / len(bat_power_deque) > 2000:
+                    timeout_fan_off.reset()
+                    solis.mqtt.publish( "cmnd/plugs/tasmota_t3/", {"Power": "1"} )
+                elif solis.temperature.value < 35 and timeout_fan_off.expired():
+                    solis.mqtt.publish( "cmnd/plugs/tasmota_t3/", {"Power": "0"} )
+
+            except (KeyboardInterrupt, asyncio.exceptions.CancelledError): raise
+            except:
+                log.exception(solis.key+":")
+                await asyncio.sleep(5)           
+
+    #
+    #   Compute house power
+    #
+    async def house_power_coroutine( self ):
+        lm = self.solis1.local_meter
+        while True:
+            await lm.event_power.wait()
+            try:
+                if lm.is_online:
+                    meter_pub = { "house_power" :  float(int(  (self.meter.total_power.value or 0)
+                                                            - (lm.active_power.value or 0) )) }
+                    mqtt.publish( "pv/meter/", meter_pub )            
+            except:
+                log.exception(lm.key+":")
+
+    #
+    #   Fake Meter
+    #
+    async def fake_meter_coroutine( self ):
+        m = self.meter
+        await m.event_all.wait()
+        while True:
+            await m.event_power.wait()
+            try:                            
+                # offset measured power a little bit to ensure a small value of export
+                m.total_power_tweaked = m.total_power.value
+                bp  = self.solis1.battery_power.value or 0       # Battery charging power. Positive if charging, negative if discharging.
+                soc = self.solis1.bms_battery_soc.value or 0     # battery soc, 0-100
+                if bp > 200:        m.total_power_tweaked += soc*bp*0.0001
+
+                #   Fill fakemeter fields
+                fm = self.solis1.fake_meter
+                fm.voltage                .value = m.phase_1_line_to_neutral_volts .value
+                fm.current                .value = m.phase_1_current               .value
+                fm.apparent_power         .value = m.total_volt_amps               .value
+                fm.reactive_power         .value = m.total_var                     .value
+                fm.power_factor           .value =(m.total_power_factor            .value % 1.0)
+                fm.frequency              .value = m.frequency                     .value
+                fm.import_active_energy   .value = m.total_import_kwh              .value
+                fm.export_active_energy   .value = m.total_export_kwh              .value
+                fm.active_power           .value = m.total_power_tweaked
+                fm.data_timestamp = m.last_transaction_timestamp
+                fm.is_online = m.is_online
+                fm.write_regs_to_context()
+            except:
+                log.exception("Fill fake meter"+":")
+
+    #
     #   Async entry point
     #
     def start( self ):
@@ -362,6 +507,10 @@ class SolisManager():
     #   Build hardware
     #
     async def astart( self ):
+        await mqtt.mqtt.connect( config.MQTT_BROKER_LOCAL )
+        while not mqtt.is_connected:
+            await asyncio.sleep(0.1)
+
         #
         #   Open RS485 ports
         #
@@ -394,111 +543,25 @@ class SolisManager():
                                             modbus_address=1, meter_type=Acrel_1_Phase ),
                 mqtt = mqtt, mqtt_topic = "pv/solis1/"
         )
-
-        async def test_coro():
-            while True:
-                lm = self.solis1.local_meter
-                try:
-                    await lm.event_power.wait()
-                    if lm.is_online:
-                        meter_pub = { "house_power" :  float(int(  (self.meter.total_power.value or 0)
-                                                                - (lm.active_power.value or 0) )) }
-                        mqtt.publish( "pv/meter/", meter_pub )            
-                except:
-                    log.exception(lm.key+":")
-
-        async def test_coro2():
-            s = self.solis1
-            timeout_fan_off = Timeout( 60 )
-            bat_power_deque = collections.deque( maxlen=10 )
-            timeout_power_on  = Timeout( 60, expired=True )
-            timeout_power_off = Timeout( 600 )
-            timeout_blackout  = Timeout( 120, expired=True )
-            power_reg = s.rwr_power_on_off
-
-            while True:
-                try:
-                    await s.event_all.wait()
-
-                    # Blackout logic: enable backup output in case of blackout
-                    blackout = s.fault_status_1_grid.bit_is_active( "No grid" ) and s.phase_a_voltage.value < 100
-                    if blackout:
-                        log.info( "Blackout" )
-                        await s.rwr_backup_output_enabled.write_if_changed( 1 )      # enable backup output
-                        await s.rwr_power_on_off         .write_if_changed( s.rwr_power_on_off.value_on )   # Turn inverter on (if it was off)
-                        await s.rwr_energy_storage_mode  .write_if_changed( 0x32 )   # mode = Backup, optimal revenue, charge from grid
-                        timeout_blackout.reset()
-                    elif not timeout_blackout.expired():        # stay in backup mode with backup output enabled for a while
-                        log.info( "Remain in backup mode for %d s", timeout_blackout.remain() )
-                        timeout_power_on.reset()
-                        timeout_power_off.reset()
-                    else:
-                        await s.rwr_backup_output_enabled.write_if_changed( 0 )      # disable backup output
-                        await s.rwr_energy_storage_mode  .write_if_changed( 0x23 )   # Self use, optimal revenue, charge from grid
-
-                    # Auto on/off: turn it off at night when the batery is below specified SOC
-                    # so it doesn't keep draining it while doing nothing useful
-                    inverter_is_on = power_reg.value == power_reg.value_on
-                    mpptv = max( s.mppt1_voltage.value, s.mppt2_voltage.value )
-                    if inverter_is_on:
-                        if mpptv < config.SOLIS_TURNOFF_MPPT_VOLTAGE and s.bms_battery_soc.value <= config.SOLIS_TURNOFF_BATTERY_SOC:
-                            timeout_power_on.reset()
-                            if timeout_power_off.expired():
-                                log.info("Powering OFF %s"%s.key)
-                                await power_reg.write_if_changed( power_reg.value_off )
-                            else:
-                                log.info( "Power off %s in %d s", s.key, timeout_power_off.remain() )
-                        else:
-                            timeout_power_off.reset()
-                    else:
-                        if mpptv > config.SOLIS_TURNON_MPPT_VOLTAGE:                        
-                            timeout_power_off.reset()
-                            if timeout_power_on.expired():
-                                log.info("Powering ON %s"%s.key)
-                                await power_reg.write_if_changed( power_reg.value_on )
-                            else:
-                                log.info( "Power on %s in %d s", s.key, timeout_power_on.remain() )
-                        else:
-                            timeout_power_on.reset()
-
-                    # start fan if temperature too high or average battery power high
-                    bat_power_deque.append( abs(s.battery_power.value) )
-                    if s.temperature.value > 40 or sum(bat_power_deque) / len(bat_power_deque) > 2000:
-                        timeout_fan_off.reset()
-                        s.mqtt.publish( "cmnd/plugs/tasmota_t3/", {"Power": "1"} )
-                        # print("Fan ON")
-                    elif s.temperature.value < 35 and timeout_fan_off.expired():
-                        s.mqtt.publish( "cmnd/plugs/tasmota_t3/", {"Power": "0"} )
-                        # print("Fan OFF")
-
-                except (asyncio.exceptions.TimeoutError, pymodbus.exceptions.ModbusException):
-                    pass
-                except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
-                    raise
-                except:
-                    log.exception(s.key+":")
-                    # s = traceback.format_exc()
-                    # log.error(self.key+":"+s)
-                    # self.mqtt.mqtt.publish( "pv/exception", s )
-                    await asyncio.sleep(5)            
-
+ 
         app = aiohttp.web.Application()
         app.add_routes([aiohttp.web.get('/', self.webresponse), aiohttp.web.get('/solar_api/v1/GetInverterRealtimeData.cgi', self.webresponse)])
         runner = aiohttp.web.AppRunner(app, access_log=False)
         await runner.setup()
         site = aiohttp.web.TCPSite(runner,host=config.SOLARPI_IP,port=8080)
+        await site.start()
 
         try:
             async with asyncio.TaskGroup() as tg:
-                tg.create_task( self.solis1.fake_meter.start_server() )
-                tg.create_task( self.meter.read_coroutine() )
-                tg.create_task( self.solis1.read_coroutine() )
-                tg.create_task( self.solis1.local_meter.read_coroutine() )
-                tg.create_task( self.sysinfo_coroutine() )
-                tg.create_task( self.mqtt_start() )
-                tg.create_task( site.start() )
-                tg.create_task( test_coro() )
-                tg.create_task( test_coro2() )
+                tg.create_task( log_coroutine( "server: solis1 fakemeter",  self.solis1.fake_meter.start_server() ))
+                tg.create_task( log_coroutine( "read: main meter",          self.meter.read_coroutine() ))
+                tg.create_task( log_coroutine( "read: solis1",              self.solis1.read_coroutine() ))
+                tg.create_task( log_coroutine( "read: solis1 local meter",  self.solis1.local_meter.read_coroutine() ))
+                tg.create_task( log_coroutine( "logic:fan",                 self.inverter_fan_coroutine( self.solis1 ) ))
+                tg.create_task( log_coroutine( "logic:blackout",            self.inverter_blackout_coroutine( self.solis1 ) ))
+                tg.create_task( log_coroutine( "logic:house_power",         self.house_power_coroutine( ) ))
+                tg.create_task( log_coroutine( "logic:fill fake meter",     self.fake_meter_coroutine( ) ))
+                tg.create_task( log_coroutine( "sysinfo",                   self.sysinfo_coroutine() ))
         except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
             print("Terminated.")
 
@@ -517,9 +580,6 @@ class SolisManager():
         p = (self.solis1.battery_power.value or 0) - (self.meter.total_power.value or 0)
         # print("HTTP Power:%d" % p)
         return aiohttp.web.Response( text='{"Power" : %d}' % p )
-
-    async def mqtt_start( self ):
-        await mqtt.mqtt.connect( config.MQTT_BROKER_LOCAL )
 
     ########################################################################################
     #   System info

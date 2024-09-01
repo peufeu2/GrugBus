@@ -155,7 +155,7 @@ class Solis( grugbus.SlaveDevice ):
                         pub["bms_battery_power"] = int( self.bms_battery_current.value * self.bms_battery_voltage.value )
 
                     # compute input_power for routing
-                    self.input_power = self.pv_power.value + self.local_meter.active_power.value
+                    self.input_power = self.pv_power.value + (self.local_meter.active_power.value or 0)
                     pub["input_power"] = int( self.input_power )
 
                     # publish
