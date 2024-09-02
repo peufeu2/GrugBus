@@ -53,8 +53,8 @@ COM_PORT_FAKE_METER2 = "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A10NBG8C-if00
 POLL_PERIOD_METER       = (0.2, 0)
 POLL_PERIOD_SOLIS_METER = (0.4, 0.1)
 POLL_PERIOD_SOLIS       = (0.4, 0.15)
-POLL_PERIOD_EVSE        = (1, 0.05)
-ROUTER_PUBLISH_PERIOD   = 1
+POLL_PERIOD_EVSE        = (0.5, 0.05)
+ROUTER_PUBLISH_PERIOD   = 0.1
 
 # Solis is a bit deaf, sometimes it needs repeating
 MODBUS_RETRIES_SOLIS = 3

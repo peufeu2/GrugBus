@@ -506,7 +506,7 @@ async def transfer_data( mqtt ):
                     pool.flush()
 
 
-RETRIEVE_SECONDS = 24*3600
+RETRIEVE_SECONDS = 4*3600
 
 # # unpack json values from tasmota plugs into individual rows
 # pool = InsertPooler()

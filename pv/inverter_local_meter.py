@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 
 import time, asyncio, datetime, logging, collections, traceback, pymodbus
+from pymodbus.exceptions import ModbusException
+from asyncio.exceptions import TimeoutError
 
 # Device wrappers and misc local libraries
 import grugbus
@@ -56,14 +58,11 @@ class SDM120( grugbus.SlaveDevice ):
                     timeout_counter = 0
                     self.mqtt.publish( self.mqtt_topic, pub )
 
-                except (asyncio.exceptions.TimeoutError, pymodbus.exceptions.ModbusException):
+                except (TimeoutError, ModbusException):
                     timeout_counter += 1
                     if timeout_counter > 10:    self.active_power.value = 0 # if it times out, it's probably gone offgrid
                     else:                       timeout_counter += 1
-
-                except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
-                    raise
-                except:
+                except Exception:
                     log.exception(self.key+":")
                     # s = traceback.format_exc()
                     # log.error(self.key+":"+s)

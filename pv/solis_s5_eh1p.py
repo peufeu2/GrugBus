@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 
 import time, asyncio, datetime, logging, collections, traceback, pymodbus
+from pymodbus.exceptions import ModbusException
+from asyncio.exceptions import TimeoutError
 
 # Device wrappers and misc local libraries
 import grugbus
@@ -113,7 +115,7 @@ class Solis( grugbus.SlaveDevice ):
             await self.adjust_time()
             await self.rwr_meter1_type_and_location.read()
             await self.rwr_meter1_type_and_location.write_if_changed( mt )
-        except (asyncio.exceptions.TimeoutError, pymodbus.exceptions.ModbusException): 
+        except (TimeoutError, ModbusException): 
             # if inverter is disconnected because the Solis Wifi Stick is in, do not abort the rest of the program
             pass
 
@@ -171,7 +173,7 @@ class Solis( grugbus.SlaveDevice ):
                 self.event_all.set()
                 self.event_all.clear()
 
-            except (asyncio.exceptions.TimeoutError, pymodbus.exceptions.ModbusException):
+            except (TimeoutError, ModbusException):
                 # use defaults so the rest of the code still works if connection to the inverter is lost
                 # note self.is_online is set to False by grugbus.Device when communication fails, no need
                 # to set it again here
@@ -182,9 +184,7 @@ class Solis( grugbus.SlaveDevice ):
                 self.battery_dcdc_active              = 1
                 self.pv_power.value                   = 0
 
-            except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
-                raise
-            except:
+            except Exception:
                 log.exception(self.key+":")
                 # s = traceback.format_exc()
                 # log.error(self.key+":"+s)

@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 
 import time, asyncio, datetime, logging, collections, traceback, pymodbus
+from pymodbus.exceptions import ModbusException
+from asyncio.exceptions import TimeoutError
 
 # Device wrappers and misc local libraries
 import grugbus
@@ -95,27 +97,24 @@ class EVSE( grugbus.SlaveDevice ):
             #     self.active_power.value, self.energy.value, self.last_transaction_duration )
             # print( line )
             return True
-        except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
-            raise
-        except:
+        except Exception:
             log.exception(self.key+":")
-            await asyncio.sleep(0.5)
+            # await asyncio.sleep(0.5)
 
     async def stop( self ):
         await self.set_virtual_current_limit( self.virtual_i_min )
 
     async def route( self, excess, fast_route ):
         # Poll charging station
-        if not self.tick_poll.ticked():         # polling interval
-            return
+        if self.tick_poll.ticked():         # polling interval
 
-        # poll EVSE over modbus
-        if not await self.poll( excess, fast_route ):
-            self.tick_poll.tick = 30.0  # If it did not respond, poll it less often to not disturb the shared smartmeter modbus line
-            self.default_retries = 1
-            return
-        self.tick_poll.tick = 1.0   # EVSE is online, use short poll interval
-        self.default_retries = 2
+            # poll EVSE over modbus
+            if not await self.poll( excess, fast_route ):
+                self.tick_poll.tick = 30.0  # If it did not respond, poll it less often to not disturb the shared smartmeter modbus line
+                self.default_retries = 1
+                return
+            self.tick_poll.tick = 1.0   # EVSE is online, use short poll interval
+            self.default_retries = 2
 
         # EV is not plugged, or init register at startup
         if (self.socket_state.value) != 0x111 or (not self.rwr_current_limit.value):    
@@ -150,32 +149,29 @@ class EVSE( grugbus.SlaveDevice ):
             self.command_interval_large.reset( 6 )
             return
 
-        # TODO: if a large current step comes after a small adjustment, ignore the timeout
-        # basically add a load turn on/off detector
-
         # Finally... adjust current.
         # Since the car imposes 1A steps, if we have a small excess that is lower than the power step
         # then don't bother.
         wait_time = 0
-        delta = 0
+        delta_i = 0
         if fast_route:
             if abs(excess) > self.p_dead_band_fast:
-                delta     = excess * 0.004
+                delta_i     = excess * 0.004
                 wait_time = 5   # SAE J1772 specs: max charger response time to PWM change is 5s
         else:
             if abs(excess) > self.p_dead_band_slow:
-                delta     = excess * 0.004
+                delta_i     = excess * 0.004
                 wait_time = 9  # add some wait time due to slow inverter reaction
 
         # Now charge with solar only
         # EVSE is slow, the car takes 2 seconds to respond to commands, then the inverter needs to adjust,
         # new value of excess power needs to stabilize, etc, before a new power setting can he issued.
         # This means we have to wait long enough between commands.
-        change = await self.adjust_virtual_current_limit( delta, dry_run=True )
-        # print( "delta", delta, "change", change, "")
+        change = await self.adjust_virtual_current_limit( delta_i, dry_run=True )
+        # print( "delta_i", delta_i, "change", change, "")
         if abs(change) <= 1:                   # small change in current
             if self.command_interval.expired():
-                await self.adjust_virtual_current_limit( delta )
+                await self.adjust_virtual_current_limit( delta_i )
                 self.command_interval.reset( wait_time )
                 self.command_interval_large.reset( 2 )      # allow a large change quickly after a small one    
         else:     # we need a quick large change
@@ -189,7 +185,7 @@ class EVSE( grugbus.SlaveDevice ):
                     self.settle_timeout.reset(0.9)
                 else:
                     if self.settle_timeout.expired():
-                        await self.adjust_virtual_current_limit( delta )
+                        await self.adjust_virtual_current_limit( delta_i )
                         self.command_interval.reset( wait_time )
                         self.command_interval_large.reset( wait_time )
                         self.settle_timeout_wait = False
@@ -233,14 +229,14 @@ class EVSE( grugbus.SlaveDevice ):
         current_limit = round(current_limit)
 
         # returns True if the value changed
-        delta = current_limit - self.rwr_current_limit.value
+        delta_i = current_limit - self.rwr_current_limit.value
         if not dry_run:
             self.virtual_current_limit = v_limit
-            if delta or self.resend_current_limit_timeout.expired():
+            if delta_i or self.resend_current_limit_timeout.expired():
                 self.resend_current_limit_timeout.reset()
                 self.rwr_current_limit.value = current_limit
                 self.publish( False )   # publish before writing to measure total reaction time (modbus+EVSE+car charger)
                 await self.rwr_current_limit.write( )
                 self.mqtt.publish( self.mqtt_topic, { "req_time": round( self.last_transaction_duration,2 ) } )
-        return delta
+        return delta_i
 

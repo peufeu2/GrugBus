@@ -29,11 +29,11 @@ Can be changed via the display setup menus."
 3,28,,"float",,"Modbus Baud Rate ",,"float",,"Write the Modbus port baud rate for MODBUS Protocol, where:
 0 = 2400 baud. 1 = 4800 baud.2 = 9600 baud, default.3 = 19200 baud. 4 = 38400 baud. 
 Requires a restart to becomeeffective"
-3,62720,,"float",,"Display Config",,"float",,"Demand Interval, Slide Time, Automatic Scroll Display Interval (Scroll Time), Backlight Time
+3,63744,,"U16",,"Display Config",,"float",,"Demand Interval, Slide Time, Automatic Scroll Display Interval (Scroll Time), Backlight Time
 Data Format: BCDmin-min-s-min
 Scroll Time=0: the display does not scroll automatically 
 Backlight Time=0: Backlight is Always On."
-3,63760,,"float",,"Display Format",,"float",,"Default Format: Hex
+3,63760,,"U16",,"Display Format",,"float",,"Default Format: Hex
 0000: 0.001kWh (kVArh) (default)
 0001: 0.01kWh (kVArh)
 0002: 0.1kWh (kVArh)
@@ -42,7 +42,7 @@ Backlight Time=0: Backlight is Always On."
 0001: Mode 1 (Total = Import)
 0002: Mode 2 (Total = Import + Export)
 0003: Mode 3 (Total = Import - Export)"
-3,63792,,"float",,"Pulse Output and LED Indicator Mode ",,"float",,"Data Format: Hex
+3,63792,,"U16",,"Pulse Output and LED Indicator Mode ",,"float",,"Data Format: Hex
 0000: Import & Export Energy, LED flashes for Import & Export Energy
 0001: Import Energy, LED flashes for Import Energy only
 0002: Export Energy, LED flashes for Export Energy only"

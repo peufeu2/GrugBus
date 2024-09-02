@@ -4,11 +4,10 @@
 import logging, functools, asyncio, time
 import pymodbus
 from pymodbus.pdu import ExceptionResponse
+from pymodbus.exceptions import ModbusException
+from asyncio.exceptions import TimeoutError
 
 log = logging.getLogger(__name__)
-
-class ModbusException( Exception ):
-    pass
 
 class DeviceBase( ):
     """
@@ -62,6 +61,9 @@ class DeviceBase( ):
 
         self.last_transaction_duration = 0
         self.default_retries = 3
+
+        # SDM120 does not like "write register", it needs "write multiple registers" even if there is just one
+        self.force_multiple_regiters = False
 
         #
         #   Will be set to True if we have successful communication with the device,
@@ -247,11 +249,11 @@ class SlaveDevice( DeviceBase ):
                                 await asyncio.sleep(0.003)  # wait until serial is flushed before releasing lock
                         update_list.append( (fcode, chunk, start_addr, reg_data) )
                         break
-                    except asyncio.exceptions.TimeoutError:
+                    except (TimeoutError,ModbusException):
                         if retry < retries-1:
-                            logging.warning( "Modbus read timeout: %s will retry %d/%d", self.key, retry+1, retries )
+                            log.warning( "Modbus read: %s will retry %d/%d", self.key, retry+1, retries )
                         else:
-                            logging.error( "Modbus read timeout: %s after %d/%d retries", self.key, retry+1, retries )
+                            log.error( "Modbus read: %s after %d/%d retries", self.key, retry+1, retries )
                             raise
 
             # Decode values and assign to registers. Do this in a separate loop after reading,
@@ -266,9 +268,9 @@ class SlaveDevice( DeviceBase ):
                     reg.decode( fcode, reg_data[ offset:(offset+reg.word_length) ] )
                     result.append( reg )
             return result
-        except (asyncio.exceptions.TimeoutError, pymodbus.exceptions.ModbusException) as e:
+        except ModbusException as e:
             self.is_online = False
-            raise asyncio.exceptions.TimeoutError( str(e) )
+            raise
         finally:
             self.last_transaction_timestamp = t = time.monotonic()
             self.last_transaction_duration = t-start_time
@@ -340,8 +342,8 @@ class SlaveDevice( DeviceBase ):
                                     fcode = 15  # force multiple coils
                                     # print( "write_coils", fcode, start_addr, reg_data )
                                     resp = await self.modbus.write_coils( start_addr, reg_data, self.bus_address )
-                            elif fcode in (3,6):   # we're dealing with words (registers)
-                                if len(reg_data) == 1:    
+                            elif fcode in (3,6,16):   # we're dealing with words (registers)
+                                if len(reg_data) == 1 and not self.force_multiple_regiters:    
                                     fcode = 6   # force single register
                                     # print( "write_register", fcode, start_addr, reg_data )
                                     resp = await self.modbus.write_register( start_addr, reg_data[0], self.bus_address )
@@ -355,14 +357,14 @@ class SlaveDevice( DeviceBase ):
                             raise ModbusException( str( resp ))
                         self.is_online = True
                         break
-                    except asyncio.exceptions.TimeoutError:
+                    except (TimeoutError,ModbusException):
                         if retry < retries-1:
-                            logging.warning( "Modbus write timeout: %s will retry %d/%d", self.key, retry+1, retries )
+                            log.warning( "Modbus write: %s will retry %d/%d", self.key, retry+1, retries )
                         else:
-                            logging.error( "Modbus write timeout: %s after %d/%d retries", self.key, retry+1, retries )
+                            log.error( "Modbus write: %s after %d/%d retries", self.key, retry+1, retries )
                             raise
 
-        except (asyncio.exceptions.TimeoutError, pymodbus.exceptions.ModbusException) as e:
+        except (TimeoutError,ModbusException) as e:
             self.is_online = False
             raise
         finally:

@@ -406,7 +406,7 @@ class RegFloat( Reg32 ):
     def _init2( self ):
         super()._init2()
         if self.user_type != "float":
-            raise ValueError( "user_type <%s> not supported for RegFloat %s" % (user_type,key))
+            raise ValueError( "user_type <%s> not supported for RegFloat %s" % (self.user_type,self.key))
 
    # convert value to raw_value
     def _set_raw_value_single( self ):

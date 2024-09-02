@@ -11,6 +11,8 @@ import uvloop, asyncio, signal, aiohttp
 # Modbus
 import pymodbus
 from pymodbus.client import AsyncModbusSerialClient, AsyncModbusTcpClient
+from pymodbus.exceptions import ModbusException
+from asyncio.exceptions import TimeoutError, CancelledError
 
 # Device wrappers and misc local libraries
 import config
@@ -161,6 +163,8 @@ class Router():
         self.resend_tick = Metronome( 10 )
         self.counter = 0
 
+        self.start_timeout = Timeout( 5, 3, expired=False )
+
     async def stop( self ):
         await mgr.evse.stop()
         for d in self.devices:
@@ -172,6 +176,10 @@ class Router():
             for d in self.devices:
                 d.off()
             self.initialized += 1
+            return
+
+        # Wait for it to stabilize at startup
+        if not self.start_timeout.expired():
             return
 
         # Routing behaves as an integrator, for stability.
@@ -288,8 +296,9 @@ class Router():
         # TODO: use both to also control the water heater and other stuff.
         # For now this is just for the EVSE.
 
+        export_avg_bat =  export_avg + steal_from_battery
         if self.tick_mqtt.ticked():
-            pub = {     "excess_avg"       : export_avg + steal_from_battery,
+            pub = {     "excess_avg"       : export_avg_bat,
                         "excess_avg_nobat" : export_avg
                     }
             mqtt.publish( "pv/router/", pub )
@@ -303,7 +312,7 @@ class Router():
         # TODO: 
         #   - export_avg_bat works (balancing with battery)
         evse = mgr.evse
-        await evse.route( export_avg + steal_from_battery, fast_route )
+        await evse.route( export_avg_bat, fast_route )
         return
 
 
@@ -357,9 +366,11 @@ class SolisManager():
     def __init__( self ):
         pass
 
+    ########################################################################################
     #
     #   Blackout logic
     #
+    ########################################################################################
     async def inverter_blackout_coroutine( self, solis ):
         timeout_blackout  = Timeout( 120, expired=True )
         while True:
@@ -381,15 +392,16 @@ class SolisManager():
                     await solis.rwr_backup_output_enabled.write_if_changed( 0 )      # disable backup output
                     await solis.rwr_energy_storage_mode  .write_if_changed( 0x23 )   # Self use, optimal revenue, charge from grid
 
-            except (asyncio.exceptions.TimeoutError, pymodbus.exceptions.ModbusException):  pass
-            except (KeyboardInterrupt, asyncio.exceptions.CancelledError):                  raise
-            except:
-                log.exception(s.key+":")
+            except (TimeoutError, ModbusException): pass
+            except Exception:
+                log.exception(solis.key+":")
                 await asyncio.sleep(5)           
 
+    ########################################################################################
     #
     #   Low battery power save logic
     #
+    ########################################################################################
     async def inverter_powersave_coroutine( self, solis ):
         timeout_power_on  = Timeout( 60, expired=True )
         timeout_power_off = Timeout( 600 )
@@ -422,15 +434,16 @@ class SolisManager():
                     else:
                         timeout_power_on.reset()
                         
-            except (asyncio.exceptions.TimeoutError, pymodbus.exceptions.ModbusException):  pass
-            except (KeyboardInterrupt, asyncio.exceptions.CancelledError):                  raise
-            except:
-                log.exception(s.key+":")
+            except (TimeoutError, ModbusException): pass
+            except Exception:
+                log.exception(solis.key+":")
                 await asyncio.sleep(5)      
 
+    ########################################################################################
     #
     #   start fan if temperature too high or average battery power high
     #
+    ########################################################################################
     async def inverter_fan_coroutine( self, solis ):
         timeout_fan_off = Timeout( 60 )
         bat_power_deque = collections.deque( maxlen=10 )
@@ -444,14 +457,16 @@ class SolisManager():
                 elif solis.temperature.value < 35 and timeout_fan_off.expired():
                     solis.mqtt.publish( "cmnd/plugs/tasmota_t3/", {"Power": "0"} )
 
-            except (KeyboardInterrupt, asyncio.exceptions.CancelledError): raise
+            except (TimeoutError, ModbusException): pass
             except:
                 log.exception(solis.key+":")
                 await asyncio.sleep(5)           
 
+    ########################################################################################
     #
     #   Compute house power
     #
+    ########################################################################################
     async def house_power_coroutine( self ):
         lm = self.solis1.local_meter
         while True:
@@ -461,15 +476,20 @@ class SolisManager():
                     meter_pub = { "house_power" :  float(int(  (self.meter.total_power.value or 0)
                                                             - (lm.active_power.value or 0) )) }
                     mqtt.publish( "pv/meter/", meter_pub )            
+            except (TimeoutError, ModbusException): pass
             except:
                 log.exception(lm.key+":")
 
+    ########################################################################################
     #
     #   Fake Meter
     #
+    ########################################################################################
     async def fake_meter_coroutine( self ):
         m = self.meter
         await m.event_all.wait()
+        step_offset  = 0.
+        prev_power   = 0.
         while True:
             await m.event_power.wait()
             try:                            
@@ -478,6 +498,18 @@ class SolisManager():
                 bp  = self.solis1.battery_power.value or 0       # Battery charging power. Positive if charging, negative if discharging.
                 soc = self.solis1.bms_battery_soc.value or 0     # battery soc, 0-100
                 if bp > 200:        m.total_power_tweaked += soc*bp*0.0001
+
+                # delta = m.total_power_tweaked - prev_power
+                # prev_power = m.total_power_tweaked
+
+                # if abs( delta ) > 400:
+                #     step_offset += delta*1.25
+
+                # if abs( step_offset ) > 10:
+                #     print( "+", step_offset )
+                # fake_power = m.total_power_tweaked + step_offset
+                # step_offset *= 0.75
+                fake_power = m.total_power_tweaked
 
                 #   Fill fakemeter fields
                 fm = self.solis1.fake_meter
@@ -489,12 +521,12 @@ class SolisManager():
                 fm.frequency              .value = m.frequency                     .value
                 fm.import_active_energy   .value = m.total_import_kwh              .value
                 fm.export_active_energy   .value = m.total_export_kwh              .value
-                fm.active_power           .value = m.total_power_tweaked
+                fm.active_power           .value = fake_power
                 fm.data_timestamp = m.last_transaction_timestamp
                 fm.is_online = m.is_online
                 fm.write_regs_to_context()
-            except:
-                log.exception("Fill fake meter"+":")
+            except Exception:
+                log.exception("Fill fake meter:")
 
     #
     #   Async entry point
@@ -539,8 +571,7 @@ class SolisManager():
 
         self.solis1 = pv.solis_s5_eh1p.Solis( 
                 modbus=local_meter_modbus,      modbus_addr = 1,       key = "solis1", name = "Solis 1",    local_meter = local_meter,
-                fake_meter = pv.fake_meter.FakeSmartmeter( port=config.COM_PORT_FAKE_METER1, key="fake_meter_1", name="Fake meter for Solis 1",
-                                            modbus_address=1, meter_type=Acrel_1_Phase ),
+                fake_meter = pv.fake_meter.FakeSmartmeter( port=config.COM_PORT_FAKE_METER1, key="fake_meter_1", name="Fake meter for Solis 1",modbus_address=1, meter_type=Acrel_1_Phase ),
                 mqtt = mqtt, mqtt_topic = "pv/solis1/"
         )
  
@@ -562,10 +593,10 @@ class SolisManager():
                 tg.create_task( log_coroutine( "logic:house_power",         self.house_power_coroutine( ) ))
                 tg.create_task( log_coroutine( "logic:fill fake meter",     self.fake_meter_coroutine( ) ))
                 tg.create_task( log_coroutine( "sysinfo",                   self.sysinfo_coroutine() ))
-        except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
+        except (KeyboardInterrupt, CancelledError):
             print("Terminated.")
-
-        await mqtt.mqtt.disconnect()
+        finally:
+            await mqtt.mqtt.disconnect()
 
     ########################################################################################
     #   Web server
@@ -605,9 +636,7 @@ class SolisManager():
                 mqtt.publish( "pv/", pub )
 
                 await asyncio.sleep(10)
-            except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
-                raise
-            except:
+            except Exception:
                 log.error(traceback.format_exc())
 
 

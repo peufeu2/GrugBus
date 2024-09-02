@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 
 import time, asyncio, datetime, logging, collections, traceback, pymodbus
+from pymodbus.exceptions import ModbusException
+from asyncio.exceptions import TimeoutError
 
 # Device wrappers and misc local libraries
 import grugbus
@@ -101,7 +103,7 @@ class SDM630( grugbus.SlaveDevice ):
                         await tick.wait()
                         try:
                             regs = await self.read_regs( reg_set )
-                        except (asyncio.exceptions.TimeoutError, pymodbus.exceptions.ModbusException):
+                        except (TimeoutError, ModbusException):
                             # Nothing special to do: in case of error, read_regs() above already set self.is_online to False
                             pub = {}
                         else:
@@ -118,9 +120,7 @@ class SDM630( grugbus.SlaveDevice ):
                         self.mqtt.publish( self.mqtt_topic, pub )
                         await self.router.route()
 
-                    except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
-                        return
-                    except:
+                    except Exception:
                         log.exception(self.key+":")
                         await asyncio.sleep(0.5)
 
