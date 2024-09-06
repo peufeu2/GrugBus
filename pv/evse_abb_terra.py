@@ -81,7 +81,8 @@ class EVSE( grugbus.SlaveDevice ):
     def publish( self, all=True ):
         if all: 
             pub = { reg.key: reg.format_value() for reg in self.regs_to_read }
-            pub["req_time"] = round( self.last_transaction_duration,2 )
+            if config.LOG_MODBUS_REQUEST_TIME:
+                pub["req_time"] = round( self.last_transaction_duration,2 )
         else:
            pub = {}
         pub["virtual_current_limit"] = "%.02f"%self.virtual_current_limit
@@ -239,6 +240,7 @@ class EVSE( grugbus.SlaveDevice ):
                 self.rwr_current_limit.value = current_limit
                 self.publish( False )   # publish before writing to measure total reaction time (modbus+EVSE+car charger)
                 await self.rwr_current_limit.write( )
-                self.mqtt.publish( self.mqtt_topic, { "req_time": round( self.last_transaction_duration,2 ) } )
+                if config.LOG_MODBUS_WRITE_REQUEST_TIME:
+                    self.mqtt.publish( self.mqtt_topic, { "req_time": round( self.last_transaction_duration,2 ) } )
         return delta_i
 

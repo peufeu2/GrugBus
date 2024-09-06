@@ -117,7 +117,10 @@ Args:
                 self.decimals = -round(math.log10(abs(self.unit_value)))
             else:
                 self.decimals = int(decimals)
-            self.format_value_fstr = "%%.0%df" % max( self.decimals, 1 )
+            format_value_fstr = "%%.0%df" % max( self.decimals, 1 )
+            # adding 0.0 converts -0.0 into 0.0
+            self.format_value = lambda: format_value_fstr % (0.0 + round( self.value, self.decimals ))
+
         else:
             if decimals not in (0,None):
                 raise ValueError( "%s: user_type <%s> requires decimals=0 or None" % (self.key,user_type,))
@@ -125,7 +128,7 @@ Args:
             if self.unit_value not in (1,-1):
                 raise ValueError( "%s: user_type <%s> requires unit_value=1 or -1 (integer)" % (self.key,user_type,))
             self.unit_value = int(self.unit_value)     # cast unit_value to int  to make sure self.value will always be an int
-            self.format_value_fstr = "%d"
+            self.format_value = lambda: "%d"%self.value
 
         # derived classes initialization
         self._init2()
@@ -143,11 +146,6 @@ Args:
         # These will be updated on read()
         self.value      = None  # value after scale and unit conversion
         self.raw_value  = None  # raw value as seen on bus
-
-    def format_value( self ):
-        # if decimals == None, this returns the correct int literal
-        # if decimals == 0     this returns a float in string form like "1.0"
-        return self.format_value_fstr % (round( self.value, self.decimals ))
 
     # Must be overriden
     def _init2( self ):

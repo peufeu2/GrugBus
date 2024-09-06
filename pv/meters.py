@@ -117,9 +117,10 @@ class SDM630( grugbus.SlaveDevice ):
                         pub = { reg.key: reg.format_value() for reg in regs_to_publish.intersection(regs) }      # publish what we just read
 
                     pub[ "is_online" ]    = int( self.is_online )   # set by read_regs(), True if it succeeded, False otherwise
-                    pub[ "req_time" ]     = round( self.last_transaction_duration,2 )   # log modbus request time, round it for better compression
-                    if last_poll_time:
-                        pub["req_period"] = self.last_transaction_timestamp - last_poll_time
+                    if config.LOG_MODBUS_REQUEST_TIME:
+                        pub[ "req_time" ]     = round( self.last_transaction_duration,2 )   # log modbus request time, round it for better compression
+                        if last_poll_time:
+                            pub["req_period"] = self.last_transaction_timestamp - last_poll_time
                     last_poll_time = self.last_transaction_timestamp
                     self.mqtt.publish( self.mqtt_topic, pub )
 

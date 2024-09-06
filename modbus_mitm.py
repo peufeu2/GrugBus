@@ -319,7 +319,7 @@ class Router():
         export_avg_bat =  export_avg + steal_from_battery
         if self.tick_mqtt.ticked():
             pub = {     "excess_avg"       : export_avg_bat,
-                        "excess_avg_nobat" : export_avg
+                        # "excess_avg_nobat" : export_avg
                     }
             mqtt.publish( "pv/router/", pub )
 
