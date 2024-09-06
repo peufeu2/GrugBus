@@ -20,7 +20,7 @@ from misc import *
 from pv.mqtt_wrapper import MQTTWrapper
 import grugbus
 from grugbus.devices import Eastron_SDM120, Eastron_SDM630, Acrel_1_Phase, Acrel_ACR10RD16TE4
-import pv.solis_s5_eh1p, pv.inverter_local_meter, pv.main_meter, pv.evse_abb_terra, pv.fake_meter
+import pv.solis_s5_eh1p, pv.meters, pv.evse_abb_terra
 
 """
     python3.11
@@ -169,6 +169,26 @@ class Router():
         await mgr.evse.stop()
         for d in self.devices:
             d.off()
+
+    async def route_coroutine( self ):
+        try:
+            while True:
+                await mgr.meter.event_power.wait()
+                try:
+                    await self.route()
+
+                except (TimeoutError, ModbusException):
+                    await asyncio.sleep(1)
+
+                except Exception:
+                    log.exception(self.key+":")
+                    # s = traceback.format_exc()
+                    # log.error(self.key+":"+s)
+                    # self.mqtt.mqtt.publish( "pv/exception", s )
+                    await asyncio.sleep(1)
+        finally:
+            await self.stop()
+
 
     async def route( self ):
         # return
@@ -546,7 +566,7 @@ class SolisManager():
         #
         #   Main smartmeter
         #
-        self.meter = pv.main_meter.SDM630( 
+        self.meter = pv.meters.SDM630( 
             AsyncModbusSerialClient(    # open Modbus on serial port
                 port            = config.COM_PORT_METER,        timeout         = 0.5,
                 retries         = 1,    baudrate        = 19200,
@@ -565,12 +585,12 @@ class SolisManager():
         self.evse  = pv.evse_abb_terra.EVSE( 
             modbus_evse, 
             modbus_addr=3, key="evse", name="ABB Terra", 
-            local_meter = pv.inverter_local_meter.SDM120( modbus_evse, 
+            local_meter = pv.meters.SDM120( modbus_evse, 
                 modbus_addr=1, key="mevse", name="SDM120 Smartmeter on EVSE", mqtt=mqtt, mqtt_topic="pv/evse/meter/" 
             ),
             mqtt=mqtt, mqtt_topic="pv/evse/" )
 
-        self.meter.router = Router()
+        self.router = Router()
 
         #
         #   Solis inverter 1 and local meter
@@ -582,7 +602,7 @@ class SolisManager():
                 bytesize        = 8,    parity          = "N",  stopbits        = 1,
             ), 
             modbus_addr = 1,       key = "solis1", name = "Solis 1",    
-            local_meter = pv.inverter_local_meter.SDM120( 
+            local_meter = pv.meters.SDM120( 
                 AsyncModbusSerialClient(
                     port            = config.COM_PORT_LOCALMETER1,  timeout         = 0.5,
                     retries         = 1,    baudrate        = 9600,
@@ -590,7 +610,7 @@ class SolisManager():
                 ), 
                 modbus_addr=3, key="ms1", name="SDM120 Smartmeter on Solis 1", mqtt=mqtt, mqtt_topic="pv/solis1/meter/" 
             ),
-            fake_meter = pv.fake_meter.FakeSmartmeter( 
+            fake_meter = pv.meters.FakeSmartmeter( 
                 port=config.COM_PORT_FAKE_METER1, key="fake_meter_1", name="Fake meter for Solis 1", modbus_address=1, meter_type=Acrel_1_Phase 
             ),
             mqtt = mqtt, mqtt_topic = "pv/solis1/"
@@ -606,7 +626,7 @@ class SolisManager():
                 bytesize        = 8,    parity          = "N",  stopbits        = 1,
             ), 
             modbus_addr = 1,       key = "solis2", name = "Solis 2",    
-            local_meter = pv.inverter_local_meter.SDM120( 
+            local_meter = pv.meters.SDM120( 
                 AsyncModbusSerialClient(
                     port            = config.COM_PORT_LOCALMETER2,  timeout         = 0.5,
                     retries         = 1,    baudrate        = 9600,
@@ -614,7 +634,7 @@ class SolisManager():
                 ), 
                 modbus_addr=1, key="ms2", name="SDM120 Smartmeter on Solis 2", mqtt=mqtt, mqtt_topic="pv/solis2/meter/" 
             ),
-            fake_meter = pv.fake_meter.FakeSmartmeter( 
+            fake_meter = pv.meters.FakeSmartmeter( 
                 port=config.COM_PORT_FAKE_METER2, key="fake_meter_2", name="Fake meter for Solis 2", modbus_address=1, meter_type=Acrel_1_Phase 
             ),
             mqtt = mqtt, mqtt_topic = "pv/solis2/"
@@ -639,6 +659,7 @@ class SolisManager():
                 tg.create_task( log_coroutine( "logic:blackout",            self.inverter_blackout_coroutine( self.solis1 ) ))
                 tg.create_task( log_coroutine( "logic:house_power",         self.house_power_coroutine( ) ))
                 tg.create_task( log_coroutine( "logic:fill fake meter",     self.fake_meter_coroutine( ) ))
+                tg.create_task( log_coroutine( "logic:router",              self.router.route_coroutine( ) ))
                 tg.create_task( log_coroutine( "sysinfo",                   self.sysinfo_coroutine() ))
         except (KeyboardInterrupt, CancelledError):
             print("Terminated.")
