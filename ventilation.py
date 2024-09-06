@@ -72,6 +72,7 @@ class ControleVentilation( MQTTWrapper ):
         finally:
             self.publish( "cmnd/plugs/tasmota_t5/", {"Power": 0} )
             self.publish( "cmnd/plugs/tasmota_t6/", {"Power": 0} )
+            await asyncio.sleep(1)
 
 mgr = ControleVentilation()
 mgr.start()

@@ -22,10 +22,11 @@ log = logging.getLogger(__name__)
 #
 ########################################################################################
 class EVSE( grugbus.SlaveDevice ):
-    def __init__( self, modbus, modbus_addr, key, name, mqtt, mqtt_topic ):
+    def __init__( self, modbus, modbus_addr, key, name, local_meter, mqtt, mqtt_topic ):
         super().__init__( modbus, modbus_addr, key, name, EVSE_ABB_Terra.MakeRegisters() ),
         self.mqtt        = mqtt
         self.mqtt_topic  = mqtt_topic
+        self.local_meter = local_meter
 
         self.rwr_current_limit.value = 0.0
 
@@ -90,6 +91,7 @@ class EVSE( grugbus.SlaveDevice ):
 
     async def poll( self, p, fast ):
         try:
+            await self.connect()
             await self.read_regs( self.regs_to_read )
             self.publish()
             # line = "%d %-6dW e=%6d s=%04x s=%04x v%6.03fA %6.03fA %6.03fA %6.03fA %6.03fW %6.03fWh %fs" % (fast, p, self.error_code.value, self.charge_state.value, self.socket_state.value, 

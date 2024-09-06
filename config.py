@@ -41,10 +41,20 @@ MQTT_BUFFER_TEMP = "/mnt/ssd/temp/solarpi/mqtt"
 ##################################################################
 #
 #   Use by-id so the ports don't move around after a plug and pray session
-COM_PORT_METER       = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_54D2042112-if00"   # Main meter
-COM_PORT_SOLIS       = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_54D2042115-if00"   # Local meters and inverters
-COM_PORT_FAKE_METER1 = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_54D2042257-if00"   # Solis1 fakemeter
-COM_PORT_FAKE_METER2 = "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A10NBG8C-if00-port0" # Solis2 fakemeter
+#   Note: FTDI FT_PROG utility can change serial number in FT2232 EEPROM, which
+#   allows renaming serial ports.
+
+COM_PORT_SOLIS1      = "/dev/serial/by-id/usb-FTDI_USB_RS485_1-if01-port0"   # Solis1 COM port
+COM_PORT_FAKE_METER1 = "/dev/serial/by-id/usb-FTDI_USB_RS485_1-if00-port0"   # Solis1 fakemeter
+COM_PORT_LOCALMETER1 = "/dev/serial/by-id/usb-FTDI_USB_RS485_4-if00-port0"   # Main meter
+
+COM_PORT_SOLIS2      = "/dev/serial/by-id/usb-FTDI_USB_RS485_2-if01-port0"   # Solis1 COM port
+COM_PORT_FAKE_METER2 = "/dev/serial/by-id/usb-FTDI_USB_RS485_2-if00-port0"   # Solis1 fakemeter
+COM_PORT_LOCALMETER2 = "/dev/serial/by-id/usb-FTDI_USB_RS485_4-if01-port0"   # Main meter
+
+COM_PORT_EVSE        = "/dev/serial/by-id/usb-FTDI_USB_RS485_3-if00-port0"   # Main meter
+COM_PORT_METER       = "/dev/serial/by-id/usb-FTDI_USB_RS485_3-if01-port0"   # Main meter
+
 
 # not used
 # COM_PORT_METER       = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_54D2042261-if00"

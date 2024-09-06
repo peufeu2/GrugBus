@@ -40,7 +40,7 @@ if 1:
     async def set_sdm120_address( new_address=1 ):
         d = grugbus.SlaveDevice( 
                 AsyncModbusSerialClient(
-                    port            = "COM3",
+                    port            = "COM4",
                     timeout         = 1,
                     retries         = 2,
                     baudrate        = 9600,

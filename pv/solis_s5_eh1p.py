@@ -183,13 +183,14 @@ class Solis( grugbus.SlaveDevice ):
                 self.battery_max_charge_current.value = 0
                 self.battery_dcdc_active              = 1
                 self.pv_power.value                   = 0
+                await asyncio.sleep(1)
 
             except Exception:
                 log.exception(self.key+":")
                 # s = traceback.format_exc()
                 # log.error(self.key+":"+s)
                 # self.mqtt.mqtt.publish( "pv/exception", s )
-                await asyncio.sleep(5)
+                await asyncio.sleep(1)
 
     def get_time_regs( self ):
         return ( self.rwr_real_time_clock_year, self.rwr_real_time_clock_month,  self.rwr_real_time_clock_day,

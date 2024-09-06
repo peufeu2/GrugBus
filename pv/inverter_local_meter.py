@@ -43,16 +43,16 @@ class SDM120( grugbus.SlaveDevice ):
             # self.total_active_energy   ,
             # self.total_reactive_energy ,
         ]]
+        self.tick = Metronome( config.POLL_PERIOD_SOLIS_METER )
             
     async def read_coroutine( self ):
-        tick = Metronome( config.POLL_PERIOD_SOLIS_METER )
         timeout_counter = 0
-        await self.connect()
         while True:
             for reg_set in self.reg_sets:
-                await tick.wait()
+                await self.tick.wait()
                 pub = {}
                 try:
+                    await self.connect()
                     regs = await self.read_regs( reg_set )
                     pub = { reg.key: reg.format_value() for reg in regs }
                     timeout_counter = 0
@@ -67,7 +67,7 @@ class SDM120( grugbus.SlaveDevice ):
                     # s = traceback.format_exc()
                     # log.error(self.key+":"+s)
                     # self.mqtt.mqtt.publish( "pv/exception", s )
-                    await asyncio.sleep(5)
+                    await asyncio.sleep(1)
 
                 # wake up other coroutines waiting for fresh values
                 self.event_power.set()

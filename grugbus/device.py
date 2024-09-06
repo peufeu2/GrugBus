@@ -239,7 +239,7 @@ class SlaveDevice( DeviceBase ):
                 end_addr    = chunk[-1][1]
                 for retry in range( retries ):
                     try:
-                        async with self.modbus._async_mutex:    # can share same serial port between various devices
+                        async with self.modbus._async_mutex:    # share same serial port between several tasks
                             t = time.monotonic()
                             resp = await func( start_addr, end_addr-start_addr, self.bus_address )
                             if isinstance( resp, ExceptionResponse ):
@@ -250,6 +250,7 @@ class SlaveDevice( DeviceBase ):
                         update_list.append( (fcode, chunk, start_addr, reg_data) )
                         break
                     except (TimeoutError,ModbusException):
+                        await asyncio.sleep(0)  # let other tasks use this serial port
                         if retry < retries-1:
                             log.warning( "Modbus read: %s will retry %d/%d", self.key, retry+1, retries )
                         else:
@@ -358,6 +359,7 @@ class SlaveDevice( DeviceBase ):
                         self.is_online = True
                         break
                     except (TimeoutError,ModbusException):
+                        await asyncio.sleep(0)  # let other tasks use this serial port
                         if retry < retries-1:
                             log.warning( "Modbus write: %s will retry %d/%d", self.key, retry+1, retries )
                         else:

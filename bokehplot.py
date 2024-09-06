@@ -139,8 +139,8 @@ PLOTS = { p[1]:DataStream( *p ) for p in (
     # ( 0, "pv/solis1/dc_bus_voltage"   , "dc_bus_voltage", "#8000FF"  , -10.0   , {} ),
     # ( 0, "cmd/pv/write/rwr_battery_discharge_power_limit"   , "rwr_battery_discharge_power_limit", "#8000FF"  , 1.0   , {} ),
 
-    # ( 0, "pv/solis1/mppt1_power"       , "mppt1_power" , "#008000"  , 1.0, {} ),
-    # ( 0, "pv/solis1/mppt2_power"       , "mppt2_power" , "#00C000"  , 1.0, {} ),
+    ( 0, "pv/solis1/mppt1_power"       , "mppt1_power" , "#008000"  , 1.0, {"visible":False} ),
+    ( 0, "pv/solis1/mppt2_power"       , "mppt2_power" , "#00C000"  , 1.0, {"visible":False} ),
 
     # ( 1, "pv/meter/phase_1_line_to_neutral_volts"         , "PH1V"   , "orange"   , 1.0, {} ),
     # ( 1, "pv/meter/phase_2_line_to_neutral_volts"         , "PH2V"   , "orange"   , 1.0, {} ),
@@ -151,7 +151,8 @@ PLOTS = { p[1]:DataStream( *p ) for p in (
     ( 1, "pv/solis1/bms_battery_soc"     , "Battery SOC"   , "green"    , 1.0   , {"visible":False} ),
     ( 1, "pv/solis1/temperature"         , "Temperature"   , "orange"   , 1.0   , {"visible":False} ),
     ( 1, "pv/evse/virtual_current_limit" , "EVSE ILim (virtual)" , "#FF00FF"   , 1.0, {"visible":False} ),
-    ( 1, "pv/evse/current"               , "EVSE I (real)"    , "#FFFFFF"   , 1.0, {"visible":False} ),
+    # ( 1, "pv/evse/current"               , "EVSE I (real)"    , "#FFFFFF"   , 1.0, {"visible":False} ),
+    ( 1, "pv/evse/energy"               , "EVSE kWh"    , "#FFFFFF"   , 1.0, {"visible":False} ),
     # ( 1, "pv/solis1/battery_current"     , "Bat current"    , "#FF8000"   , 1.0, {"visible":False} ),
     # ( 1, "pv/solis1/battery_voltage"     , "Bat voltage"    , "#FFFF00"   , 1.0, {"visible":False} ),
     ( 1, "pv/solis1/battery_max_charge_current"     , "Bat max current"    , "#0080FF"   , 1.0, {"visible":False} ),
