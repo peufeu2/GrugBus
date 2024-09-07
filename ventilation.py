@@ -36,8 +36,8 @@ class ControleVentilation( MQTTWrapper ):
         fan_on_pf = 0
         fan_on_et = 0
         await self.mqtt.connect( config.MQTT_BROKER_LOCAL )
-        self.publish( "cmnd/plugs/tasmota_t5/", {"Power": 0} )
-        self.publish( "cmnd/plugs/tasmota_t6/", {"Power": 0} )
+        self.publish_value( "cmnd/plugs/tasmota_t5/Power", 0 )
+        self.publish_value( "cmnd/plugs/tasmota_t6/Power", 0 )
         try:
             while True:
                 try:
@@ -60,8 +60,8 @@ class ControleVentilation( MQTTWrapper ):
                     print( "ext_sous_balcon    ", temp_ext )
                     print()
 
-                    self.publish( "cmnd/plugs/tasmota_t5/", {"Power": fan_on_pf} )
-                    self.publish( "cmnd/plugs/tasmota_t6/", {"Power": fan_on_et} )
+                    self.publish_value( "cmnd/plugs/tasmota_t5/Power", fan_on_pf )
+                    self.publish_value( "cmnd/plugs/tasmota_t6/Power", fan_on_et )
 
                 except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
                     print("Terminated.")
@@ -70,8 +70,8 @@ class ControleVentilation( MQTTWrapper ):
                     log.exception( "Exception" )
                     await asyncio.sleep(1)        
         finally:
-            self.publish( "cmnd/plugs/tasmota_t5/", {"Power": 0} )
-            self.publish( "cmnd/plugs/tasmota_t6/", {"Power": 0} )
+            self.publish( "cmnd/plugs/tasmota_t5/Power", 0 )
+            self.publish( "cmnd/plugs/tasmota_t6/Power", 0 )
             await asyncio.sleep(1)
 
 mgr = ControleVentilation()

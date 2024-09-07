@@ -68,14 +68,9 @@ COM_PORT_METER       = "/dev/serial/by-id/usb-FTDI_USB_RS485_3-if01-port0"   # M
 
 # How often we modbus these devices
 POLL_PERIOD_METER       = (0.2, 0)
-POLL_PERIOD_SOLIS_METER = (0.4, 0.1)
-POLL_PERIOD_SOLIS       = (0.4, 0.15)
-POLL_PERIOD_EVSE        = (0.5, 0.05)
-ROUTER_PUBLISH_PERIOD   = 0.1
-
-# Solis is a bit deaf, sometimes it needs repeating
-MODBUS_RETRIES_SOLIS = 3
-MODBUS_RETRIES_METER = 1
+POLL_PERIOD_SOLIS_METER = (0.2, 0.05)
+POLL_PERIOD_SOLIS       = (0.2, 0.1)
+POLL_PERIOD_EVSE        = (1, 0.5)
 
 # Inverter auto turn on/off settings
 SOLIS_TURNOFF_BATTERY_SOC  = 10
@@ -86,3 +81,108 @@ SOLIS_TURNON_MPPT_VOLTAGE  = 80
 # You have to create this file yourself.
 from config_secret import *
 
+############################################################################
+# MQTT Rate Limit
+#
+#   topic: (period in seconds, absolute value change to force publish)
+#           0, 0    not allowed, period is mandatory to avoid flooding
+#           60, 0   limit to every 60 seconds unless the value changes
+#           60, 50  limit to every 60 seconds unless the value changes by 50
+#
+############################################################################
+MQTT_RATE_LIMIT = {
+    # Frequent
+    "pv/total_pv_power"                              : ( 1,  15 ),
+    "pv/meter/total_power"                           : ( 1,  10 ),
+    "pv/meter/house_power"                           : ( 1,  10 ),
+    "pv/solis1/input_power"                          : ( 1,  10 ),
+    "pv/evse/meter/active_power"                     : ( 60, 10 ),
+    "pv/router/excess_avg"                           : ( 1,  10 ),
+    "pv/solis1/meter/active_power"                   : ( 1,  10 ),
+
+    # EVSE
+    "pv/evse/charge_state"                           : ( 60, 0 ),
+    "pv/evse/charging_unpaused"                      : ( 60, 0 ),
+    "pv/evse/current"                                : ( 60, 0.2 ),
+    "pv/evse/current_limit"                          : ( 60, 0 ),
+    "pv/evse/energy"                                 : ( 60, 0.01 ),
+    "pv/evse/error_code"                             : ( 60, 0 ),
+    "pv/evse/req_time"                               : ( 60, 0.01 ),
+    "pv/evse/rwr_current_limit"                      : ( 60, 0 ),
+    "pv/evse/socket_state"                           : ( 60, 0 ),
+    "pv/evse/virtual_current_limit"                  : ( 60, 0 ),
+
+    # Meter
+    "pv/meter/phase_1_power"                         : ( 10, 25 ),
+    "pv/meter/phase_2_power"                         : ( 10, 25 ),
+    "pv/meter/phase_3_power"                         : ( 10, 25 ),
+    "pv/meter/average_line_current_thd"              : ( 10, 10 ),
+    "pv/meter/average_line_to_neutral_volts_thd"     : ( 10, 10 ),
+    "pv/meter/is_online"                             : ( 10, 0 ),
+    "pv/meter/phase_1_line_to_neutral_volts"         : ( 10, 1.5 ),
+    "pv/meter/phase_2_line_to_neutral_volts"         : ( 10, 1.5 ),
+    "pv/meter/phase_3_line_to_neutral_volts"         : ( 10, 1.5 ),
+    "pv/meter/phase_1_current"                       : ( 10, 0.1 ),
+    "pv/meter/phase_2_current"                       : ( 10, 0.1 ),
+    "pv/meter/phase_3_current"                       : ( 10, 0.1 ),
+    "pv/meter/total_export_kwh"                      : ( 10, 0.01 ),
+    "pv/meter/total_import_kwh"                      : ( 10, 0.01 ),
+    "pv/meter/total_power_factor"                    : ( 10, 2 ),
+    "pv/meter/total_var"                             : ( 10, 25 ),
+    "pv/meter/total_volt_amps"                       : ( 10, 25 ),
+
+    # Solis1
+    "pv/solis1/backup_load_power"                    : ( 10, 25 ),
+    "pv/solis1/battery_power"                        : ( 10, 25 ),
+    "pv/solis1/bms_battery_power"                    : ( 10, 25 ),
+
+    "pv/solis1/battery_voltage"                      : ( 10, 0.1 ),
+    "pv/solis1/bms_battery_voltage"                  : ( 10, 0.1 ),
+    "pv/solis1/dc_bus_half_voltage"                  : ( 10, 3 ),
+    "pv/solis1/dc_bus_voltage"                       : ( 10, 3 ),
+    "pv/solis1/backup_voltage"                       : ( 10, 3 ),
+    "pv/solis1/mppt1_voltage"                        : ( 10, 3 ),
+    "pv/solis1/mppt2_voltage"                        : ( 10, 3 ),
+    "pv/solis1/phase_a_voltage"                      : ( 10, 3 ),
+
+    "pv/solis1/battery_current"                      : ( 10, 0.1 ),
+    "pv/solis1/battery_max_charge_current"           : ( 10, 0.1 ),
+    "pv/solis1/battery_max_discharge_current"        : ( 10, 0.1 ),
+    "pv/solis1/bms_battery_charge_current_limit"     : ( 10, 0.1 ),
+    "pv/solis1/bms_battery_current"                  : ( 10, 0.1 ),
+    "pv/solis1/bms_battery_discharge_current_limit"  : ( 10, 0.1 ),
+
+    "pv/solis1/mppt1_current"                        : ( 10, 0.1 ),
+    "pv/solis1/mppt2_current"                        : ( 10, 0.1 ),
+
+    "pv/solis1/mppt1_power"                          : ( 10, 25 ),
+    "pv/solis1/mppt2_power"                          : ( 10, 25 ),
+    "pv/solis1/pv_power"                             : ( 10, 25 ),
+
+    "pv/solis1/battery_charge_energy_today"          : ( 60, 0.01 ),
+    "pv/solis1/battery_discharge_energy_today"       : ( 60, 0.01 ),
+    "pv/solis1/energy_generated_today"               : ( 60, 0.01 ),
+    "pv/solis1/energy_generated_yesterday"           : ( 60, 0.01 ),
+
+    "pv/solis1/temperature"                          : ( 60, 1 ),
+    "pv/solis1/bms_battery_health_soh"               : ( 60, 0 ),
+    "pv/solis1/bms_battery_soc"                      : ( 60, 0 ),
+
+    "pv/solis1/bms_battery_fault_information_01"     : ( 60, 0 ),
+    "pv/solis1/bms_battery_fault_information_02"     : ( 60, 0 ),
+
+    "pv/solis1/rwr_power_on_off"                     : ( 60, 0 ),
+    "pv/solis1/fault_status_1_grid"                  : ( 60, 0 ),
+    "pv/solis1/fault_status_2_backup"                : ( 60, 0 ),
+    "pv/solis1/fault_status_3_battery"               : ( 60, 0 ),
+    "pv/solis1/fault_status_4_inverter"              : ( 60, 0 ),
+    "pv/solis1/fault_status_5_inverter"              : ( 60, 0 ),
+    "pv/solis1/inverter_status"                      : ( 60, 0 ),
+    "pv/solis1/operating_status"                     : ( 60, 0 ),
+    "pv/solis1/rwr_backup_output_enabled"            : ( 60, 0 ),
+    "pv/solis1/rwr_energy_storage_mode"              : ( 60, 0 ),
+
+    # Solis1 Meter
+    "pv/solis1/meter/export_active_energy"           : ( 60, 0.001 ),
+    "pv/solis1/meter/import_active_energy"           : ( 60, 0.001 ),
+}

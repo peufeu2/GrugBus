@@ -22,6 +22,14 @@ import grugbus
 from grugbus.devices import Eastron_SDM120, Eastron_SDM630, Acrel_1_Phase, Acrel_ACR10RD16TE4
 import pv.solis_s5_eh1p, pv.meters, pv.evse_abb_terra
 
+#
+#       TODO: test is_online
+#       TODO: move input_power from solis task to routing task, for lower lag
+#
+#
+#
+
+
 """
     python3.11
     pymodbus 3.7.x
@@ -102,7 +110,7 @@ class RoutableTasmota( Routable ):
         super().__init__( name, power )
 
     def mqtt_power( self, message ):
-        return mqtt.publish( "cmnd/%s/"%self.mqtt_prefix, {"Power": message} )
+        return mqtt.publish( "cmnd/%s/Power"%self.mqtt_prefix, message )
 
     def off( self ):
         if self.is_on:
@@ -128,7 +136,6 @@ class Router():
                          RoutableTasmota("Tasmota T2 Radiateur PF", 800, "plugs/tasmota_t2"),
                          RoutableTasmota("Tasmota T1 Radiateur bureau", 1700, "plugs/tasmota_t1"),
                         ]       
-        self.tick_mqtt = Metronome( config.ROUTER_PUBLISH_PERIOD )
 
         # queues to smooth measured power, see comment on command_interval in EVSE class
         # "nobat" is for "excess power" and "bat" for "same including power we can steal from battery charging"
@@ -171,17 +178,19 @@ class Router():
             d.off()
 
     async def route_coroutine( self ):
+        solis1 = mgr.solis1
         try:
             while True:
-                await mgr.meter.event_power.wait()
+                await mgr.meter.event_power.wait()                
                 try:
+
+                    solis1.input_power.value = solis1.pv_power.value + (solis1.local_meter.active_power.value or 0)
+                    mqtt.publish_reg( solis1.mqtt_topic, solis1.input_power )
+
                     await self.route()
 
-                except (TimeoutError, ModbusException):
-                    await asyncio.sleep(1)
-
                 except Exception:
-                    log.exception(self.key+":")
+                    log.exception("Router:")
                     # s = traceback.format_exc()
                     # log.error(self.key+":"+s)
                     # self.mqtt.mqtt.publish( "pv/exception", s )
@@ -221,11 +230,11 @@ class Router():
         soc = mgr.solis1.bms_battery_soc.value or 0     # battery SOC, 0-100
 
         # correct battery power measurement offset when battery is fully charged
-        if not mgr.solis1.battery_dcdc_active and -250 < bp < 200:
+        if not mgr.solis1.battery_dcdc_active.value and -250 < bp < 200:
             bp = 0
         else:
             # use fast proxy instead
-            bp = mgr.solis1.input_power
+            bp = mgr.solis1.input_power.value
 
         # Solis S5 EH1P has several different behaviors to which we should adapt for better routing.
         #
@@ -269,7 +278,7 @@ class Router():
         #
         #   From the above, we distinguish two routing modes: fast and slow.
         #
-        fast_route = not mgr.solis1.battery_dcdc_active
+        fast_route = not mgr.solis1.battery_dcdc_active.value
         fast_route = True
 
         # set desired average export power, tweak it a bit considering battery soc
@@ -317,11 +326,7 @@ class Router():
         # For now this is just for the EVSE.
 
         export_avg_bat =  export_avg + steal_from_battery
-        if self.tick_mqtt.ticked():
-            pub = {     "excess_avg"       : export_avg_bat,
-                        # "excess_avg_nobat" : export_avg
-                    }
-            mqtt.publish( "pv/router/", pub )
+        mqtt.publish_value( "pv/router/excess_avg", export_avg_bat )
 
         #   Note export_avg_nobat doesn't work that well. It tends to use too much from the battery
         #   because the inverter will lower battery charging power on its own to power the EVSE, but this is
@@ -473,9 +478,9 @@ class SolisManager():
                 bat_power_deque.append( abs(solis.battery_power.value) )
                 if solis.temperature.value > 40 or sum(bat_power_deque) / len(bat_power_deque) > 2000:
                     timeout_fan_off.reset()
-                    solis.mqtt.publish( "cmnd/plugs/tasmota_t3/", {"Power": "1"} )
+                    solis.mqtt.publish( "cmnd/plugs/tasmota_t3/Power", "1" )
                 elif solis.temperature.value < 35 and timeout_fan_off.expired():
-                    solis.mqtt.publish( "cmnd/plugs/tasmota_t3/", {"Power": "0"} )
+                    solis.mqtt.publish( "cmnd/plugs/tasmota_t3/Power", "0" )
 
             except (TimeoutError, ModbusException): pass
             except:
@@ -493,10 +498,7 @@ class SolisManager():
             await lm.event_power.wait()
             try:
                 if lm.is_online:
-                    meter_pub = { "house_power" :  float(int(  (self.meter.total_power.value or 0)
-                                                            - (lm.active_power.value or 0) )) }
-                    mqtt.publish( "pv/meter/", meter_pub )            
-            except (TimeoutError, ModbusException): pass
+                    mqtt.publish_value( "pv/meter/house_power", float(int(  (self.meter.total_power.value or 0) - (lm.active_power.value or 0) )))
             except:
                 log.exception(lm.key+":")
 
@@ -654,12 +656,13 @@ class SolisManager():
                 tg.create_task( log_coroutine( "read: solis1",              self.solis1.read_coroutine() ))
                 tg.create_task( log_coroutine( "read: solis1 local meter",  self.solis1.local_meter.read_coroutine() ))
                 tg.create_task( log_coroutine( "read: solis2 local meter",  self.solis2.local_meter.read_coroutine() ))
-                # tg.create_task( log_coroutine( "read: evse local meter",    self.evse.local_meter.read_coroutine() ))
-                tg.create_task( log_coroutine( "logic:fan",                 self.inverter_fan_coroutine( self.solis1 ) ))
-                tg.create_task( log_coroutine( "logic:blackout",            self.inverter_blackout_coroutine( self.solis1 ) ))
-                tg.create_task( log_coroutine( "logic:house_power",         self.house_power_coroutine( ) ))
-                tg.create_task( log_coroutine( "logic:fill fake meter",     self.fake_meter_coroutine( ) ))
-                tg.create_task( log_coroutine( "logic:router",              self.router.route_coroutine( ) ))
+                tg.create_task( log_coroutine( "read: evse local meter",    self.evse.local_meter.read_coroutine() ))
+                tg.create_task( log_coroutine( "read: evse",                self.evse.read_coroutine() ))
+                tg.create_task( log_coroutine( "logic: fan",                self.inverter_fan_coroutine( self.solis1 ) ))
+                tg.create_task( log_coroutine( "logic: blackout",           self.inverter_blackout_coroutine( self.solis1 ) ))
+                tg.create_task( log_coroutine( "logic: house_power",        self.house_power_coroutine( ) ))
+                tg.create_task( log_coroutine( "logic: fill fake meter",    self.fake_meter_coroutine( ) ))
+                tg.create_task( log_coroutine( "logic: router",             self.router.route_coroutine( ) ))
                 tg.create_task( log_coroutine( "sysinfo",                   self.sysinfo_coroutine() ))
         except (KeyboardInterrupt, CancelledError):
             print("Terminated.")
@@ -701,7 +704,8 @@ class SolisManager():
 
                 total, used, free = shutil.disk_usage("/")
                 pub["disk_space_gb"] = round( free/2**30, 2 )
-                mqtt.publish( "pv/", pub )
+                for k,v in pub.items():
+                    mqtt.publish_value( "pv/"+k, v  )
 
                 await asyncio.sleep(10)
             except Exception:

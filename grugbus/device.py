@@ -147,9 +147,10 @@ class SlaveDevice( DeviceBase ):
             }
 
     async def connect( self ):
-        async with self.modbus._async_mutex:
-            if not self.modbus.connected:
-                await self.modbus.connect()
+        if not self.modbus.connected:
+            async with self.modbus._async_mutex:
+                if not self.modbus.connected:
+                    await self.modbus.connect()
 
     # function cache requires reg_list to be a tuple
     def reg_list_to_chunks( self, reg_list, _max_hole_size ):
@@ -225,6 +226,7 @@ class SlaveDevice( DeviceBase ):
         """
         retries = retries or self.default_retries
         try:
+            await self.connect()
             start_time = time.monotonic()
             result = []
             update_list = []
@@ -249,12 +251,12 @@ class SlaveDevice( DeviceBase ):
                                 await asyncio.sleep(0.003)  # wait until serial is flushed before releasing lock
                         update_list.append( (fcode, chunk, start_addr, reg_data) )
                         break
-                    except (TimeoutError,ModbusException):
-                        await asyncio.sleep(0)  # let other tasks use this serial port
+                    except (TimeoutError,ModbusException) as e:
+                        await asyncio.sleep(0.2)  # let other tasks use this serial port
                         if retry < retries-1:
-                            log.warning( "Modbus read: %s will retry %d/%d", self.key, retry+1, retries )
+                            log.warning( "Modbus read error: %s will retry %d/%d (%s)", self.key, retry+1, retries, e )
                         else:
-                            log.error( "Modbus read: %s after %d/%d retries", self.key, retry+1, retries )
+                            log.error( "Modbus read error: %s after %d/%d retries (%s)", self.key, retry+1, retries, e )
                             raise
 
             # Decode values and assign to registers. Do this in a separate loop after reading,
@@ -269,7 +271,7 @@ class SlaveDevice( DeviceBase ):
                     reg.decode( fcode, reg_data[ offset:(offset+reg.word_length) ] )
                     result.append( reg )
             return result
-        except ModbusException as e:
+        except Exception as e:
             self.is_online = False
             raise
         finally:
@@ -305,6 +307,7 @@ class SlaveDevice( DeviceBase ):
         """
         retries = retries or self.default_retries
         try:
+            await self.connect()
             update_list = []
             start_time = time.monotonic()
             for fcode, chunk in self.reg_list_to_chunks( write_list, 0 ):
@@ -361,12 +364,12 @@ class SlaveDevice( DeviceBase ):
                     except (TimeoutError,ModbusException):
                         await asyncio.sleep(0)  # let other tasks use this serial port
                         if retry < retries-1:
-                            log.warning( "Modbus write: %s will retry %d/%d", self.key, retry+1, retries )
+                            log.warning( "Modbus write error: %s will retry %d/%d (%s)", self.key, retry+1, retries, e )
                         else:
-                            log.error( "Modbus write: %s after %d/%d retries", self.key, retry+1, retries )
+                            log.error( "Modbus write error: %s after %d/%d retries (%s)", self.key, retry+1, retries, e )
                             raise
 
-        except (TimeoutError,ModbusException) as e:
+        except Exception as e:
             self.is_online = False
             raise
         finally:

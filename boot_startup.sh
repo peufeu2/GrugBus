@@ -17,4 +17,4 @@ screen -d -m -t buf python3.11 mqtt_buffer.py
 
 screen -d -m -t chauffage python3.11 chauffage_mqtt.py
 
-screen -d -m -t ventilation python3.11 ventilation.py
+# screen -d -m -t ventilation python3.11 ventilation.py

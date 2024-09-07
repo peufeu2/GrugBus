@@ -38,6 +38,7 @@ class SDM630( grugbus.SlaveDevice ):
         self.total_power_tweaked = 0.0
         self.event_power = asyncio.Event()  # Fires every time frequent_regs below are read
         self.event_all   = asyncio.Event()  # Fires when all registers are read, for slower processes
+        self.tick = Metronome(config.POLL_PERIOD_METER)  # fires a tick on every period to read periodically, see misc.py
 
     async def read_coroutine( self ):
         # For power routing to work we need to read total_power frequently. So we don't read 
@@ -93,44 +94,48 @@ class SDM630( grugbus.SlaveDevice ):
             self.total_volt_amps                  ,
             self.total_var                        ,
             self.total_power_factor               ,
-            self.total_phase_angle                ,
+            # self.total_phase_angle                ,
             self.average_line_to_neutral_volts_thd,
             self.average_line_current_thd         ,
                 ))
 
-        tick = Metronome(config.POLL_PERIOD_METER)  # fires a tick on every period to read periodically, see misc.py
         last_poll_time = None
+        mqtt  = self.mqtt
+        topic = self.mqtt_topic
         while True:
             for reg_set in reg_sets:
                 try:
-                    await self.connect()
-                    await tick.wait()
+                    await self.tick.wait()
                     try:
                         regs = await self.read_regs( reg_set )
-                    except (TimeoutError, ModbusException):
-                        # Nothing special to do: in case of error, read_regs() above already set self.is_online to False
-                        pub = {}
-                    else:
+                    finally:
                         # wake up other coroutines waiting for fresh values
+                        # even if there was a timeout
                         self.event_power.set()
                         self.event_power.clear()
-                        pub = { reg.key: reg.format_value() for reg in regs_to_publish.intersection(regs) }      # publish what we just read
 
-                    pub[ "is_online" ]    = int( self.is_online )   # set by read_regs(), True if it succeeded, False otherwise
+                    for reg in regs_to_publish.intersection(regs):
+                         mqtt.publish_reg( topic, reg )
+
+                    mqtt.publish_value( topic+"is_online", int( self.is_online ))   # set by read_regs(), True if it succeeded, False otherwise
+
                     if config.LOG_MODBUS_REQUEST_TIME:
-                        pub[ "req_time" ]     = round( self.last_transaction_duration,2 )   # log modbus request time, round it for better compression
+                        mqtt.publish_value( topic+"req_time", round( self.last_transaction_duration,2 ))   # log modbus request time, round it for better compression
                         if last_poll_time:
-                            pub["req_period"] = self.last_transaction_timestamp - last_poll_time
-                    last_poll_time = self.last_transaction_timestamp
-                    self.mqtt.publish( self.mqtt_topic, pub )
+                            mqtt.publish_value( topic+"req_period", self.last_transaction_timestamp - last_poll_time )
+                        last_poll_time = self.last_transaction_timestamp
+
+                except (TimeoutError, ModbusException):
+                    await asyncio.sleep(1)
 
                 except Exception:
+                    self.is_online = False
                     log.exception(self.key+":")
                     await asyncio.sleep(0.5)
 
-                # wake up other coroutines waiting for fresh values
-                self.event_all.set()
-                self.event_all.clear()
+            # wake up other coroutines waiting for fresh values
+            self.event_all.set()
+            self.event_all.clear()
 
 
 ########################################################################################
@@ -148,8 +153,10 @@ class SDM120( grugbus.SlaveDevice ):
         #   grab the values when they are read
         self.event_power = asyncio.Event()  # Fires every time frequent_regs below are read
         self.event_all   = asyncio.Event()  # Fires when all registers are read, for slower processes
-
-        self.reg_sets = [[self.active_power]] * 9 + [[
+        self.tick = Metronome( config.POLL_PERIOD_SOLIS_METER )
+     
+    async def read_coroutine( self ):
+        reg_sets = [[self.active_power]] * 9 + [[
             self.active_power          ,
             # self.apparent_power        ,
             # self.reactive_power        ,
@@ -163,35 +170,33 @@ class SDM120( grugbus.SlaveDevice ):
             # self.total_active_energy   ,
             # self.total_reactive_energy ,
         ]]
-        self.tick = Metronome( config.POLL_PERIOD_SOLIS_METER )
-            
-    async def read_coroutine( self ):
-        timeout_counter = 0
+        mqtt  = self.mqtt
+        topic = self.mqtt_topic
+
         while True:
-            for reg_set in self.reg_sets:
-                await self.tick.wait()
-                pub = {}
+            for reg_set in reg_sets:
                 try:
-                    await self.connect()
-                    regs = await self.read_regs( reg_set )
-                    pub = { reg.key: reg.format_value() for reg in regs }
-                    timeout_counter = 0
-                    self.mqtt.publish( self.mqtt_topic, pub )
+                    await self.tick.wait()
+                    try:
+                        regs = await self.read_regs( reg_set )
+                    finally:
+                        # wake up other coroutines waiting for fresh values
+                        self.event_power.set()
+                        self.event_power.clear()
+
+                    for reg in regs:
+                        mqtt.publish_reg( topic, reg )
 
                 except (TimeoutError, ModbusException):
-                    timeout_counter += 1
-                    if timeout_counter > 10:    self.active_power.value = 0 # if it times out, it's probably gone offgrid
-                    else:                       timeout_counter += 1
+                    await asyncio.sleep(1)
+
                 except Exception:
+                    self.is_online = False
                     log.exception(self.key+":")
                     # s = traceback.format_exc()
                     # log.error(self.key+":"+s)
                     # self.mqtt.mqtt.publish( "pv/exception", s )
                     await asyncio.sleep(1)
-
-                # wake up other coroutines waiting for fresh values
-                self.event_power.set()
-                self.event_power.clear()
 
             # wake up other coroutines waiting for fresh values
             self.event_all.set()
@@ -280,7 +285,7 @@ class FakeSmartmeter( grugbus.LocalServer ):
 
         # if enabled, publish lag time
         if self.mqtt and self.data_timestamp:    # how fresh is this data?
-            self.mqtt.publish( "pv/solis1/fakemeter/", { "lag": round( time.monotonic()-self.data_timestamp, 2 ) } )
+            self.mqtt.publish_value( "pv/solis1/fakemeter/lag", round( time.monotonic()-self.data_timestamp, 2 ) )
 
         # tell pymodbus to serve the request
         return True

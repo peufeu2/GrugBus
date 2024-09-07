@@ -52,7 +52,21 @@ class DataStream( object ):
         x,y = self.get( time.time()-PLOT_LENGTH )
         self.x = collections.deque( x )
         self.y = collections.deque( y )
-        print( "Loaded %d for %s" % (len(self.x), self.topic))
+        if self.x:
+            print( "Loaded %d for %s : %s-%s" % (len(self.x), self.topic, self.x[0], self.x[-1]))
+
+    def add( self, y ):
+        y*=self.scale
+        t = np.datetime64(datetime.datetime.now(), "ms")
+        if self.x:
+            self.x.append( self.x[-1] )
+            self.y.append( y )
+        self.x.append( t )
+        self.y.append( y )
+        limit = t - np.timedelta64( PLOT_LENGTH, 's' )
+        while self.x and self.x[0] < limit:
+            x = self.x.popleft()
+            self.y.popleft()
 
     def get( self, tstart, tend=None, lod_length=3600 ):
         # All times in database are in UTC. Clickhouse treats integer timestamps as UTC too,
@@ -60,7 +74,7 @@ class DataStream( object ):
         if isinstance( tstart, datetime.datetime ):
             tstart = tstart.timestamp()
             if tend:
-                tehd = tend.timestamp()
+                tend = tend.timestamp()
         span = (tend or time.time())-tstart
         assert span>=0
 
@@ -99,7 +113,8 @@ class DataStream( object ):
             
         if r:
             x,y = r
-            if len(x) < 100:    # improve visibility of steps
+            print( "%6d %s" % (len(x),self.topic) )
+            if len(x) < 500:    # improve visibility of steps
                 dt = np.timedelta64( 1, 'ms' )
                 x=np.repeat(x,2)
                 y=np.repeat(y,2)
@@ -117,7 +132,7 @@ class DataStream( object ):
 class PlotHolder():
     pass
 
-PLOTS = { p[1]:DataStream( *p ) for p in (
+DATASTREAMS = { p[1]:DataStream( *p ) for p in (
     # ( 0, "pv/fronius/grid_port_power"   , "Fronius PV" , "#008000"  , -4.5  , {} ),
     ( 0, "pv/total_pv_power"                , "Total PV"   , "#00FF00"  , 1.0   , {} ),
     ( 0, "pv/meter/house_power"             , "House"      , "#8080FF"  , 1.0   , {} ),
@@ -131,7 +146,7 @@ PLOTS = { p[1]:DataStream( *p ) for p in (
     # ( 0, "pv/solis1/fakemeter/active_power" , "FakeMeter"      , "#FFFFFF"     , 1.0   , {"visible":False} ),
     ( 0, "pv/evse/rwr_current_limit"        , "EVSE ILim"   , "#FFFFFF"   , 230 , {"visible":False} ),
     # ( 0, "pv/evse/current"                  , "EVSE I (real)"    , "#808080"   , 230, {"visible":False} ),
-    ( 0, "pv/evse/active_power"             , "EVSE"        , "#FF80FF"  , 1.0   , {} ),
+    ( 0, "pv/evse/meter/active_power"             , "EVSE"        , "#FF80FF"  , 1.0   , {} ),
     ( 0, "pv/router/excess_avg"             , "Route excess", "#FF00FF"  , -1.0   , {} ),
     # ( 0, "pv/router/excess_avg_nobat"   , "Route excess nobat", "#8000FF"  , -1.0   , {} ),
     # ( 0, "pv/solis1/meter_total_active_power"         , "SMAP"   , "#000080"   , -1.0, {"visible":False} ),
@@ -208,26 +223,16 @@ class BokehApp():
 
     def mqtt_on_connect(self, client, flags, rc, properties):
         print("MQTT On Connect")
-        # for topic in list(PLOTS.keys())+list(DATA.keys()):
-        for topic in PLOTS.keys():
+        # for topic in list(DATASTREAMS.keys())+list(DATA.keys()):
+        for topic in DATASTREAMS.keys():
             print( "subscribe", topic )
             self.mqtt.subscribe( topic, qos=0 )
 
     def mqtt_on_message(self, client, topic, payload, qos, properties):
-        p = PLOTS.get(topic)
+        p = DATASTREAMS.get(topic)
         y = float(payload)
-        # if topic in DATA:
-            # DATA[topic][1] = y
         if p:
-            y*=p.scale
-            t = np.datetime64(int(time.time()*1000),"ms") + TIME_SHIFT
-            p.x.append( t )
-            p.y.append( y )
-            limit = t - np.timedelta64( PLOT_LENGTH, 's' )
-            while p.x[0] < limit:
-                p.x.popleft()
-                p.y.popleft()
-
+            p.add( y )
 
     def make_document(self, doc):
         PVDashboard(doc)
@@ -236,7 +241,7 @@ class PVDashboard():
     def __init__( self, doc ):
         doc.theme = 'dark_minimal'
 
-        self.figs = { stream.pane:None for key,stream in PLOTS.items() }
+        self.figs = { stream.pane:None for key,stream in DATASTREAMS.items() }
         self.figs[0] = figure(   title = 'PV', 
                         sizing_mode = 'stretch_both', 
                         x_axis_type="datetime",
@@ -268,7 +273,7 @@ class PVDashboard():
         self.lod_slider_value = 1
 
         self.plots = {}
-        for key,stream in PLOTS.items():
+        for key,stream in DATASTREAMS.items():
             p = PlotHolder()
             p.key    = key
             p.stream = stream
@@ -330,7 +335,7 @@ class PVDashboard():
         value = min(PLOT_LENGTH_MAX,max(PLOT_LENGTH_MIN,value))
         global PLOT_LENGTH
         PLOT_LENGTH = value
-        for key,stream in PLOTS.items():
+        for key,stream in DATASTREAMS.items():
             stream.load()
         for fig in self.figs.values():
             fig.x_range.follow_interval = np.timedelta64( PLOT_LENGTH, 's' )
@@ -364,22 +369,33 @@ class PVDashboard():
         # print( tstart, tend, event, self.lod_reduce, lod_length )
 
         for fig_k, fig in self.figs.items():
-            miny = []
-            maxy = []
             for k,ph in self.plots.items():
                 if ph.plot.visible and ph.stream.pane == fig_k:
                     ds = ph.plot.data_source
                     x,y = ph.stream.get( tstart, tend, lod_length=lod_length )
+                    ds.data = {"x":x, "y":y }
+                    ds.trigger('data', ds.data, ds.data )
+        self.autorange()
+        self.tick.ticked()
+
+    def autorange( self ):
+        for fig_k, fig in self.figs.items():
+            miny = []
+            maxy = []
+            for k,ph in self.plots.items():
+                if ph.plot.visible and ph.stream.pane == fig_k:
+                    # print("autorange",ph.key)
+                    ds = ph.plot.data_source
+                    x = ds.data["x"]
+                    y = ds.data["y"]
                     if len(y):
                         miny.append(y.min())
                         maxy.append(y.max())
-                    ds.data = {"x":x, "y":y }
-                    ds.trigger('data', ds.data, ds.data )
             if miny:
                 # for fig in self.figs.values():
                 fig.y_range.start = min(miny)
                 fig.y_range.end   = max(maxy)
-        self.tick.ticked()
+                # print( min(miny), max(maxy))
 
     def event_lod_start( self, event ):
         # print( event )
@@ -394,6 +410,10 @@ class PVDashboard():
 
     def event_reset( self, event ):
         self.streaming = True
+        for fig in self.figs.values():
+            fig.x_range.follow="end"
+            fig.x_range.follow_interval = np.timedelta64( PLOT_LENGTH, 's' )
+            fig.x_range.range_padding=0
         self.update()
 
     def event_ranges_update( self, event ):
@@ -418,15 +438,29 @@ class PVDashboard():
         for k,ph in self.plots.items():
             ds = ph.plot.data_source
             s  = ph.stream
-            if not s.x: # is there data?
+
+            # remove old data
+            limit = np.datetime64(int(time.time()*1000),"ms") + TIME_SHIFT - np.timedelta64( PLOT_LENGTH, 's' )
+            while s.x and s.x[0] < limit:
+                s.x.popleft()
+                s.y.popleft()
+
+            if not s.x:                     # is there data?
                 continue
-            if ph.last_update == s.x[-1]:
-                continue
+            if ph.last_update == s.x[-1]:   # is there new data?
+                continue                    # no new data, so no need to redraw
             ph.last_update = s.x[-1]
+
+            # send data to browser
             ds.data = {"x":np.array( s.x ), "y":np.array( s.y )}
-            # print( s.x[-1] )
             ds.trigger('data', ds.data, ds.data )
-            self.prev_trange = self.get_t_range()
+            
+            trange = self.prev_trange = self.get_t_range()
+            if trange:
+                for k, fig in self.figs.items():
+                    if k!=0:
+                        fig.x_range.start, fig.x_range.end = trange
+        # self.autorange()
 
 
 if __name__ == '__main__':

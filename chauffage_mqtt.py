@@ -114,15 +114,13 @@ async def run(mqtt ):
     while True:
         try:
             await asyncio.sleep( sleep_delay )
-            data = {}
             for k,v in get():
                 if isinstance( v,float ):
                     v = round( v, 2 )
                 if isinstance( v,bool ):
                     v = int(v)
                 print(k,v)
-                data[k]=v
-            mqtt.publish( "chauffage/", data )
+                mqtt.publish_value( "chauffage/"+k, v )
 
             lines = urllib.request.urlopen("http://192.168.0.16/log",timeout=2).read().decode("windows-1252").split("\n")
             for line in lines:

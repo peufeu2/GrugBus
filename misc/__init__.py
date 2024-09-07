@@ -13,6 +13,11 @@ class Metronome():
         self.tick = tick
         self.next_tick = base
 
+    def set( self, tick ):
+        # cancel previous tick and replace it with new one
+        self.next_tick += tick - self.tick
+        self.tick = tick
+
     def reset( self ):
         self.next_tick = time.monotonic()+self.tick
 

@@ -486,7 +486,7 @@ async def transfer_data( mqtt ):
                             try:
                                 pool.add( *j )
                             except Exception as e:
-                                print("Error on line %s: %s" % (line, e))                        
+                                print("Error on line %s: %s\n> %s" % (n, e, line[:80]))                        
                             if not (n&0x3FFFF):
                                 pool.flush()
                 except Exception as e:
@@ -500,7 +500,11 @@ async def transfer_data( mqtt ):
             pool.flush()
             timer = Metronome( config.CLICKHOUSE_INSERT_PERIOD_SECONDS )
             while True:
-                pool.add( *orjson.loads( await rsock.readline() ) )
+                try:
+                    pool.add( *orjson.loads( await rsock.readline() ) )
+                except Exception as e:
+                    log.exception( "Error" )
+
                 # print( len( pool.insert_floats ))
                 if timer.ticked():
                     pool.flush()

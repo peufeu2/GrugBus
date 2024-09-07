@@ -559,3 +559,21 @@ class RegDateTimeSplit( RegStruct ):
         self.dt    = dt
 
     # def _pre_encode( self ):
+
+#
+#   This is not a register in the device, but is useful to store something and
+#   treat it like a register
+
+class FakeRegister:
+    def __init__( self, key, value, user_type, decimals ):
+        self.key = key
+        self.value = value
+        if user_type == "float":
+            format_value_fstr = "%%.0%df" % max( decimals, 1 )
+            # adding 0.0 converts -0.0 into 0.0
+            self.format_value = lambda: format_value_fstr % (0.0 + round( self.value, decimals ))
+        else:
+            self.format_value = lambda: "%d"%self.value
+
+
+

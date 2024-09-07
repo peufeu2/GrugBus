@@ -34,13 +34,11 @@ class EVSE( grugbus.SlaveDevice ):
             self.charge_state       ,
             self.current_limit      ,
             self.current            ,
-            self.active_power       ,
+            # self.active_power       ,
             self.energy             ,
             self.error_code         ,
             self.socket_state
         )
-
-        self.tick_poll = Metronome( config.POLL_PERIOD_EVSE )   # how often we poll it over modbus
 
         #   This setting deserves a comment... This is the time interval between current_limit commands to the EVSE.
         #   After each command:
@@ -78,47 +76,43 @@ class EVSE( grugbus.SlaveDevice ):
         self.p_dead_band_fast = 0.5 * 240
         self.p_dead_band_slow = 0.5 * 240
 
-    def publish( self, all=True ):
-        if all: 
-            pub = { reg.key: reg.format_value() for reg in self.regs_to_read }
-            if config.LOG_MODBUS_REQUEST_TIME:
-                pub["req_time"] = round( self.last_transaction_duration,2 )
-        else:
-           pub = {}
-        pub["virtual_current_limit"] = "%.02f"%self.virtual_current_limit
-        pub["rwr_current_limit"]     = self.rwr_current_limit.format_value()
-        pub["charging_unpaused"]     = self.is_charging_unpaused()
-        self.mqtt.publish( self.mqtt_topic, pub )
+        self.tick      = Metronome( config.POLL_PERIOD_EVSE )   # how often we poll it over modbus
+        self.event_all = asyncio.Event()  # Fires when all registers are read, for slower processes
 
-    async def poll( self, p, fast ):
-        try:
-            await self.connect()
-            await self.read_regs( self.regs_to_read )
-            self.publish()
-            # line = "%d %-6dW e=%6d s=%04x s=%04x v%6.03fA %6.03fA %6.03fA %6.03fA %6.03fW %6.03fWh %fs" % (fast, p, self.error_code.value, self.charge_state.value, self.socket_state.value, 
-            #     self.virtual_current_limit, self.rwr_current_limit.value, self.current_limit.value, self.current.value, 
-            #     self.active_power.value, self.energy.value, self.last_transaction_duration )
-            # print( line )
-            return True
-        except Exception:
-            log.exception(self.key+":")
-            # await asyncio.sleep(0.5)
+        self.route_tick = Metronome( 1 )
 
     async def stop( self ):
         await self.set_virtual_current_limit( self.virtual_i_min )
 
+    async def read_coroutine( self ):
+        mqtt = self.mqtt
+        topic = self.mqtt_topic
+        while True:
+            try:
+                await self.tick.wait()
+                await self.read_regs( self.regs_to_read )
+                for reg in self.regs_to_read:
+                    mqtt.publish_reg( topic, reg )
+                if config.LOG_MODBUS_REQUEST_TIME:
+                    mqtt.publish_value( topic+"req_time", round( self.last_transaction_duration,2 ) )
+
+            except (TimeoutError, ModbusException):
+                await asyncio.sleep(1)
+
+            except Exception:
+                log.exception(self.key+":")
+                # s = traceback.format_exc()
+                # log.error(self.key+":"+s)
+                # self.mqtt.mqtt.publish( "pv/exception", s )
+                await asyncio.sleep(1)
+
+            self.event_all.set()
+            self.event_all.clear()
+
     async def route( self, excess, fast_route ):
-        # Poll charging station
-        if self.tick_poll.ticked():         # polling interval
-
-            # poll EVSE over modbus
-            if not await self.poll( excess, fast_route ):
-                self.tick_poll.tick = 30.0  # If it did not respond, poll it less often to not disturb the shared smartmeter modbus line
-                self.default_retries = 1
-                return
-            self.tick_poll.tick = 1.0   # EVSE is online, use short poll interval
-            self.default_retries = 2
-
+        if not self.route_tick.ticked():
+            return
+            
         # EV is not plugged, or init register at startup
         if (self.socket_state.value) != 0x111 or (not self.rwr_current_limit.value):    
             # set charge to paused, it will take many loops to increment this enough to start
@@ -238,9 +232,15 @@ class EVSE( grugbus.SlaveDevice ):
             if delta_i or self.resend_current_limit_timeout.expired():
                 self.resend_current_limit_timeout.reset()
                 self.rwr_current_limit.value = current_limit
-                self.publish( False )   # publish before writing to measure total reaction time (modbus+EVSE+car charger)
+
+                mqtt = self.mqtt
+                topic = self.mqtt_topic
+                mqtt.publish_reg( topic, self.rwr_current_limit )
+                mqtt.publish_value( topic+"virtual_current_limit",  round(self.virtual_current_limit,2) )
+                mqtt.publish_value( topic+"charging_unpaused"    ,  self.is_charging_unpaused() )
+
                 await self.rwr_current_limit.write( )
                 if config.LOG_MODBUS_WRITE_REQUEST_TIME:
-                    self.mqtt.publish( self.mqtt_topic, { "req_time": round( self.last_transaction_duration,2 ) } )
+                    self.mqtt.publish_value( self.mqtt_topic+"req_time", round( self.last_transaction_duration,2 ) )
         return delta_i
 
