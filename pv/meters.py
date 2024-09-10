@@ -40,12 +40,11 @@ class SDM630( grugbus.SlaveDevice ):
         self.event_all   = asyncio.Event()  # Fires when all registers are read, for slower processes
         self.tick = Metronome(config.POLL_PERIOD_METER)  # fires a tick on every period to read periodically, see misc.py
 
-    async def read_coroutine( self ):
         # For power routing to work we need to read total_power frequently. So we don't read 
         # ALL registers every time. Instead, gather the unimportant ones in little groups
         # and frequently read THE important register (total_power) + one group.
         # Unimportant registers will be updated less often, who cares.
-        reg_sets = ((
+        self.reg_sets = ((
             self.total_power                      ,    # required for fakemeter
             self.total_volt_amps                  ,    # required for fakemeter
             self.total_var                        ,    # required for fakemeter
@@ -78,7 +77,7 @@ class SDM630( grugbus.SlaveDevice ):
         ))
 
         # publish these to MQTT
-        regs_to_publish = set((
+        self.regs_to_publish = set((
             self.phase_1_line_to_neutral_volts    ,
             self.phase_2_line_to_neutral_volts    ,
             self.phase_3_line_to_neutral_volts    ,
@@ -99,11 +98,12 @@ class SDM630( grugbus.SlaveDevice ):
             self.average_line_current_thd         ,
                 ))
 
+    async def read_coroutine( self ):
         last_poll_time = None
         mqtt  = self.mqtt
         topic = self.mqtt_topic
         while True:
-            for reg_set in reg_sets:
+            for reg_set in self.reg_sets:
                 try:
                     await self.tick.wait()
                     try:
@@ -114,7 +114,7 @@ class SDM630( grugbus.SlaveDevice ):
                         self.event_power.set()
                         self.event_power.clear()
 
-                    for reg in regs_to_publish.intersection(regs):
+                    for reg in self.regs_to_publish.intersection(regs):
                          mqtt.publish_reg( topic, reg )
 
                     mqtt.publish_value( topic+"is_online", int( self.is_online ))   # set by read_regs(), True if it succeeded, False otherwise
@@ -154,9 +154,7 @@ class SDM120( grugbus.SlaveDevice ):
         self.event_power = asyncio.Event()  # Fires every time frequent_regs below are read
         self.event_all   = asyncio.Event()  # Fires when all registers are read, for slower processes
         self.tick = Metronome( config.POLL_PERIOD_SOLIS_METER )
-     
-    async def read_coroutine( self ):
-        reg_sets = [[self.active_power]] * 9 + [[
+        self.reg_sets = [[self.active_power]] * 9 + [[
             self.active_power          ,
             # self.apparent_power        ,
             # self.reactive_power        ,
@@ -170,11 +168,13 @@ class SDM120( grugbus.SlaveDevice ):
             # self.total_active_energy   ,
             # self.total_reactive_energy ,
         ]]
+
+    async def read_coroutine( self ):
         mqtt  = self.mqtt
         topic = self.mqtt_topic
 
         while True:
-            for reg_set in reg_sets:
+            for reg_set in self.reg_sets:
                 try:
                     await self.tick.wait()
                     try:

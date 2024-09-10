@@ -156,9 +156,6 @@ class Solis( grugbus.SlaveDevice ):
                                 self.bms_battery_current.value *= -1
                             mqtt.publish_value( topic+"bms_battery_power", int( self.bms_battery_current.value * self.bms_battery_voltage.value ))
 
-                        # compute input_power for routing
-                        mqtt.publish( "pv/total_pv_power", self.pv_power.format_value(), self.pv_power.value )
-
                     finally:
                         # wake up other coroutines waiting for fresh values
                         self.event_power.set()

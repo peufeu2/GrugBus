@@ -59,10 +59,14 @@ class DataStream( object ):
         y*=self.scale
         t = np.datetime64(datetime.datetime.now(), "ms")
         if self.x:
-            self.x.append( self.x[-1] )
-            self.y.append( y )
+            self.x.append( t )
+            self.y.append( self.y[-1] )
         self.x.append( t )
         self.y.append( y )
+        self.purge_old()
+
+    def purge_old( self ):
+        t = np.datetime64(datetime.datetime.now(), "ms")
         limit = t - np.timedelta64( PLOT_LENGTH, 's' )
         while self.x and self.x[0] < limit:
             x = self.x.popleft()
@@ -113,7 +117,7 @@ class DataStream( object ):
             
         if r:
             x,y = r
-            print( "%6d %s" % (len(x),self.topic) )
+            # print( "%6d %s" % (len(x),self.topic) )
             if len(x) < 500:    # improve visibility of steps
                 dt = np.timedelta64( 1, 'ms' )
                 x=np.repeat(x,2)
@@ -135,18 +139,22 @@ class PlotHolder():
 DATASTREAMS = { p[1]:DataStream( *p ) for p in (
     # ( 0, "pv/fronius/grid_port_power"   , "Fronius PV" , "#008000"  , -4.5  , {} ),
     ( 0, "pv/total_pv_power"                , "Total PV"   , "#00FF00"  , 1.0   , {} ),
+    ( 0, "pv/solis1/pv_power"               , "PV Solis 1" , "#00C000"  , 1.0   , {} ),
+    ( 0, "pv/solis2/pv_power"               , "PV Solis 2" , "#008000"  , 1.0   , {} ),
+
     ( 0, "pv/meter/house_power"             , "House"      , "#8080FF"  , 1.0   , {} ),
     ( 0, "pv/meter/total_power"             , "Grid"       , "#FF0000"  , 1.0   , {} ),
 
     ( 0, "pv/solis1/battery_power"          , "Battery"         , "#C08040"  , 1.0   , {} ),
+    
     ( 0, "pv/solis1/input_power"            , "Battery (proxy)" , "#FFC080"  , 1.0   , {} ),
     # ( 0, "pv/solis1/bms_battery_power"          , "Battery"    , "#FFC080"  , 1.0   , {} ),
     ( 0, "pv/solis1/meter/active_power"     , "Inverter"      , "cyan"     , 1.0   , {} ),
 
     # ( 0, "pv/solis1/fakemeter/active_power" , "FakeMeter"      , "#FFFFFF"     , 1.0   , {"visible":False} ),
-    ( 0, "pv/evse/rwr_current_limit"        , "EVSE ILim"   , "#FFFFFF"   , 230 , {"visible":False} ),
-    # ( 0, "pv/evse/current"                  , "EVSE I (real)"    , "#808080"   , 230, {"visible":False} ),
-    ( 0, "pv/evse/meter/active_power"             , "EVSE"        , "#FF80FF"  , 1.0   , {} ),
+    ( 0, "pv/evse/rwr_current_limit"        , "EVSE ILim"   , "#FFFFFF"   , 235 , {"visible":False} ),
+    # ( 0, "pv/evse/meter/current"            , "EVSE I (real)"    , "#808080"   , 235, {"visible":False} ),
+    ( 0, "pv/evse/meter/active_power"       , "EVSE"        , "#FF80FF"  , 1.0   , {} ),
     ( 0, "pv/router/excess_avg"             , "Route excess", "#FF00FF"  , -1.0   , {} ),
     # ( 0, "pv/router/excess_avg_nobat"   , "Route excess nobat", "#8000FF"  , -1.0   , {} ),
     # ( 0, "pv/solis1/meter_total_active_power"         , "SMAP"   , "#000080"   , -1.0, {"visible":False} ),
@@ -278,8 +286,10 @@ class PVDashboard():
             p.key    = key
             p.stream = stream
             p.plot   = self.figs[stream.pane].line( [], [], legend_label=stream.label, color=stream.color, line_width=3, **stream.extra_args )
+            p.last_update = 0
             if stream.x:    # it can be empty if there is no data for the requested range
                 p.last_update = stream.x[-1]
+
             self.plots[key] = p
 
         for fig in self.figs.values():
@@ -439,11 +449,7 @@ class PVDashboard():
             ds = ph.plot.data_source
             s  = ph.stream
 
-            # remove old data
-            limit = np.datetime64(int(time.time()*1000),"ms") + TIME_SHIFT - np.timedelta64( PLOT_LENGTH, 's' )
-            while s.x and s.x[0] < limit:
-                s.x.popleft()
-                s.y.popleft()
+            s.purge_old()
 
             if not s.x:                     # is there data?
                 continue

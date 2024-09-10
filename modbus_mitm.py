@@ -150,10 +150,10 @@ class Router():
         #   Note: when inverter is hot or soc>90%, battery charging is reduced to 85A and sometimes 
         #   this does not show up in battery_max_charge_current, so adjust below parameters to avoid
         #   wasting power
-        self.battery_min_soc = 95               # Do not steal power from battery charging if SOC is below this
+        self.battery_min_soc = 85               # Do not steal power from battery charging if SOC is below this
         self.battery_min_soc_scale = 0.98
-        self.battery_max_soc = 100
-        self.battery_max_soc_scale = 0.80
+        self.battery_max_soc = 90
+        self.battery_max_soc_scale = 0.10
 
         # when the inverter is maxed out, we can't redirect battery charging power to the AC output
         # so special case above this output power
@@ -178,16 +178,12 @@ class Router():
             d.off()
 
     async def route_coroutine( self ):
-        solis1 = mgr.solis1
         try:
             while True:
-                await mgr.meter.event_power.wait()                
+                await mgr.event_power.wait()                
                 try:
-
-                    solis1.input_power.value = solis1.pv_power.value + (solis1.local_meter.active_power.value or 0)
-                    mqtt.publish_reg( solis1.mqtt_topic, solis1.input_power )
-
-                    await self.route()
+                    pass
+                    # await self.route()
 
                 except Exception:
                     log.exception("Router:")
@@ -217,7 +213,7 @@ class Router():
         # (Smartmeter gives a negative value when exporting power, so invert the sign.)
         # This is the main control variable for power routing. The rest of this code is about tweaking it
         # according to operating conditions to get desired behavior.
-        meter_export = -mgr.meter.total_power_tweaked
+        meter_export = -mgr.meter.meter_power_tweaked
 
         # Also get solis1 output power, flip sign to make it positive when producing power
         solis1_output = -(mgr.solis1.local_meter.active_power.value or 0)
@@ -343,7 +339,7 @@ class Router():
 
         changed = False
         # p is positive if we're drawing from grid
-        p = mgr.meter.total_power_tweaked + 100
+        p = mgr.meter.meter_power_tweaked + 100
         if p < -200:
             self.timeout_import.reset()         # we're exporting power
             if self.timeout_export.expired():   # we've been exporting for a while
@@ -382,6 +378,7 @@ async def log_coroutine( title, fut ):
         log.info("Exit: "+title )
 
 
+
 ########################################################################################
 #
 #       Put it all together
@@ -389,7 +386,82 @@ async def log_coroutine( title, fut ):
 ########################################################################################
 class SolisManager():
     def __init__( self ):
-        pass
+        self.event_power = asyncio.Event()
+        self.house_power                = 0
+        self.total_pv_power             = 0
+        self.total_input_power = 0
+        self.meter_power_tweaked        = 0
+
+    ########################################################################################
+    #
+    #   Compute power values and fill fake meter fields
+    #
+    ########################################################################################
+    async def power_coroutine( self ):
+        m = self.meter
+        await m.event_all.wait()    # wait for all registers to be read
+
+        while True:
+            try:
+                await m.event_power.wait()
+
+                house_power         = meter_power_tweaked = m.total_power.value or 0
+                total_pv_power      = 0
+                total_input_power   = 0
+                total_battery_power = 0
+                battery_soc         = 0
+
+                # compute power management variables
+                for solis in self.solis1, self.solis2:
+                    total_battery_power += solis.battery_power.value or 0               # Battery charging power. Positive if charging, negative if discharging.
+                    battery_soc = max( battery_soc, self.solis1.bms_battery_soc.value or 0 ) # Get SOC from inverter connected to battery
+
+                    lm_power           = solis.local_meter.active_power.value or 0
+                    house_power       -= lm_power                                     # compute power used by the house: main smartmeers - inverters
+                    total_pv_power    += (pv := solis.pv_power.value or 0)
+                    input_power        = solis.input_power.value = pv + lm_power
+                    total_input_power += input_power   # fast proxy to battery charging power is PV + local meter
+
+                if total_battery_power > 200:
+                    meter_power_tweaked += battery_soc*total_battery_power*0.0001
+
+                #   Fake Meter
+                for solis in self.solis1, self.solis2:
+                    fm = solis.fake_meter
+                    fake_power = meter_power_tweaked * 0.5 - 0.01*(solis.input_power.value - total_input_power*0.5)
+
+                    fm.active_power           .value = fake_power
+                    fm.voltage                .value = m.phase_1_line_to_neutral_volts .value
+                    fm.current                .value = m.phase_1_current               .value
+                    fm.apparent_power         .value = m.total_volt_amps               .value
+                    fm.reactive_power         .value = m.total_var                     .value
+                    fm.power_factor           .value =(m.total_power_factor            .value % 1.0)
+                    fm.frequency              .value = m.frequency                     .value
+                    fm.import_active_energy   .value = m.total_import_kwh              .value
+                    fm.export_active_energy   .value = m.total_export_kwh              .value
+                    fm.data_timestamp = m.last_transaction_timestamp
+                    fm.is_online = m.is_online
+                    fm.write_regs_to_context()
+
+                self.house_power       = house_power
+                self.total_pv_power    = total_pv_power
+                self.total_input_power = total_input_power
+                await asyncio.sleep(0)      # yield to fakemeter server in case it is waiting for the values we just wrote
+                self.event_power.set()
+                self.event_power.clear()
+
+                # compute input_power for routing
+                mqtt.publish_value( "pv/total_pv_power", round(total_pv_power) )
+                mqtt.publish_value( "pv/meter/house_power", round(house_power) )
+                for solis in self.solis1, self.solis2:
+                    mqtt.publish_reg( solis.mqtt_topic, solis.input_power )
+
+            except Exception:
+                log.exception("PowerManager coroutine:")
+                # s = traceback.format_exc()
+                # log.error(self.key+":"+s)
+                # self.mqtt.mqtt.publish( "pv/exception", s )
+                await asyncio.sleep(1)
 
     ########################################################################################
     #
@@ -487,69 +559,6 @@ class SolisManager():
                 log.exception(solis.key+":")
                 await asyncio.sleep(5)           
 
-    ########################################################################################
-    #
-    #   Compute house power
-    #
-    ########################################################################################
-    async def house_power_coroutine( self ):
-        lm = self.solis1.local_meter
-        while True:
-            await lm.event_power.wait()
-            try:
-                if lm.is_online:
-                    mqtt.publish_value( "pv/meter/house_power", float(int(  (self.meter.total_power.value or 0) - (lm.active_power.value or 0) )))
-            except:
-                log.exception(lm.key+":")
-
-    ########################################################################################
-    #
-    #   Fake Meter
-    #
-    ########################################################################################
-    async def fake_meter_coroutine( self ):
-        m = self.meter
-        await m.event_all.wait()
-        step_offset  = 0.
-        prev_power   = 0.
-        while True:
-            await m.event_power.wait()
-            try:                            
-                # offset measured power a little bit to ensure a small value of export
-                m.total_power_tweaked = m.total_power.value
-                bp  = self.solis1.battery_power.value or 0       # Battery charging power. Positive if charging, negative if discharging.
-                soc = self.solis1.bms_battery_soc.value or 0     # battery soc, 0-100
-                if bp > 200:        m.total_power_tweaked += soc*bp*0.0001
-
-                # delta = m.total_power_tweaked - prev_power
-                # prev_power = m.total_power_tweaked
-
-                # if abs( delta ) > 400:
-                #     step_offset += delta*1.25
-
-                # if abs( step_offset ) > 10:
-                #     print( "+", step_offset )
-                # fake_power = m.total_power_tweaked + step_offset
-                # step_offset *= 0.75
-                fake_power = m.total_power_tweaked
-
-                #   Fill fakemeter fields
-                fm = self.solis1.fake_meter
-                fm.voltage                .value = m.phase_1_line_to_neutral_volts .value
-                fm.current                .value = m.phase_1_current               .value
-                fm.apparent_power         .value = m.total_volt_amps               .value
-                fm.reactive_power         .value = m.total_var                     .value
-                fm.power_factor           .value =(m.total_power_factor            .value % 1.0)
-                fm.frequency              .value = m.frequency                     .value
-                fm.import_active_energy   .value = m.total_import_kwh              .value
-                fm.export_active_energy   .value = m.total_export_kwh              .value
-                fm.active_power           .value = fake_power
-                fm.data_timestamp = m.last_transaction_timestamp
-                fm.is_online = m.is_online
-                fm.write_regs_to_context()
-            except Exception:
-                log.exception("Fill fake meter:")
-
     #
     #   Async entry point
     #
@@ -592,6 +601,8 @@ class SolisManager():
             ),
             mqtt=mqtt, mqtt_topic="pv/evse/" )
 
+        # add voltage to EVSE meter register poll list
+        self.evse.local_meter.reg_sets[0].append( self.evse.local_meter.voltage )
         self.router = Router()
 
         #
@@ -652,16 +663,17 @@ class SolisManager():
         try:
             async with asyncio.TaskGroup() as tg:
                 tg.create_task( log_coroutine( "server: solis1 fakemeter",  self.solis1.fake_meter.start_server() ))
+                tg.create_task( log_coroutine( "server: solis2 fakemeter",  self.solis2.fake_meter.start_server() ))
                 tg.create_task( log_coroutine( "read: main meter",          self.meter.read_coroutine() ))
                 tg.create_task( log_coroutine( "read: solis1",              self.solis1.read_coroutine() ))
                 tg.create_task( log_coroutine( "read: solis1 local meter",  self.solis1.local_meter.read_coroutine() ))
+                tg.create_task( log_coroutine( "read: solis2",              self.solis2.read_coroutine() ))
                 tg.create_task( log_coroutine( "read: solis2 local meter",  self.solis2.local_meter.read_coroutine() ))
                 tg.create_task( log_coroutine( "read: evse local meter",    self.evse.local_meter.read_coroutine() ))
                 tg.create_task( log_coroutine( "read: evse",                self.evse.read_coroutine() ))
                 tg.create_task( log_coroutine( "logic: fan",                self.inverter_fan_coroutine( self.solis1 ) ))
                 tg.create_task( log_coroutine( "logic: blackout",           self.inverter_blackout_coroutine( self.solis1 ) ))
-                tg.create_task( log_coroutine( "logic: house_power",        self.house_power_coroutine( ) ))
-                tg.create_task( log_coroutine( "logic: fill fake meter",    self.fake_meter_coroutine( ) ))
+                tg.create_task( log_coroutine( "logic: power calculations", self.power_coroutine( ) ))
                 tg.create_task( log_coroutine( "logic: router",             self.router.route_coroutine( ) ))
                 tg.create_task( log_coroutine( "sysinfo",                   self.sysinfo_coroutine() ))
         except (KeyboardInterrupt, CancelledError):

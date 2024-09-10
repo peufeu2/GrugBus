@@ -67,9 +67,12 @@ COM_PORT_METER       = "/dev/serial/by-id/usb-FTDI_USB_RS485_3-if01-port0"   # M
 # COM_PORT_METER       = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_54D2042261-if00"
 
 # How often we modbus these devices
-POLL_PERIOD_METER       = (0.2, 0)
-POLL_PERIOD_SOLIS_METER = (0.2, 0.05)
-POLL_PERIOD_SOLIS       = (0.2, 0.1)
+#   Tuples: (period, starting point in period)
+#
+POLL_PERIOD_METER       = (0.2, 0.1)
+POLL_PERIOD_SOLIS_METER = (0.2, 0.0)
+POLL_PERIOD_EVSE_METER  = (0.2, 0.0)
+POLL_PERIOD_SOLIS       = (0.2, 0.0)
 POLL_PERIOD_EVSE        = (1, 0.5)
 
 # Inverter auto turn on/off settings
@@ -111,6 +114,11 @@ MQTT_RATE_LIMIT = {
     "pv/evse/rwr_current_limit"                      : ( 60, 0 ),
     "pv/evse/socket_state"                           : ( 60, 0 ),
     "pv/evse/virtual_current_limit"                  : ( 60, 0 ),
+
+    "pv/evse/meter/export_active_energy"             : ( 60, 0.01 ),
+    "pv/evse/meter/import_active_energy"             : ( 60, 0.01 ),
+    "pv/evse/meter/voltage"                          : ( 10, 1 ),
+    "pv/evse/meter/current"                          : ( 10, 0.1 ),
 
     # Meter
     "pv/meter/phase_1_power"                         : ( 10, 25 ),
@@ -183,6 +191,16 @@ MQTT_RATE_LIMIT = {
     "pv/solis1/rwr_energy_storage_mode"              : ( 60, 0 ),
 
     # Solis1 Meter
-    "pv/solis1/meter/export_active_energy"           : ( 60, 0.001 ),
-    "pv/solis1/meter/import_active_energy"           : ( 60, 0.001 ),
+    "pv/solis1/meter/export_active_energy"           : ( 60, 0.01 ),
+    "pv/solis1/meter/import_active_energy"           : ( 60, 0.01 ),
+
+    "pv/cpu_temp_c"                                  : ( 60, 1   ),
+    "pv/disk_space_gb"                               : ( 60, 0.1 ),
+    "pv/cpu_load_percent"                            : ( 60, 1   ),
 }
+
+for k,v in tuple(MQTT_RATE_LIMIT.items()):
+    if k.startswith("pv/solis1/"):
+        MQTT_RATE_LIMIT[k.replace("pv/solis1/","pv/solis2/")] = v
+
+

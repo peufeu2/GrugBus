@@ -751,7 +751,6 @@ Three-phase range：300-410V, Default：330V",,,,
 3,43095,,"U16 ","100ms ","Grid level undervoltage delay threshold",,"float",,"Range：0.10-9.0s, Default：1.0s",,,,
 3,43096,,"U16 ","1V ","Grid secondary undervoltage threshold",,"float",,"Single phase range：132-219V, Default：173V
 Three-phase range：230-380V, Default：300V",,,,
-3,,,,,,,"float",,,,,,
 3,43097,,"U16 ","100ms ","Grid secondary undervoltage delay threshold",,"float",,"Range：0.10-1.0s, Default：0.2s",,,,
 3,43098,,"U16 ","0.1Hz ","Grid level overfrequency threshold",,"float",,"Range： 50.2-53.0Hz, Default：51.0Hz
 Range： 60.2-63.0Hz, Default：61.0Hz",,,,
