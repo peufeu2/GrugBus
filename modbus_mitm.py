@@ -631,6 +631,8 @@ class SolisManager():
                 mqtt.publish_value( "pv/battery_soc",           battery_soc )
                 for solis in self.solis1, self.solis2:
                     mqtt.publish_reg( solis.mqtt_topic, solis.input_power )
+                    mqtt.publish_reg( solis.mqtt_topic + "fakemeter/",     solis.fake_meter.active_power )
+
 
             except Exception:
                 log.exception("PowerManager coroutine:")

@@ -1,30 +1,210 @@
-import random, time, clickhouse_driver, collections
+import random, time, clickhouse_driver, collections, pprint
 import asyncio, time, traceback, logging, sys, datetime
 import numpy as np
 
 from tornado.ioloop import IOLoop
-import bokeh.events, bokeh.layouts
+import bokeh.events, bokeh.layouts, bokeh.plotting
 from bokeh.server.server import Server
 from bokeh.application import Application
 from bokeh.application.handlers.function import FunctionHandler
-from bokeh.plotting import figure, ColumnDataSource, figure, curdoc
-from bokeh.io import show
-from bokeh.models import CustomJS, Slider
-
+from bokeh.models import CustomJS, Slider, TabPanel, Tabs
+import bokeh.models.widgets
 from gmqtt import Client as MQTTClient
 
 import config
 from misc import *
 
-PLOT_LENGTH = 200    # seconds
-PLOT_LENGTH_MIN = 200    # seconds
-PLOT_LENGTH_MAX = 3600    # seconds
-TIME_SHIFT_S = 3600*2
+STREAMING_LENGTH = 1000         # seconds
+STREAMING_LENGTH_MIN = 200     # seconds
+STREAMING_LENGTH_MAX = 3600    # seconds
+TIME_SHIFT_S = 3600*2          # to shift database timestamps stored in UTC
 TIME_SHIFT = np.timedelta64( TIME_SHIFT_S, 's' )
 
 clickhouse = clickhouse_driver.Client('localhost', user=config.CLICKHOUSE_USER, password=config.CLICKHOUSE_PASSWORD )
 
-def get_one( topic ):
+# For window title
+TITLE_DATA = { k:None for k in (
+    "pv/solis1/bms_battery_soc",
+    "pv/meter/total_export_kwh",
+    "pv/meter/total_import_kwh",
+    )}
+
+#   ( topic, unit, label, color, dash, scale, attrs ) < must be tuples
+#
+DATA_STREAMS = [
+    ( "pv/evse/energy"                                   , "W"   , "EVSE kWh"                    , "#FFFFFF"  , "solid",   1.0 , {"visible":False}  , {} ),
+    ( "pv/evse/meter/active_power"                       , "W"   , "EVSE"                        , "#FF80FF"  , "solid",   1.0 , {}                 , {} ),
+    ( "pv/evse/rwr_current_limit"                        , "W"   , "EVSE ILim"                   , "#FFFFFF"  , "solid", 235.0 , {"visible":False}  , {} ),
+    ( "pv/evse/virtual_current_limit"                    , "W"   , "EVSE ILim (virtual)"         , "#FF00FF"  , "solid", 235.0 , {"visible":False}  , {} ),
+    ( "pv/meter/house_power"                             , "W"   , "House"                       , "#8080FF"  , "solid",   1.0 , {}                 , {} ),
+    ( "pv/meter/phase_1_power"                           , "W"   , "Phase 1"                     , "#FF8000"  , "solid",   1.0 , {}                 , {} ),
+    ( "pv/meter/phase_2_power"                           , "W"   , "Phase 2"                     , "#FF0080"  , "solid",   1.0 , {}                 , {} ),
+    ( "pv/meter/phase_3_power"                           , "W"   , "Phase 3"                     , "#FF8080"  , "solid",   1.0 , {}                 , {} ),
+    ( "pv/meter/phase_1_line_to_neutral_volts"           , "V"   , "Phase 1"                     , "orange"   , "solid",   1.0 , {}                 , {} ),
+    ( "pv/meter/phase_2_line_to_neutral_volts"           , "V"   , "Phase 2"                     , "orange"   , "solid",   1.0 , {}                 , {} ),
+    ( "pv/meter/phase_3_line_to_neutral_volts"           , "V"   , "Phase 3"                     , "orange"   , "solid",   1.0 , {}                 , {} ),
+    ( "pv/meter/total_power"                             , "W"   , "Grid"                        , "#FF0000"  , "solid",   1.0 , {}                 , {} ),
+    ( "pv/router/excess_avg"                             , "W"   , "Route excess"                , "#FF00FF"  , "solid",  -1.0 , {}                 , {} ),
+    ( "pv/router/excess_avg_nobat"                       , "W"   , "Route excess nobat"          , "#8000FF"  , "solid",  -1.0 , {}                 , {} ),
+    ( "pv/total_battery_power"                           , "W"   , "Battery"                     , "#C08040"  , "solid",   1.0 , {}                 , {} ),
+    ( "pv/total_input_power"                             , "W"   , "Input power"                 , "#C0C000"  , "solid",   1.0 , {}                 , {} ),
+    ( "pv/total_pv_power"                                , "W"   , "Total PV"                    , "#00FF00"  , "solid",   1.0 , {}                 , {} ),
+    ( "pv/battery_soc"                                   , "%"   , "Battery SOC"                 , "#008000"  , "solid",   1.0 , {}                 , {} ),
+    ( "pv/meter/req_period"                              , "s"   , "req_period"                  , "#00FF00"  , "solid",   1.0 , {}                 , {"aggregate":"max"} ),
+    ( "pv/solis%d/battery_power"                         , "W"   , "S%d Battery"                 , "#FFC080"  , "solid",   1.0 , {}                 , {} ),
+    ( "pv/solis%d/fakemeter/active_power"                , "W"   , "S%d FakeMeter"               , "#FFFFFF"  , "solid",   1.0 , {"visible":False}  , {} ),
+    ( "pv/solis%d/input_power"                           , "W"   , "S%d Input"                   , "#FFFF00"  , "solid",   1.0 , {}                 , {} ),
+    ( "pv/solis%d/meter/active_power"                    , "W"   , "S%d Grid port"               , "cyan"     , "solid",   1.0 , {}                 , {} ),
+    ( "pv/solis%d/pv_power"                              , "W"   , "S%d PV"                      , "#00C000"  , "solid",   1.0 , {}                 , {} ),
+    ( "pv/solis%d/mppt1_power"                           , "W"   , "S%d MPPT1"                   , "#008000"  , "solid",   1.0 , {"visible":False}  , {} ),
+    ( "pv/solis%d/mppt2_power"                           , "W"   , "S%d MPPT2"                   , "#00C000"  , "solid",   1.0 , {"visible":False}  , {} ),
+    ( "pv/solis%d/battery_current"                       , "A"   , "S%d Bat current"             , "#FF8000"  , "solid",   1.0 , {"visible":False}  , {} ),
+    ( "pv/solis%d/battery_max_charge_current"            , "A"   , "S%d Bat max current"         , "#0080FF"  , "solid",   1.0 , {"visible":False}  , {} ),
+    ( "pv/solis%d/bms_battery_charge_current_limit"      , "A"   , "S%d BMS max charge"          , "blue"     , "solid",   1.0 , {}                 , {} ),
+    ( "pv/solis%d/bms_battery_current"                   , "A"   , "S%d Battery current"         , "#FFC080"  , "solid",   1.0 , {"visible":False}  , {} ),
+    ( "pv/solis%d/bms_battery_discharge_current_limit"   , "A"   , "S%d BMS max discharge"       , "red"      , "solid",   1.0 , {}                 , {} ),
+    ( "pv/solis%d/mppt1_current"                         , "A"   , "S%d MPPT1"                   , "#FFFF00"  , "solid",   1.0 , {}                 , {} ),
+    ( "pv/solis%d/mppt2_current"                         , "A"   , "S%d MPPT2"                   , "#FFFFFF"  , "solid",   1.0 , {}                 , {} ),
+    ( "pv/solis%d/bms_battery_soc"                       , "%"   , "S%d Battery SOC"             , "green"    , "solid",   1.0 , {"visible":False}  , {} ),
+    ( "pv/solis%d/mppt1_voltage"                         , "V"   , "S%d MPPT1"                   , "#FFFF00"  , "solid",   1.0 , {}                 , {} ),
+    ( "pv/solis%d/mppt2_voltage"                         , "V"   , "S%d MPPT2"                   , "#FFFFFF"  , "solid",   1.0 , {}                 , {} ),
+    ( "pv/solis%d/battery_voltage"                       , "V"   , "S%d Bat voltage"             , "#FFFF00"  , "solid",   1.0 , {"visible":False}  , {} ),
+  # ( "pv/solis%d/dc_bus_voltage"                        , "V"   , "S%d DC Bus"                  , "#FFFFFF"  , "solid",   1.0 , {}                 , {} ),
+    ( "pv/solis%d/temperature"                           , "°C"  , "S%d Temperature"             , "orange"   , "solid",   1.0 , {"visible":False}  , {} ),
+  # ( "pv/solis%d/energy_generated_today"                , "kWh" , "S%d Energy generated"        , "green"    , "solid",   1.0 , {}                 , {"mode":"delta"} ),
+  # ( "pv/solis%d/meter/export_active_energy"            , "kWh" , "S%d Solis export"            , "#00FF80"  , "solid",   1.0 , {}                 , {"mode":"delta"} ),
+  # ( "pv/solis%d/meter/import_active_energy"            , "kWh" , "S%d Solis import"            , "#FFC000"  , "solid",   1.0 , {}                 , {"mode":"delta"} ),
+]
+
+if 0:
+    [
+"pv/evse/energy"                                 ,
+"pv/evse/meter/active_power"                     ,
+"pv/evse/rwr_current_limit"                      ,
+"pv/evse/virtual_current_limit"                  ,
+"pv/meter/house_power"                           ,
+"pv/meter/phase_1_power"                         ,
+"pv/meter/phase_2_power"                         ,
+"pv/meter/phase_3_power"                         ,
+"pv/meter/phase_1_line_to_neutral_volts"         ,
+"pv/meter/phase_2_line_to_neutral_volts"         ,
+"pv/meter/phase_3_line_to_neutral_volts"         ,
+"pv/meter/total_power"                           ,
+"pv/router/excess_avg"                           ,
+"pv/router/excess_avg_nobat"                     ,
+"pv/total_battery_power"                         ,
+"pv/total_input_power"                           ,
+"pv/total_pv_power"                              ,
+"pv/battery_soc"                                 ,
+"pv/meter/req_period"                            ,
+"pv/solis%d/battery_power"                       ,
+"pv/solis%d/fakemeter/active_power"              ,
+"pv/solis%d/input_power"                         ,
+"pv/solis%d/meter/active_power"                  ,
+"pv/solis%d/pv_power"                            ,
+"pv/solis%d/mppt1_power"                         ,
+"pv/solis%d/mppt2_power"                         ,
+"pv/solis%d/battery_current"                     ,
+"pv/solis%d/battery_max_charge_current"          ,
+"pv/solis%d/bms_battery_charge_current_limit"    ,
+"pv/solis%d/bms_battery_current"                 ,
+"pv/solis%d/bms_battery_discharge_current_limit" ,
+"pv/solis%d/mppt1_current"                       ,
+"pv/solis%d/mppt2_current"                       ,
+"pv/solis%d/bms_battery_soc"                     ,
+"pv/solis%d/mppt1_voltage"                       ,
+"pv/solis%d/mppt2_voltage"                       ,
+"pv/solis%d/battery_voltage"                     ,
+"pv/solis%d/dc_bus_voltage"                      ,
+"pv/solis%d/temperature"                         ,
+    ]
+
+#
+#   [ [ "Tab name", [ list of rows [ list of traces ]]
+PLOT_LAYOUTS = [
+    [ 
+        "PV", 
+        [
+            [
+                "pv/total_pv_power"                              ,
+                "pv/meter/house_power"                           ,
+                "pv/meter/total_power"                           ,
+                "pv/total_battery_power"                         ,
+                "pv/solis%d/pv_power"                            ,
+            ],[
+                "pv/battery_soc"                                 ,
+                "pv/solis%d/bms_battery_soc"                          ,
+            ]
+        ]
+    ],[ 
+        "Route", 
+        [
+            [
+                "pv/total_pv_power"                              ,
+                "pv/meter/house_power"                           ,
+                "pv/meter/total_power"                           ,
+                "pv/total_input_power"                           ,
+                "pv/evse/meter/active_power"                     ,
+                "pv/evse/rwr_current_limit"                      ,
+                "pv/evse/virtual_current_limit"                  ,
+                "pv/router/excess_avg"                           ,
+                "pv/router/excess_avg_nobat"                     ,
+            ]
+        ]
+    ],[ "Balance", 
+        [
+            [
+                "pv/total_pv_power"                              ,
+                "pv/meter/house_power"                           ,
+                "pv/meter/total_power"                           ,
+                "pv/total_input_power"                           ,
+                "pv/evse/meter/active_power"                     ,
+            ],[
+                "pv/meter/phase_1_power"                         ,
+                "pv/meter/phase_2_power"                         ,
+                "pv/meter/phase_3_power"                         ,
+                "pv/solis%d/meter/active_power"                  ,
+            ],[
+                "pv/solis%d/input_power"                         ,
+                "pv/solis%d/meter/active_power"                  ,
+                "pv/solis%d/pv_power"                            ,
+            ]
+        ]
+    ]
+]
+
+def insert_inverters_data_streams( l ):
+    for topic, unit, label, color, dash, scale, bokeh_attrs, attrs in l:
+        if "%d" in topic:
+            for solis, dash in (1,"dashed"),(2,"dotted"):
+                yield topic%solis, unit, label%solis, color, dash, scale, bokeh_attrs, attrs
+        else:
+            yield topic, unit, label, color, dash, scale, bokeh_attrs, attrs
+
+def insert_inverters_plot_layout( l ):
+    if isinstance( l, list ):
+        r = []
+        for child in l:
+            for e in insert_inverters_plot_layout(child):
+                r.append(e)
+        yield r
+    else:
+        if "%d" in l:
+            for solis in 1,2:
+                yield l%solis
+        else:
+            yield l
+
+DATA_STREAMS = list( insert_inverters_data_streams( DATA_STREAMS ) )
+PLOT_LAYOUTS = list(insert_inverters_plot_layout( PLOT_LAYOUTS ))[0]
+
+#############################################################
+#
+#       Database
+#
+#############################################################
+
+def get_latest_value( topic ):
     # current value
     r = clickhouse.execute( "SELECT value FROM mqtt.mqtt_float WHERE topic=%(topic)s ORDER BY ts DESC LIMIT 1", {"topic":topic} )
     # first value of day
@@ -35,27 +215,33 @@ def get_one( topic ):
         return [0,0]
 
 class DataStream( object ):
-    def __init__( self, pane, topic, label, color, scale, extra_plot_args={}, mode="", minmaxavg="avg" ):
-        self.pane = pane
+    def __init__( self, topic, unit, label, color, dash, scale, bokeh_attrs, attrs ):
+        if unit:    label += "(%s)" % unit
+        self.bokeh_attrs = dict(bokeh_attrs)
+        self.bokeh_attrs["legend_label"] = self.label = label
+        self.bokeh_attrs["line_color"]   = self.color = color
+        self.bokeh_attrs["line_dash"]    = dash
+        self.bokeh_attrs["line_width"]   = 3
         self.topic = topic
-        self.label = label
-        self.color = color
+        self.unit  = unit
         self.scale = scale
-        self.extra_args = extra_plot_args
-        self.mode = mode
-        if minmaxavg in ("avg","min","max"):
-            self.sel1 = "%s(f%s)" % (minmaxavg,minmaxavg)
-            self.sel2 = "%s(value)"%minmaxavg
+        self.attrs = attrs
+        agg = attrs.get("aggregate","avg")
+        if agg in ("avg","min","max"):    # sql aggregate
+            self.sel1 = "%s(f%s)" % (agg,agg)
+            self.sel2 = "%s(value)"%agg
         self.load()
 
+    # load at startup
     def load( self ):
-        x,y = self.get( time.time()-PLOT_LENGTH )
+        x,y = self.get( time.time()-STREAMING_LENGTH_MAX )
         self.x = collections.deque( x )
         self.y = collections.deque( y )
         self.purge_old()
-        if self.x:
-            print( "Loaded %d for %s : %s-%s" % (len(self.x), self.topic, self.x[0], self.x[-1]))
+        # if self.x:
+            # print( "Loaded %d for %s : %s-%s" % (len(self.x), self.topic, self.x[0], self.x[-1]))
 
+    # add value from MQTT (streaming mode only)
     def add( self, y ):
         y*=self.scale
         t = np.datetime64(datetime.datetime.now(), "ms")
@@ -66,13 +252,15 @@ class DataStream( object ):
         self.y.append( y )
         self.purge_old()
 
+    # delete old values (streaming mode only)
     def purge_old( self ):
         t = np.datetime64(datetime.datetime.now(), "ms")
-        limit = t - np.timedelta64( PLOT_LENGTH, 's' )
-        while self.x and self.x[0] < limit:
+        limit = t - np.timedelta64( STREAMING_LENGTH_MAX, 's' )
+        while len(self.x) and self.x[0] < limit:
             x = self.x.popleft()
             self.y.popleft()
 
+    # get values from database (non streaming mode only)
     def get( self, tstart, tend=None, lod_length=3600 ):
         # All times in database are in UTC. Clickhouse treats integer timestamps as UTC too,
         # and will accept DateTime between (UTC int timestamp) and (UTC int timestamp)
@@ -90,144 +278,57 @@ class DataStream( object ):
         if tend:
             tend -= TIME_SHIFT_S - overscan
 
-
         args   = { "topic":self.topic, "tstart":tstart, "tend":tend, "lod":lod, "lodm":lod//60 }
         kwargs = { "columnar":True, "settings":{"use_numpy":True} }            
         if tend:    ts_cond = "ts BETWEEN toDateTime64(%(tstart)s,1) AND toDateTime64(%(tend)s,1)"
         else:       ts_cond = "ts > toDateTime64(%(tstart)s,1)"
         where = " WHERE topic=%(topic)s AND " + ts_cond + " "
 
-        # if self.topic=="pv/meter/total_power":
-        #     r = clickhouse.execute( "SELECT avg(value) FROM mqtt.mqtt_float"+where+" AND value>0", args, **kwargs )
-        #     print( r[0] )
-
         t=time.time()
-        if lod >= 6000:
-            r = clickhouse.execute( "SELECT toStartOfInterval(ts, INTERVAL %(lod)d SECOND) tsi, "+self.sel1+" FROM mqtt.mqtt_100minute"+where+"GROUP BY tsi ORDER BY tsi", args, **kwargs )
-        elif lod >= 600:
-            r = clickhouse.execute( "SELECT toStartOfInterval(ts, INTERVAL %(lod)d SECOND) tsi, "+self.sel1+" FROM mqtt.mqtt_10minute"+where+"GROUP BY tsi ORDER BY tsi", args, **kwargs )
-        elif lod >= 60:
-            r = clickhouse.execute( "SELECT toStartOfInterval(ts, INTERVAL %(lod)d SECOND) tsi, "+self.sel1+" FROM mqtt.mqtt_minute"+where+"GROUP BY tsi ORDER BY tsi", args, **kwargs )
-        elif lod > 1:
-            r = clickhouse.execute( "SELECT toStartOfInterval(ts, INTERVAL %(lod)d SECOND) tsi, "+self.sel2+" FROM mqtt.mqtt_float"+where+"GROUP BY tsi ORDER BY tsi", args, **kwargs )
-        else:
-            r = clickhouse.execute( "SELECT ts,value FROM mqtt.mqtt_float"+where+"ORDER BY topic,ts", args, **kwargs )
+        if lod >= 6000:  r = clickhouse.execute( "SELECT toStartOfInterval(ts, INTERVAL %(lod)d SECOND) tsi, "+self.sel1+" FROM mqtt.mqtt_100minute"+where+"GROUP BY tsi ORDER BY tsi", args, **kwargs )
+        elif lod >= 600: r = clickhouse.execute( "SELECT toStartOfInterval(ts, INTERVAL %(lod)d SECOND) tsi, "+self.sel1+" FROM mqtt.mqtt_10minute" +where+"GROUP BY tsi ORDER BY tsi", args, **kwargs )
+        elif lod >= 60:  r = clickhouse.execute( "SELECT toStartOfInterval(ts, INTERVAL %(lod)d SECOND) tsi, "+self.sel1+" FROM mqtt.mqtt_minute"   +where+"GROUP BY tsi ORDER BY tsi", args, **kwargs )
+        elif lod > 1:    r = clickhouse.execute( "SELECT toStartOfInterval(ts, INTERVAL %(lod)d SECOND) tsi, "+self.sel2+" FROM mqtt.mqtt_float"    +where+"GROUP BY tsi ORDER BY tsi", args, **kwargs )
+        else:            r = clickhouse.execute( "SELECT ts,value FROM mqtt.mqtt_float"+where+"ORDER BY topic,ts", args, **kwargs )
 
-        if not r:  # no data, get latest available row
-            r = clickhouse.execute( "SELECT ts, value FROM mqtt.mqtt_float WHERE topic=%(topic)s ORDER BY ts DESC LIMIT 1", args, **kwargs )                
+        # if not r:  # no data, get latest available row
+            # r = clickhouse.execute( "SELECT ts, value FROM mqtt.mqtt_float WHERE topic=%(topic)s ORDER BY ts DESC LIMIT 1", args, **kwargs )                
             
         if r:
             x,y = r
-            # print( "%6d %s" % (len(x),self.topic) )
-            if len(x) < 500:    # improve visibility of steps
+            y = np.array(y)*self.scale
+            x += TIME_SHIFT
+            if len(x) < 500:    # improve visibility of steps by adding points
                 dt = np.timedelta64( 1, 'ms' )
                 x=np.repeat(x,2)
                 y=np.repeat(y,2)
                 x[1:-1:2] = x[2::2] - dt
 
             # print( "LOD: %s LEN %s %.01f ms %s" % (lod,len(x),(time.time()-t)*1000,self.topic))
-            y = np.array(y)*self.scale
-            if "day" in self.mode:
+            if self.attrs.get("mode") == "delta":
                 y -= y[0]
-            x += TIME_SHIFT
             return x, y
         else:
             return ((),())
 
-class PlotHolder():
-    pass
-
-DATASTREAMS = { p[1]:DataStream( *p ) for p in (
-    # ( 0, "pv/fronius/grid_port_power"   , "Fronius PV" , "#008000"  , -4.5  , {} ),
-    ( 0, "pv/meter/house_power"             , "House"      , "#8080FF"  , 1.0   , {} ),
-    ( 0, "pv/meter/total_power"             , "Grid"       , "#FF0000"  , 1.0   , {} ),
-
-    ( 0, "pv/meter/phase_1_power"             , "Grid 1"       , "#FF8000"  , 1.0   , {} ),
-    ( 0, "pv/meter/phase_2_power"             , "Grid 2"       , "#FF0080"  , 1.0   , {} ),
-    ( 0, "pv/meter/phase_3_power"             , "Grid 3"       , "#FF8080"  , 1.0   , {} ),
-
-    ( 0, "pv/total_pv_power"                , "Total PV"   , "#00FF00"  , 1.0   , {} ),
-    ( 0, "pv/solis1/pv_power"               , "PV Solis 1" , "#00C000"  , 1.0   , {} ),
-    ( 0, "pv/solis2/pv_power"               , "PV Solis 2" , "#008000"  , 1.0   , {} ),
-
-    ( 0, "pv/solis1/input_power"            , "Input power 1" , "#FFFF00"  , 1.0   , {} ),
-    ( 0, "pv/solis2/input_power"            , "Input power 2" , "#C0C000"  , 1.0   , {} ),
-
-    ( 0, "pv/solis1/battery_power"          , "Battery 1"         , "#FFC080"  , 1.0   , {} ),
-    ( 0, "pv/solis2/battery_power"          , "Battery 2"         , "#C08060"  , 1.0   , {} ),
-    # ( 0, "pv/solis1/battery_power"          , "Battery"         , "#C08040"  , 1.0   , {} ),
-
-    
-    # ( 0, "pv/solis1/bms_battery_power"          , "Battery"    , "#FFC080"  , 1.0   , {} ),
-    ( 0, "pv/solis1/meter/active_power"     , "Inverter"      , "cyan"     , 1.0   , {} ),
-
-    # ( 0, "pv/solis1/fakemeter/active_power" , "FakeMeter"      , "#FFFFFF"     , 1.0   , {"visible":False} ),
-    ( 0, "pv/evse/rwr_current_limit"        , "EVSE ILim"   , "#FFFFFF"   , 235 , {"visible":False} ),
-    # ( 0, "pv/evse/meter/current"            , "EVSE I (real)"    , "#808080"   , 235, {"visible":False} ),
-    ( 0, "pv/evse/meter/active_power"       , "EVSE"        , "#FF80FF"  , 1.0   , {} ),
-    ( 0, "pv/router/excess_avg"             , "Route excess", "#FF00FF"  , -1.0   , {} ),
-    # ( 0, "pv/router/excess_avg_nobat"   , "Route excess nobat", "#8000FF"  , -1.0   , {} ),
-    # ( 0, "pv/solis1/meter_total_active_power"         , "SMAP"   , "#000080"   , -1.0, {"visible":False} ),
-
-    # ( 0, "pv/solis1/dc_bus_voltage"   , "dc_bus_voltage", "#8000FF"  , -10.0   , {} ),
-    # ( 0, "cmd/pv/write/rwr_battery_discharge_power_limit"   , "rwr_battery_discharge_power_limit", "#8000FF"  , 1.0   , {} ),
-
-    # ( 0, "pv/solis1/mppt1_power"       , "mppt1_power" , "#008000"  , 1.0, {"visible":False} ),
-    # ( 0, "pv/solis1/mppt2_power"       , "mppt2_power" , "#00C000"  , 1.0, {"visible":False} ),
-
-    # ( 1, "pv/meter/phase_1_line_to_neutral_volts"         , "PH1V"   , "orange"   , 1.0, {} ),
-    # ( 1, "pv/meter/phase_2_line_to_neutral_volts"         , "PH2V"   , "orange"   , 1.0, {} ),
-    # ( 1, "pv/meter/phase_3_line_to_neutral_volts"         , "PH3V"   , "orange"   , 1.0, {} ),
-
-
-    # ( 1, "pv/solis1/bms_battery_current" , "Battery current" , "#FFC080"  ,1.0  , {"visible":False} ),
-    ( 1, "pv/solis1/bms_battery_soc"     , "Battery SOC"   , "green"    , 1.0   , {"visible":False} ),
-    ( 1, "pv/solis1/temperature"         , "Temperature"   , "orange"   , 1.0   , {"visible":False} ),
-    ( 1, "pv/evse/virtual_current_limit" , "EVSE ILim (virtual)" , "#FF00FF"   , 1.0, {"visible":False} ),
-    # ( 1, "pv/evse/current"               , "EVSE I (real)"    , "#FFFFFF"   , 1.0, {"visible":False} ),
-    ( 1, "pv/evse/energy"               , "EVSE kWh"    , "#FFFFFF"   , 1.0, {"visible":False} ),
-    # ( 1, "pv/solis1/battery_current"     , "Bat current"    , "#FF8000"   , 1.0, {"visible":False} ),
-    # ( 1, "pv/solis1/battery_voltage"     , "Bat voltage"    , "#FFFF00"   , 1.0, {"visible":False} ),
-    ( 1, "pv/solis1/battery_max_charge_current"     , "Bat max current"    , "#0080FF"   , 1.0, {"visible":False} ),
-
-    ( 1, "pv/meter/req_time"               , "meter req_time"    , "#FFFFFF"   , 1.0, {}, "", "max" ),
-    ( 1, "pv/evse/req_time"                , "EVSE req_time"     , "#FFFF00"   , 1.0, {}, "", "max" ),
-    ( 1, "pv/meter/req_period"             , "req_period"        , "#00FF00"   , 1.0, {}, "", "max" ),
-    # ( 1, "pv/solis1/fakemeter/lag"               , "lag"    , "#FF00FF"   , 1.0, {} ),
-
-
-    # ( 1, "pv/solis1/dc_bus_voltage"      , "DC Bus"        ,    "#FFFFFF"     , 1.0, {} ),
-    # ( 1, "pv/solis1/mppt1_voltage"       , "mppt1_voltage" , "#FFFF00"  , 1.0, {} ),
-    # ( 1, "pv/solis1/mppt2_voltage"       , "mppt2_voltage" , "#FFFFFF"  , 1.0, {} ),
-    # ( 1, "pv/solis1/mppt1_current"       , "mppt1_current" , "#FFFF00"  , 1.0, {} ),
-    # ( 1, "pv/solis1/mppt2_current"       , "mppt2_current" , "#FFFFFF"  , 1.0, {} ),
-    # ( 1, "pv/solis1/bms_battery_charge_current_limit"      , "BMS max charge Amps"    , "blue"  ,1.0      , {} ),
-    # ( 1, "pv/solis1/bms_battery_discharge_current_limit"   , "BMS max discharge Amps" , "red"  ,1.0      , {} ),
-
-    # ( 1, "pv/solis1/energy_generated_today"     , "Energy generated"   , "green"  ,1.0      , {} , "day" ),
-    # ( 1, "pv/solis1/meter/import_active_energy"     , "Solis import"   , "#FFC000"  ,1.0    , {} , "day" ),
-    # ( 1, "pv/solis1/meter/export_active_energy"     , "Solis export"   , "#00FF80"  ,1.0    , {} , "day" ),
-    # ( 1, "pv/meter/total_import_kwh"     , "Grid import"   , "red"  ,1.0                    , {} , "day" ),
-    # ( 1, "pv/meter/total_export_kwh"     , "Grid export"   , "cyan"  ,1.0                   , {} , "day" ),
-)}
-
-DATA = { k:None for k in (
-    "pv/solis1/bms_battery_soc",
-    "pv/meter/total_export_kwh",
-    "pv/meter/total_import_kwh",
-    )}
-
+#   Server class, instantiated once
+#
 class BokehApp():
-    plot_data = []
-    last_data_length = None
-
     def __init__(self):
+        #
+        #   Setup DataStreams
+        self.data_streams = {}
+        for args in DATA_STREAMS:
+            # print( args )
+            topic, unit, label, color, dash, scale, bokeh_attrs, attrs = args
+            self.data_streams[ topic ] = DataStream( *args )
+
         io_loop = IOLoop.current()
         self.server = Server(applications = {'/myapp': Application(FunctionHandler(self.make_document))}, io_loop = io_loop, port = 5001)
         self.server.start()
         # self.server.show('/myapp')
 
-        self.mqtt = MQTTClient("plotter")
+        self.mqtt = MQTTClient( "bokehplot" )
         self.mqtt.on_connect    = self.mqtt_on_connect
         self.mqtt.on_message    = self.mqtt_on_message
         self.mqtt.set_auth_credentials( config.MQTT_USER, config.MQTT_PASSWORD )
@@ -241,125 +342,177 @@ class BokehApp():
 
     def mqtt_on_connect(self, client, flags, rc, properties):
         print("MQTT On Connect")
-        # for topic in list(DATASTREAMS.keys())+list(DATA.keys()):
-        for topic in DATASTREAMS.keys():
-            print( "subscribe", topic )
+        for topic in self.data_streams.keys():
+            # print( "subscribe", topic )
             self.mqtt.subscribe( topic, qos=0 )
 
     def mqtt_on_message(self, client, topic, payload, qos, properties):
-        p = DATASTREAMS.get(topic)
-        y = float(payload)
-        if p:
-            p.add( y )
+        if p := self.data_streams.get(topic):
+            p.add( float(payload) )
 
+    # When a Bokeh server session is initiated, the Bokeh server asks the Application for a new Document to service the session. 
+    # To do this, the Application first creates a new empty Document, then it passes this new Document to the modify_document method of each of its handlers.
+    # When all handlers have updated the Document, it is used to service the user session.
     def make_document(self, doc):
-        PVDashboard(doc)
+        PVDashboard(self, doc)
 
+class PlotHolder():
+    pass
+
+#   One dashboard instance
+#
 class PVDashboard():
-    def __init__( self, doc ):
+    def __init__( self, app, doc ):
         doc.theme = 'dark_minimal'
+        self.app = app
 
-        self.figs = { stream.pane:None for key,stream in DATASTREAMS.items() }
-        self.figs[0] = figure(   title = 'PV', 
-                        sizing_mode = 'stretch_both', 
-                        x_axis_type="datetime",
-                        tools="undo,redo,reset,save,hover,box_zoom,xwheel_zoom,wheel_zoom,xpan",
-                        active_drag = "xpan",
-                        # active_zoom = "xwheel_zoom"
-                    )
+        # Duplicate Data Streams
+        #   [ [ "Tab name", [ list of rows [ list of traces ]]
+        print("Open dashboard", __name__)
+        self.lines = {}
+        self.figs  = []
+        tabs = []
+        for tab_title, tab_rows in PLOT_LAYOUTS:
+            print( "Tab:", tab_title )
+            rows = []
+            for tab_row in tab_rows:
+                print("    Row:")
+                fig = bokeh.plotting.figure(   
+                    # title = 'PV', 
+                    sizing_mode   = "stretch_both", 
+                    x_axis_type   = "datetime",
+                    tools         = "undo,redo,reset,save,hover,box_zoom,xwheel_zoom,xpan,wheel_zoom,pan",
+                    active_drag   = "xpan",
+                    active_scroll = "xwheel_zoom"
+                )
+                if len(tabs)==0 and len(rows)==1:
+                    fig.sizing_mode = "stretch_width"
+                    fig.height_policy = "fixed"
+                    fig.height = 200
 
-        if 1 in self.figs:
-            self.figs[1] = figure(   title = 'Inverter', 
-                            sizing_mode = 'stretch_both', 
-                            x_axis_type="datetime",
-                            tools="undo,redo,reset,save,hover,box_zoom,xwheel_zoom,wheel_zoom,xpan",
-                            # active_drag = "xpan",
-                        )
+                for topic in tab_row:
+                    p = PlotHolder()
+                    p.tab    = len(tabs)
+                    p.fig    = fig
+                    p.topic  = topic
+                    p.stream = stream = app.data_streams[ topic ]
+                    p.line = fig.line( [],[], **stream.bokeh_attrs )
+                    p.last_update = 0
+                    print("         %20s %s" % (stream.label, topic))
+                    self.lines.setdefault(topic,[]).append( p )
 
-            # self.figs[1].extra_y_ranges = {"temp": bokeh.models.Range1d(start=50, end=70)}
-            # self.figs[1].add_layout(bokeh.models.LinearAxis(y_range_name="temp"), 'right')
+                fig.xaxis.ticker.desired_num_ticks = 20
+                fig.legend.location = "top_left"
+                fig.legend.click_policy="hide"
 
-        for fig in self.figs.values():
-            fig.xaxis.ticker.desired_num_ticks = 20
+                fig.on_event( bokeh.events.Reset,        self.event_reset )
+                fig.on_event( bokeh.events.LODStart,     self.event_lod_start )
+                fig.on_event( bokeh.events.LODEnd,       self.event_lod_end )
+                fig.on_event( bokeh.events.RangesUpdate, self.event_ranges_update )
+                # fig.on_event( bokeh.events.MouseWheel,   self.event_generic )
+                # fig.on_event( bokeh.events.Pan,          self.event_generic )
 
-        self.range_slider = Slider(start=PLOT_LENGTH_MIN, end=PLOT_LENGTH_MAX, value=PLOT_LENGTH, step=100, title="Range")
-        self.range_slider.on_change("value", self.range_slider_on_change)
+                fig.lod_factor    = 10
+                fig.lod_interval  = 100
+                fig.lod_threshold = None
+                fig.lod_timeout   = 1000
+
+                # link all X axes
+                if self.figs:
+                    fig.x_range = self.figs[0].x_range
+
+                rows.append( fig )
+                self.figs.append( fig )
+
+            column = bokeh.layouts.column( *rows, width_policy="max", height_policy="max" )
+            tabs.append( TabPanel( child=column, title=tab_title ))
+
+        self.tabs = Tabs( width_policy="max", height_policy="max", tabs=tabs )
+        self.tabs.on_change('active', self.event_on_tab_change )
+
+        self.autorange_enabled = True
+        self.button_group = bokeh.models.widgets.CheckboxButtonGroup( labels=["Autorange"], active=[0] )
+        self.button_group.on_change( "active", self.buttons_onclick )
+
+        doc.add_root( bokeh.layouts.column( [ self.tabs, self.button_group ], width_policy="max", height_policy="max" ))
+
+        # self.range_slider = Slider(start=STREAMING_LENGTH_MIN, end=STREAMING_LENGTH_MAX, value=STREAMING_LENGTH, step=100, title="Range")
+        # self.range_slider.on_change("value", self.range_slider_on_change)
 
         self.lod_slider_value = 1
-        self.lod_slider = Slider(start=1, end=100, value=self.lod_slider_value, step=1, title="Smooth")
-        self.lod_slider.on_change("value", self.lod_slider_on_change)
-        self.lod_slider_value = 1
-
-        self.plots = {}
-        for key,stream in DATASTREAMS.items():
-            p = PlotHolder()
-            p.key    = key
-            p.stream = stream
-            p.plot   = self.figs[stream.pane].line( [], [], legend_label=stream.label, color=stream.color, line_width=3, **stream.extra_args )
-            p.last_update = 0
-            if stream.x:    # it can be empty if there is no data for the requested range
-                p.last_update = stream.x[-1]
-
-            self.plots[key] = p
-
-        for fig in self.figs.values():
-            # fig.x_range.follow="end"
-            # fig.x_range.follow_interval = np.timedelta64( PLOT_LENGTH, 's' )
-            # fig.x_range.range_padding=0
-            fig.legend.location = "top_left"
-            fig.legend.click_policy="hide"
-
-            fig.on_event( bokeh.events.Reset,        self.event_reset )
-            fig.on_event( bokeh.events.LODStart,     self.event_lod_start )
-            fig.on_event( bokeh.events.LODEnd,       self.event_lod_end )
-            fig.on_event( bokeh.events.RangesUpdate, self.event_ranges_update )
-            fig.on_event( bokeh.events.MouseWheel,   self.event_generic )
-            fig.on_event( bokeh.events.Pan,          self.event_generic )
-
-            # fig.lod_factor    = 10
-            # fig.lod_interval  = 100
-            # fig.lod_threshold = 100
-            # fig.lod_timeout   = 1000
-
-            fig.lod_factor    = 10
-            fig.lod_interval  = 100
-            fig.lod_threshold = None
-            fig.lod_timeout   = 1000
+        # self.lod_slider = Slider(start=1, end=100, value=self.lod_slider_value, step=1, title="Smooth")
+        # self.lod_slider.on_change("value", self.lod_slider_on_change)
+        # self.lod_slider_value = 1
 
         self.lod_reduce = False
         self.streaming  = True
-        self.tick = Metronome( 0.1 )
+        self.tick = Metronome( 0.5 )
         self.prev_trange = None
-        self.update_title()
+        # self.update_title()
+        self.event_reset()
 
-        # doc.add_root(fig)
+        doc.add_periodic_callback( self.streaming_update, 500 )
+        # doc.add_periodic_callback( self.update_title, 10000 )
 
-        doc.add_root(
-            bokeh.layouts.column( 
-                *( list( self.figs.values() ) + [
-                # bokeh.layouts.row( self.range_slider )
-                bokeh.layouts.row( self.range_slider, self.lod_slider )]),
-                sizing_mode="stretch_both"
-                )
-        )
+    # def update_title( self ):
+    #     for topic in TITLE_DATA.keys():
+    #         TITLE_DATA[topic] = get_latest_value( topic )
+    #     self.figs[0].title.text = "PV: Batt %d%% Import %.03f Export %.03f Total %.03f kWh" % (
+    #             TITLE_DATA["pv/solis1/bms_battery_soc"][1],
+    #             TITLE_DATA["pv/meter/total_import_kwh"][1]-TITLE_DATA["pv/meter/total_import_kwh"][0],
+    #             TITLE_DATA["pv/meter/total_export_kwh"][1]-TITLE_DATA["pv/meter/total_export_kwh"][0],
+    #             TITLE_DATA["pv/meter/total_import_kwh"][1]-TITLE_DATA["pv/meter/total_import_kwh"][0]-(TITLE_DATA["pv/meter/total_export_kwh"][1]-TITLE_DATA["pv/meter/total_export_kwh"][0])
+    #         )
 
-        doc.add_periodic_callback( self.update, 500 )
-        doc.add_periodic_callback( self.update_title, 10000 )
+    def event_reset( self, event=None ):
+        self.streaming = True
+        self.figs[0].x_range.follow = "end"
+        self.figs[0].x_range.follow_interval = np.timedelta64( STREAMING_LENGTH, 's' )
+        self.figs[0].x_range.range_padding = 0
+        self.streaming_update()
 
-    def lod_slider_on_change( self, attr, oldvalue, value ):
-        self.lod_slider_value = value
-        if not self.streaming and self.tick.ticked():
-            self.redraw( attr, force=True )
+    #   Yields a list of PlotHolder's to redraw, removing those that don't need to be
+    #   like inactive tabs, not visible, no data, etc
+    def get_redraw_list( self ):
+        for topic,plotholders in self.lines.items():
+            for ph in plotholders:
+                stream  = ph.stream
+                if self.tabs.active != ph.tab:      # ignore inactive tabs
+                    continue
+                if not ph.line.visible:
+                    continue
+                if self.streaming:
+                    if not stream.x:
+                        if len(ph.line.data_source["x"]) and not stream.x:
+                            # last bit of data was evicted from the stream, but it is still displayed
+                            # so we need to update it
+                            yield ph
+                        continue
+                    if ph.last_update == stream.x[-1]:   # is there new data?
+                        continue                    # no new data, so no need to redraw
+                yield ph
 
-    def range_slider_on_change( self, attr, oldvalue, value ):
-        value = min(PLOT_LENGTH_MAX,max(PLOT_LENGTH_MIN,value))
-        global PLOT_LENGTH
-        PLOT_LENGTH = value
-        for key,stream in DATASTREAMS.items():
-            stream.load()
-        for fig in self.figs.values():
-            fig.x_range.follow_interval = np.timedelta64( PLOT_LENGTH, 's' )
-        # self.redraw( attr )
+
+    def streaming_update( self ):
+        if not self.streaming:
+            return
+
+        for ph in self.get_redraw_list():
+            ds = ph.line.data_source
+            stream  = ph.stream
+            ph.last_update = stream.x[-1]
+            x = np.array( stream.x )
+            trange = self.get_t_range()
+            if trange:
+                # do not send the whole history, only what will be displayed
+                start_idx = np.searchsorted( x, np.datetime64(trange[0], "ms") )
+                x = x[start_idx:]
+                y = np.array( stream.y )[start_idx:]
+            else:
+                y = np.array( stream.y )
+
+            ds.data = {"x":x, "y":y}
+            ds.trigger('data', ds.data, ds.data )
 
     def get_t_range( self ):
         fig = self.figs[0]
@@ -369,53 +522,20 @@ class PVDashboard():
             return None
         return int(t1), int(t2)  # in milliseconds
 
-    def redraw( self, event, force=False ):
-        trange = self.get_t_range()
-        if not trange:
-            return
-        trange_change = trange != self.prev_trange
-        self.prev_trange = trange
-        if not (force or trange_change and self.tick.ticked()):
-            return
+    # def lod_slider_on_change( self, attr, oldvalue, value ):
+    #     self.lod_slider_value = value
+    #     if not self.streaming and self.tick.ticked():
+    #         self.redraw( attr, force=True )
 
-        # copy to other plot panes
-        for k, fig in self.figs.items():
-            if k!=0:
-                fig.x_range.start, fig.x_range.end = trange
-
-        tstart = trange[0] * 0.001
-        tend   = trange[1] * 0.001
-        lod_length=300 if self.lod_reduce else int(5000 * 10/(10+self.lod_slider_value))
-        # print( tstart, tend, event, self.lod_reduce, lod_length )
-
-        for fig_k, fig in self.figs.items():
-            for k,ph in self.plots.items():
-                if ph.plot.visible and ph.stream.pane == fig_k:
-                    ds = ph.plot.data_source
-                    x,y = ph.stream.get( tstart, tend, lod_length=lod_length )
-                    ds.data = {"x":x, "y":y }
-                    ds.trigger('data', ds.data, ds.data )
-        self.autorange()
-        self.tick.ticked()
-
-    def autorange( self ):
-        for fig_k, fig in self.figs.items():
-            miny = []
-            maxy = []
-            for k,ph in self.plots.items():
-                if ph.plot.visible and ph.stream.pane == fig_k:
-                    # print("autorange",ph.key)
-                    ds = ph.plot.data_source
-                    x = ds.data["x"]
-                    y = ds.data["y"]
-                    if len(y):
-                        miny.append(y.min())
-                        maxy.append(y.max())
-            if miny:
-                # for fig in self.figs.values():
-                fig.y_range.start = min(miny)
-                fig.y_range.end   = max(maxy)
-                # print( min(miny), max(maxy))
+    # def range_slider_on_change( self, attr, oldvalue, value ):
+    #     value = min(STREAMING_LENGTH_MAX,max(STREAMING_LENGTH_MIN,value))
+    #     global STREAMING_LENGTH
+    #     STREAMING_LENGTH = value
+    #     for key,stream in DATA_STREAMS.items():
+    #         stream.load()
+    #     for fig in self.figs.values():
+    #         fig.x_range.follow_interval = np.timedelta64( STREAMING_LENGTH, 's' )
+    #     # self.redraw( attr )
 
     def event_lod_start( self, event ):
         # print( event )
@@ -428,57 +548,74 @@ class PVDashboard():
         self.lod_reduce = False
         self.redraw( event, True )
 
-    def event_reset( self, event ):
-        self.streaming = True
-        for fig in self.figs.values():
-            fig.x_range.follow="end"
-            fig.x_range.follow_interval = np.timedelta64( PLOT_LENGTH, 's' )
-            fig.x_range.range_padding=0
-        self.update()
-
     def event_ranges_update( self, event ):
         self.redraw( event )
 
-    def event_generic( self, event ):
-        self.redraw( event )
-
-    def update_title( self ):
-        for topic in DATA.keys():
-            DATA[topic] = get_one( topic )
-        self.figs[0].title.text = "PV: Batt %d%% Import %.03f Export %.03f Total %.03f kWh" % (
-                DATA["pv/solis1/bms_battery_soc"][1],
-                DATA["pv/meter/total_import_kwh"][1]-DATA["pv/meter/total_import_kwh"][0],
-                DATA["pv/meter/total_export_kwh"][1]-DATA["pv/meter/total_export_kwh"][0],
-                DATA["pv/meter/total_import_kwh"][1]-DATA["pv/meter/total_import_kwh"][0]-(DATA["pv/meter/total_export_kwh"][1]-DATA["pv/meter/total_export_kwh"][0])
-            )
-
-    def update( self ):
-        if not self.streaming:
+    def redraw( self, event, force=False ):
+        if self.streaming:
+            self.streaming_update()
             return
-        for k,ph in self.plots.items():
-            ds = ph.plot.data_source
-            s  = ph.stream
+        if not (trange := self.get_t_range()):
+            return
+        trange_change = trange != self.prev_trange
+        self.prev_trange = trange
+        if not (force or trange_change and self.tick.ticked()):
+            return
 
-            s.purge_old()
+        tstart = int(trange[0]) * 0.001
+        tend   = int(trange[1]) * 0.001
+        lod_length=300 if self.lod_reduce else int(5000 * 10/(10+self.lod_slider_value))
+        # print( tstart, tend, event, self.lod_reduce, lod_length )
 
-            if not s.x:                     # is there data?
-                continue
-            if ph.last_update == s.x[-1]:   # is there new data?
-                continue                    # no new data, so no need to redraw
-            ph.last_update = s.x[-1]
-
-            # send data to browser
-            ds.data = {"x":np.array( s.x ), "y":np.array( s.y )}
+        updated = 0
+        for ph in self.get_redraw_list():
+            ds = ph.line.data_source
+            stream  = ph.stream
+            x,y = ph.stream.get( tstart, tend, lod_length=lod_length )
+            ds.data = {"x":x, "y":y}
             ds.trigger('data', ds.data, ds.data )
-            
-            trange = self.prev_trange = self.get_t_range()
-            if trange:
-                for k, fig in self.figs.items():
-                    if k!=0:
-                        fig.x_range.start, fig.x_range.end = trange
-        # self.autorange()
+            updated += 1
+        # print("updated:", updated)
+
+        self.autorange()
+        self.tick.ticked()
+
+    def event_on_tab_change( self, attr, old, new ):
+        self.redraw( None, force=True )
+
+    def autorange( self ):
+        if not self.autorange_enabled:
+            return
+        minmax = {}
+        for ph in self.get_redraw_list():
+                ds = ph.line.data_source
+                y = ds.data["y"]
+                if len(y):
+                    if ph.fig not in minmax:
+                        minmax[ph.fig] = [y.min(),y.max()]
+                    else:
+                        minmax[ph.fig] = [min(minmax[ph.fig][0],y.min()),max(minmax[ph.fig][1],y.max())]
+        for fig, (mi, ma) in minmax.items():
+            fig.y_range.start = mi
+            fig.y_range.end   = ma
+
+    def buttons_onclick( self, attr, old, new ):
+        clicked = set(new).symmetric_difference(old)
+        enabled  = set(new).difference(old)
+        disabled = set(old).difference(new)
+
+        # autorange button
+        self.autorange_enabled = 0 in enabled
+        if 0 in enabled:
+            self.autorange()
 
 
+
+    # def event_generic( self, event ):
+        # self.redraw( event, force=True )
+
+
+print("Start")
 if __name__ == '__main__':
     app = BokehApp()
 
