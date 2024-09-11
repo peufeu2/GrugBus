@@ -284,8 +284,8 @@ class FakeSmartmeter( grugbus.LocalServer ):
             return False
 
         # if enabled, publish lag time
-        if self.mqtt and self.data_timestamp:    # how fresh is this data?
-            self.mqtt.publish_value( "pv/solis1/fakemeter/lag", round( time.monotonic()-self.data_timestamp, 2 ) )
+        # if self.mqtt and self.data_timestamp:    # how fresh is this data?
+            # self.mqtt.publish_value( "pv/solis1/fakemeter/lag", round( time.monotonic()-self.data_timestamp, 2 ) )
 
         # tell pymodbus to serve the request
         return True

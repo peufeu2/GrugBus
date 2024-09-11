@@ -213,7 +213,7 @@ class Router():
         # (Smartmeter gives a negative value when exporting power, so invert the sign.)
         # This is the main control variable for power routing. The rest of this code is about tweaking it
         # according to operating conditions to get desired behavior.
-        meter_export = -mgr.meter.meter_power_tweaked
+        meter_export = -mgr.meter_power_tweaked
 
         # Also get solis1 output power, flip sign to make it positive when producing power
         solis1_output = -(mgr.solis1.local_meter.active_power.value or 0)
@@ -336,6 +336,149 @@ class Router():
         await evse.route( export_avg_bat, fast_route )
         return
 
+    #   Old version
+    #
+    # async def route( self ):
+    #     # return
+    #     if self.initialized < 2:
+    #         for d in self.devices:
+    #             d.off()
+    #         self.initialized += 1
+    #         return
+
+    #     # Wait for it to stabilize at startup
+    #     if not self.start_timeout.expired():
+    #         return
+
+    #     # Routing behaves as an integrator, for stability.
+
+    #     # Get export power from smartmeter, set it to positive when exporting, makes the algo below easier to understand.
+    #     # (Smartmeter gives a negative value when exporting power, so invert the sign.)
+    #     # This is the main control variable for power routing. The rest of this code is about tweaking it
+    #     # according to operating conditions to get desired behavior.
+    #     meter_export = -mgr.meter_power_tweaked
+
+    #     # Also get solis1 output power, flip sign to make it positive when producing power
+    #     solis1_output = -(mgr.solis1.local_meter.active_power.value or 0)
+
+    #     # Smartmeter power alone is not sufficient: at night when running on battery it will fluctuate
+    #     # around zero but with spikes in import/export and we don't want that to trigger routing!
+    #     # What we're interested in is excess production: (meter export) + (solar battery charging power)
+    #     # this behaves correctly in all cases.
+    #     bp  = mgr.solis1.battery_power.value or 0       # Battery charging power. Positive if charging, negative if discharging.
+    #     soc = mgr.solis1.bms_battery_soc.value or 0     # battery SOC, 0-100
+
+    #     # correct battery power measurement offset when battery is fully charged
+    #     if not mgr.solis1.battery_dcdc_active.value and -250 < bp < 200:
+    #         bp = 0
+    #     else:
+    #         # use fast proxy instead
+    #         bp = mgr.solis1.input_power.value
+
+    #     # Solis S5 EH1P has several different behaviors to which we should adapt for better routing.
+    #     #
+    #     # 1) Feedback loop inoperative, PV controls the output
+    #     #   Full export: (meter_export > 0) AND (Battery is full, battery_max_charge_current = 0)
+    #     #   The inverver is exporting everything it can. Routing power will change meter_export but the inverter 
+    #     #   won't react to that unless we draw too much, causing meter_export to become negative, at this point 
+    #     #   it will retake control and draw power from the battery, exiting this mode.
+    #     #   -> The router is actually in control of everything
+    #     #   -> We can route as fast as possible, but keep meter_export > 0
+    #     #
+    #     # 1a) EPM Export power limit (per inverter setting)
+    #     #   Feedback loop operating. Inverter controls export power.
+    #     #   In this mode, the feedback loop is very quick: it reads the meter once per second and reacts almost
+    #     #   immediately, taking more power from PV if available.
+    #     #   -> Again, route as fast as possible, taking into account the inverter will react one second later.
+    #     #   
+    #     # 2) Inverter grid port is maxed out
+    #     #   The inverter gets more power from PV than its grid port can export. This power can be used to charge 
+    #     #   the battery, if needed. This mode is relevant for routing because while it would appear we can steal
+    #     #   power from the battery (because we see it is charging), in reality we can't because the inverter 
+    #     #   can't output more power on the grid port. So any extra load being switched on would draw from the grid.
+    #     #   -> Detect this and avoid this mistake
+    #     #   -> Inverter is maxed out, so the router is actually in control of everything
+    #     #
+    #     # 3) Battery DC-DC is operating
+    #     #     Unless the battery DC-DC is maxed out, this corresponds to meter_export being near zero.
+    #     #     When the inverter is working with the battery (doesn't matter if charging or discharging) the control 
+    #     #   loop becomes much slower. A few seconds delay is inserted into the loop, which may cause damped oscillations 
+    #     #   at each load step for up to 10s, depending on the meter setting. Acrel 3 phase seems to have the best
+    #     #   behaviour. When oscillations occur, this makes meter_export look like a mess as it oscillates around zero. 
+    #     #   Battery power also suffers from damped oscillations.
+    #     #     The main problem in this mode is our control variables (battery_power and meter_export) are no longer
+    #     #   usable to make routing decisions quickly due to the oscillations.
+    #     #   -> meter_export and battery_power should be smoothed generously before being used to make routing decisions
+    #     #   -> Routing should be done slowly, waiting until the oscillations settle before making another decision.
+    #     #   Special case: if the battery charger is maxed out, then switching loads off will not cause oscillations and
+    #     #   we can do so quickly. Switching loads on may cause the inverter to redirect power from charging to grid port,
+    #     #   if this causes the battery charger to no longer be maxed out, then oscillations will come back.
+
+    #     #
+    #     #   From the above, we distinguish two routing modes: fast and slow.
+    #     #
+    #     fast_route = not mgr.solis1.battery_dcdc_active.value
+    #     fast_route = True
+
+    #     # set desired average export power, tweak it a bit considering battery soc
+    #     meter_export -= self.p_export_target_base + self.p_export_target_soc_factor * soc
+
+    #     # Store it in a deque to smooth it, to avoid jerky behavior on power spikes
+    #     self.smooth_export.append( meter_export )          # TODO: this was previously meter_export
+    #     self.smooth_bp    .append( bp )
+    #     del self.smooth_export[0]
+    #     del self.smooth_bp    [0]
+
+    #     # Smooth it, depending on the slow/fast mode
+    #     smooth_len = - (self.smooth_length_fast if fast_route else self.smooth_length_slow)
+    #     export_avg = average(self.smooth_export[smooth_len:])
+    #     bp_avg     = average(self.smooth_bp[smooth_len:])
+
+    #     ######## Battery Management ########
+
+    #     # Note battery power should always be taken into account for routing, especially
+    #     # if we want to keep it charging! Because some drift always occurs, so we may divert a little bit
+    #     # more power than we should, and the inverter will provide... to do so it will reduce battery charging power
+    #     # until it's no longer charging...
+
+    #     # Get maximum charging power the battery can take, as determined by inverter, according to BMS info
+    #     bp_max  = (mgr.solis1.battery_max_charge_current.value or 0) * (mgr.solis1.battery_voltage.value or 0)
+        
+    #     # When SOC is 100%, Solis will not charge even if the battery requests current, so don't reserve any power
+    #     if soc == 100:
+    #         bp_max = 0  
+
+    #     # how much power do we allocate to charging the battery, according to SOC
+    #     bp_min = bp_max * interpolate( self.battery_min_soc, self.battery_min_soc_scale, self.battery_max_soc, self.battery_max_soc_scale, soc )
+
+    #     # If the inverter's grid port is maxed out, we can't steal power from the battery, correct for this.
+    #     steal_max = max( 0, self.solis1_max_output_power - solis1_output )
+
+    #     # This is how much we can steal from battery charging. If battery is discharging, it will be negative 
+    #     # which is what we want, since we don't want to route on battery power.
+    #     steal_from_battery = min( bp_avg - bp_min, steal_max )
+
+    #     # We now have two excess power measurements
+    #     #   export_avg                      does not include power that can be stolen from the battery
+    #     #   export_avg+steal_from_battery   it includes that
+    #     # TODO: use both to also control the water heater and other stuff.
+    #     # For now this is just for the EVSE.
+
+    #     export_avg_bat =  export_avg + steal_from_battery
+    #     mqtt.publish_value( "pv/router/excess_avg", export_avg_bat )
+
+    #     #   Note export_avg_nobat doesn't work that well. It tends to use too much from the battery
+    #     #   because the inverter will lower battery charging power on its own to power the EVSE, but this is
+    #     #   not visible on the smartmeter reading!
+    #     #   So it should only be used with a highish export threshold.
+
+
+    #     # TODO: 
+    #     #   - export_avg_bat works (balancing with battery)
+    #     evse = mgr.evse
+    #     await evse.route( export_avg_bat, fast_route )
+    #     return
+
 
         changed = False
         # p is positive if we're drawing from grid
@@ -387,10 +530,10 @@ async def log_coroutine( title, fut ):
 class SolisManager():
     def __init__( self ):
         self.event_power = asyncio.Event()
-        self.house_power                = 0
-        self.total_pv_power             = 0
-        self.total_input_power = 0
-        self.meter_power_tweaked        = 0
+        self.house_power            = 0
+        self.total_pv_power         = 0
+        self.total_input_power      = 0
+        self.meter_power_tweaked    = 0
 
     ########################################################################################
     #
@@ -405,31 +548,53 @@ class SolisManager():
             try:
                 await m.event_power.wait()
 
-                house_power         = meter_power_tweaked = m.total_power.value or 0
-                total_pv_power      = 0
-                total_input_power   = 0
-                total_battery_power = 0
-                battery_soc         = 0
+                # Compute power metrics
+                #
+                # Power consumed by the house loads not including inverters. Used for display and statistics, not used for routing.
+                # This is (Main spartmeter) - (inverter spartmeters). It is accurate and fast.
+                house_power           = meter_power_tweaked = m.total_power.value or 0  
+                total_pv_power        = 0   # Total PV production reported by inverters. Fast, but inaccurate.
+                total_input_power = 0   # Power going into the inverter/battery (PV and grid port). Fast proxy for battery charging power. For routing.
+                total_battery_power   = 0   # Battery power for both inverters (positive for charging)
+                battery_soc           = 0   # State of charge as reported by inverter
+                inverters_online      = 0
+                inverters_with_battery = []
 
-                # compute power management variables
+                # TODO: degraded modes
+
                 for solis in self.solis1, self.solis2:
-                    total_battery_power += solis.battery_power.value or 0               # Battery charging power. Positive if charging, negative if discharging.
-                    battery_soc = max( battery_soc, self.solis1.bms_battery_soc.value or 0 ) # Get SOC from inverter connected to battery
+                    lm = solis.local_meter
+                    lm_power = 0
+                    if lm.is_online:    # inverter local smartmeter power (negative for export)
+                        lm_power = solis.local_meter.active_power.value or 0
 
-                    lm_power           = solis.local_meter.active_power.value or 0
-                    house_power       -= lm_power                                     # compute power used by the house: main smartmeers - inverters
-                    total_pv_power    += (pv := solis.pv_power.value or 0)
-                    input_power        = solis.input_power.value = pv + lm_power
-                    total_input_power += input_power   # fast proxy to battery charging power is PV + local meter
+                    pv_power = 0
+                    if solis.is_online:
+                        inverters_online += 1
+                        if solis.bms_battery_voltage.value:
+                            inverters_with_battery.append( solis )
+                            battery_soc = solis.bms_battery_soc.value or 0  # Get SOC from inverter connected to battery, whichever that is
+                        total_battery_power += solis.battery_power.value or 0                    # Battery charging power. Positive if charging, negative if discharging.
+                        pv_power = solis.pv_power.value or 0
 
+                    total_pv_power += pv_power
+                    solis.input_power.value = inp = pv_power + lm_power
+                    total_input_power += inp    # fast proxy to battery charging power is PV + local meter
+                    house_power -= lm_power         # compute power used by the house: main smartmeers - inverters
+
+                #   Fake Meter
+                # shift slightly to avoid import when we can afford it
                 if total_battery_power > 200:
                     meter_power_tweaked += battery_soc*total_battery_power*0.0001
 
-                #   Fake Meter
                 for solis in self.solis1, self.solis2:
-                    fm = solis.fake_meter
-                    fake_power = meter_power_tweaked * 0.5 - 0.01*(solis.input_power.value - total_input_power*0.5)
+                    if inverters_online == 2:
+                        # balance power between inverters
+                        fake_power = meter_power_tweaked * 0.5 - 0.05*(solis.input_power.value - total_input_power*0.5)
+                    else:
+                        fake_power = meter_power_tweaked
 
+                    fm = solis.fake_meter
                     fm.active_power           .value = fake_power
                     fm.voltage                .value = m.phase_1_line_to_neutral_volts .value
                     fm.current                .value = m.phase_1_current               .value
@@ -442,17 +607,22 @@ class SolisManager():
                     fm.data_timestamp = m.last_transaction_timestamp
                     fm.is_online = m.is_online
                     fm.write_regs_to_context()
+                await asyncio.sleep(0)      # yield to fakemeter server in case it is waiting for the values we just wrote
 
+                # atomic update
+                self.total_input_power = total_input_power
+                self.input_power       = total_pv_power + meter_power_tweaked
                 self.house_power       = house_power
                 self.total_pv_power    = total_pv_power
-                self.total_input_power = total_input_power
-                await asyncio.sleep(0)      # yield to fakemeter server in case it is waiting for the values we just wrote
+
                 self.event_power.set()
                 self.event_power.clear()
 
-                # compute input_power for routing
-                mqtt.publish_value( "pv/total_pv_power", round(total_pv_power) )
-                mqtt.publish_value( "pv/meter/house_power", round(house_power) )
+                mqtt.publish_value( "pv/meter/house_power",     round(house_power) )
+                mqtt.publish_value( "pv/total_pv_power",        round(total_pv_power) )
+                mqtt.publish_value( "pv/total_battery_power",   round(total_battery_power) )
+                mqtt.publish_value( "pv/total_input_power", round(total_input_power) )
+                mqtt.publish_value( "pv/battery_soc",           battery_soc )
                 for solis in self.solis1, self.solis2:
                     mqtt.publish_reg( solis.mqtt_topic, solis.input_power )
 
@@ -671,10 +841,11 @@ class SolisManager():
                 tg.create_task( log_coroutine( "read: solis2 local meter",  self.solis2.local_meter.read_coroutine() ))
                 tg.create_task( log_coroutine( "read: evse local meter",    self.evse.local_meter.read_coroutine() ))
                 tg.create_task( log_coroutine( "read: evse",                self.evse.read_coroutine() ))
-                tg.create_task( log_coroutine( "logic: fan",                self.inverter_fan_coroutine( self.solis1 ) ))
-                tg.create_task( log_coroutine( "logic: blackout",           self.inverter_blackout_coroutine( self.solis1 ) ))
+                # tg.create_task( log_coroutine( "logic: fan",                self.inverter_fan_coroutine( self.solis1 ) ))
+                # tg.create_task( log_coroutine( "logic: blackout",           self.inverter_blackout_coroutine( self.solis1 ) ))
+                # todo: powersave is deactivated
                 tg.create_task( log_coroutine( "logic: power calculations", self.power_coroutine( ) ))
-                tg.create_task( log_coroutine( "logic: router",             self.router.route_coroutine( ) ))
+                # tg.create_task( log_coroutine( "logic: router",             self.router.route_coroutine( ) ))
                 tg.create_task( log_coroutine( "sysinfo",                   self.sysinfo_coroutine() ))
         except (KeyboardInterrupt, CancelledError):
             print("Terminated.")

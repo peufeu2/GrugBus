@@ -6,6 +6,7 @@ import pymodbus
 from pymodbus.pdu import ExceptionResponse
 from pymodbus.exceptions import ModbusException
 from asyncio.exceptions import TimeoutError
+from misc import *
 
 log = logging.getLogger(__name__)
 
@@ -64,6 +65,7 @@ class DeviceBase( ):
 
         # SDM120 does not like "write register", it needs "write multiple registers" even if there is just one
         self.force_multiple_regiters = False
+        self.ratelimit_error_count = 0
 
         #
         #   Will be set to True if we have successful communication with the device,
@@ -77,7 +79,16 @@ class DeviceBase( ):
         for reg in registers:
             self.add_register( reg )
 
-        log.info("%s: %s (%s) configured with %d registers" % (self.__class__.__name__, self.name, self.key, len(self.regs_by_key)))
+    def rate_limit_error( self, old_is_online ):
+        if old_is_online:   # it was online and is no longer online.
+            self.ratelimit_error_count = 0
+            return "[was online]"
+        else:
+            self.ratelimit_error_count += 1
+            if self.ratelimit_error_count < 4:
+                return "[%s]" % self.ratelimit_error_count
+            if self.ratelimit_error_count == 4:
+                return "[further messages suppressed]"
 
     def add_register( self, reg ):
             # link this object to the register for self.read()
@@ -203,7 +214,7 @@ class SlaveDevice( DeviceBase ):
                 if remain:
                     result.append(( fcode, remain ))            # process last record
 
-        print( self.key, [(chunk[0][0], chunk[-1][1]-chunk[0][0]) for fcode, chunk in result] )
+        # print( self.key, [(chunk[0][0], chunk[-1][1]-chunk[0][0]) for fcode, chunk in result] )
         return result
 
     async def read_regs( self, read_list, retries=None, max_hole_size=None ):
@@ -225,6 +236,7 @@ class SlaveDevice( DeviceBase ):
             so other tasks trying to access this modbus interface get a chance to run.
         """
         retries = retries or self.default_retries
+        old_is_online = self.is_online
         try:
             await self.connect()
             start_time = time.monotonic()
@@ -254,9 +266,11 @@ class SlaveDevice( DeviceBase ):
                     except (TimeoutError,ModbusException) as e:
                         await asyncio.sleep(0.2)  # let other tasks use this serial port
                         if retry < retries-1:
-                            log.warning( "Modbus read error: %s will retry %d/%d (%s)", self.key, retry+1, retries, e )
+                            # log.info( "Modbus read error: %s will retry %d/%d (%s) %s", self.key, retry+1, retries, e, msg )
+                            pass
                         else:
-                            log.error( "Modbus read error: %s after %d/%d retries (%s)", self.key, retry+1, retries, e )
+                            if (msg := self.rate_limit_error(old_is_online)) is not None:
+                                log.error( "Modbus read error: %s after %d/%d retries (%s) %s", self.key, retry+1, retries, e, msg )
                             raise
 
             # Decode values and assign to registers. Do this in a separate loop after reading,
@@ -306,6 +320,7 @@ class SlaveDevice( DeviceBase ):
                 retries   : if there is a modbus timeout, will retry up to the number specified
         """
         retries = retries or self.default_retries
+        old_is_online = self.is_online
         try:
             await self.connect()
             update_list = []
@@ -364,9 +379,11 @@ class SlaveDevice( DeviceBase ):
                     except (TimeoutError,ModbusException):
                         await asyncio.sleep(0)  # let other tasks use this serial port
                         if retry < retries-1:
-                            log.warning( "Modbus write error: %s will retry %d/%d (%s)", self.key, retry+1, retries, e )
+                            # log.info( "Modbus write error: %s will retry %d/%d (%s) %s", self.key, retry+1, retries, e, msg )
+                            pass
                         else:
-                            log.error( "Modbus write error: %s after %d/%d retries (%s)", self.key, retry+1, retries, e )
+                            if (msg := self.rate_limit_error(old_is_online)) is not None:
+                                log.error( "Modbus write error: %s after %d/%d retries (%s) %s", self.key, retry+1, retries, e, msg )
                             raise
 
         except Exception as e:

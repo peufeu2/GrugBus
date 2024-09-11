@@ -113,6 +113,14 @@ class Solis( grugbus.SlaveDevice ):
             await self.adjust_time()
             await self.rwr_meter1_type_and_location.read()
             await self.rwr_meter1_type_and_location.write_if_changed( mt )
+
+            # configure inverter
+            for reg, value in  [(self.rwr_meter1_type_and_location, mt), 
+                                (self.rwr_battery_charge_current_maximum_setting, 1000),
+                                (self.rwr_battery_discharge_current_maximum_setting, 1000 )]:
+                await reg.read()
+                await reg.write_if_changed( value )
+
         except (TimeoutError, ModbusException): 
             # if inverter is disconnected because the Solis Wifi Stick is in, do not abort the rest of the program
             pass

@@ -119,6 +119,7 @@ Args:
                 self.decimals = int(decimals)
             format_value_fstr = "%%.0%df" % max( self.decimals, 1 )
             # adding 0.0 converts -0.0 into 0.0
+            self._format_value = lambda v: format_value_fstr % (0.0 + round( v, self.decimals ))
             self.format_value = lambda: format_value_fstr % (0.0 + round( self.value, self.decimals ))
 
         else:
@@ -128,6 +129,7 @@ Args:
             if self.unit_value not in (1,-1):
                 raise ValueError( "%s: user_type <%s> requires unit_value=1 or -1 (integer)" % (self.key,user_type,))
             self.unit_value = int(self.unit_value)     # cast unit_value to int  to make sure self.value will always be an int
+            self._format_value = lambda v: "%d"%v
             self.format_value = lambda: "%d"%self.value
 
         # derived classes initialization
@@ -571,8 +573,10 @@ class FakeRegister:
         if user_type == "float":
             format_value_fstr = "%%.0%df" % max( decimals, 1 )
             # adding 0.0 converts -0.0 into 0.0
+            self._format_value = lambda v: format_value_fstr % (0.0 + round( v, decimals ))
             self.format_value = lambda: format_value_fstr % (0.0 + round( self.value, decimals ))
         else:
+            self._format_value = lambda v: "%d"%v
             self.format_value = lambda: "%d"%self.value
 
 

@@ -52,6 +52,7 @@ class DataStream( object ):
         x,y = self.get( time.time()-PLOT_LENGTH )
         self.x = collections.deque( x )
         self.y = collections.deque( y )
+        self.purge_old()
         if self.x:
             print( "Loaded %d for %s : %s-%s" % (len(self.x), self.topic, self.x[0], self.x[-1]))
 
@@ -138,16 +139,20 @@ class PlotHolder():
 
 DATASTREAMS = { p[1]:DataStream( *p ) for p in (
     # ( 0, "pv/fronius/grid_port_power"   , "Fronius PV" , "#008000"  , -4.5  , {} ),
+    ( 0, "pv/meter/house_power"             , "House"      , "#8080FF"  , 1.0   , {} ),
+    ( 0, "pv/meter/total_power"             , "Grid"       , "#FF0000"  , 1.0   , {} ),
+
     ( 0, "pv/total_pv_power"                , "Total PV"   , "#00FF00"  , 1.0   , {} ),
     ( 0, "pv/solis1/pv_power"               , "PV Solis 1" , "#00C000"  , 1.0   , {} ),
     ( 0, "pv/solis2/pv_power"               , "PV Solis 2" , "#008000"  , 1.0   , {} ),
 
-    ( 0, "pv/meter/house_power"             , "House"      , "#8080FF"  , 1.0   , {} ),
-    ( 0, "pv/meter/total_power"             , "Grid"       , "#FF0000"  , 1.0   , {} ),
+    ( 0, "pv/solis1/input_power"            , "Input power 1" , "#FFC080"  , 1.0   , {} ),
+    ( 0, "pv/solis2/input_power"            , "Input power 2" , "#C08060"  , 1.0   , {} ),
 
-    ( 0, "pv/solis1/battery_power"          , "Battery"         , "#C08040"  , 1.0   , {} ),
+    ( 0, "pv/solis1/battery_power"          , "Battery"         , "#FFFF00"  , 1.0   , {} ),
+    # ( 0, "pv/solis1/battery_power"          , "Battery"         , "#C08040"  , 1.0   , {} ),
+
     
-    ( 0, "pv/solis1/input_power"            , "Battery (proxy)" , "#FFC080"  , 1.0   , {} ),
     # ( 0, "pv/solis1/bms_battery_power"          , "Battery"    , "#FFC080"  , 1.0   , {} ),
     ( 0, "pv/solis1/meter/active_power"     , "Inverter"      , "cyan"     , 1.0   , {} ),
 
@@ -162,8 +167,8 @@ DATASTREAMS = { p[1]:DataStream( *p ) for p in (
     # ( 0, "pv/solis1/dc_bus_voltage"   , "dc_bus_voltage", "#8000FF"  , -10.0   , {} ),
     # ( 0, "cmd/pv/write/rwr_battery_discharge_power_limit"   , "rwr_battery_discharge_power_limit", "#8000FF"  , 1.0   , {} ),
 
-    ( 0, "pv/solis1/mppt1_power"       , "mppt1_power" , "#008000"  , 1.0, {"visible":False} ),
-    ( 0, "pv/solis1/mppt2_power"       , "mppt2_power" , "#00C000"  , 1.0, {"visible":False} ),
+    # ( 0, "pv/solis1/mppt1_power"       , "mppt1_power" , "#008000"  , 1.0, {"visible":False} ),
+    # ( 0, "pv/solis1/mppt2_power"       , "mppt2_power" , "#00C000"  , 1.0, {"visible":False} ),
 
     # ( 1, "pv/meter/phase_1_line_to_neutral_volts"         , "PH1V"   , "orange"   , 1.0, {} ),
     # ( 1, "pv/meter/phase_2_line_to_neutral_volts"         , "PH2V"   , "orange"   , 1.0, {} ),
