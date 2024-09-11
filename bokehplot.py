@@ -142,15 +142,19 @@ DATASTREAMS = { p[1]:DataStream( *p ) for p in (
     ( 0, "pv/meter/house_power"             , "House"      , "#8080FF"  , 1.0   , {} ),
     ( 0, "pv/meter/total_power"             , "Grid"       , "#FF0000"  , 1.0   , {} ),
 
+    ( 0, "pv/meter/phase_1_power"             , "Grid 1"       , "#FF8000"  , 1.0   , {} ),
+    ( 0, "pv/meter/phase_2_power"             , "Grid 2"       , "#FF0080"  , 1.0   , {} ),
+    ( 0, "pv/meter/phase_3_power"             , "Grid 3"       , "#FF8080"  , 1.0   , {} ),
+
     ( 0, "pv/total_pv_power"                , "Total PV"   , "#00FF00"  , 1.0   , {} ),
     ( 0, "pv/solis1/pv_power"               , "PV Solis 1" , "#00C000"  , 1.0   , {} ),
     ( 0, "pv/solis2/pv_power"               , "PV Solis 2" , "#008000"  , 1.0   , {} ),
 
-    ( 0, "pv/solis1/input_power"            , "Input power 1" , "#FFC080"  , 1.0   , {} ),
-    ( 0, "pv/solis2/input_power"            , "Input power 2" , "#C08060"  , 1.0   , {} ),
+    ( 0, "pv/solis1/input_power"            , "Input power 1" , "#FFFF00"  , 1.0   , {} ),
+    ( 0, "pv/solis2/input_power"            , "Input power 2" , "#C0C000"  , 1.0   , {} ),
 
-    ( 0, "pv/solis1/battery_power"          , "Battery 1"         , "#FFFF00"  , 1.0   , {} ),
-    ( 0, "pv/solis2/battery_power"          , "Battery 2"         , "#C0C000"  , 1.0   , {} ),
+    ( 0, "pv/solis1/battery_power"          , "Battery 1"         , "#FFC080"  , 1.0   , {} ),
+    ( 0, "pv/solis2/battery_power"          , "Battery 2"         , "#C08060"  , 1.0   , {} ),
     # ( 0, "pv/solis1/battery_power"          , "Battery"         , "#C08040"  , 1.0   , {} ),
 
     

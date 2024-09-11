@@ -587,10 +587,16 @@ class SolisManager():
                 if total_battery_power > 200:
                     meter_power_tweaked += battery_soc*total_battery_power*0.0001
 
+                if len( inverters_with_battery ) == 2:
+                    print( "2 batts",  self.solis1.battery_power.value, self.solis2.battery_power.value )
+
                 for solis in self.solis1, self.solis2:
                     if inverters_online == 2:
                         # balance power between inverters
-                        fake_power = meter_power_tweaked * 0.5 - 0.05*(solis.input_power.value - total_input_power*0.5)
+                        if len( inverters_with_battery ) == 2:
+                            fake_power = meter_power_tweaked * 0.5 + 0.05*(solis.battery_power.value - total_battery_power*0.5)
+                        else:
+                            fake_power = meter_power_tweaked * 0.5 + 0.05*(solis.input_power.value - total_input_power*0.5)
                     else:
                         fake_power = meter_power_tweaked
 
