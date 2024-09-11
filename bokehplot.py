@@ -149,7 +149,8 @@ DATASTREAMS = { p[1]:DataStream( *p ) for p in (
     ( 0, "pv/solis1/input_power"            , "Input power 1" , "#FFC080"  , 1.0   , {} ),
     ( 0, "pv/solis2/input_power"            , "Input power 2" , "#C08060"  , 1.0   , {} ),
 
-    ( 0, "pv/solis1/battery_power"          , "Battery"         , "#FFFF00"  , 1.0   , {} ),
+    ( 0, "pv/solis1/battery_power"          , "Battery 1"         , "#FFFF00"  , 1.0   , {} ),
+    ( 0, "pv/solis2/battery_power"          , "Battery 2"         , "#C0C000"  , 1.0   , {} ),
     # ( 0, "pv/solis1/battery_power"          , "Battery"         , "#C08040"  , 1.0   , {} ),
 
     
