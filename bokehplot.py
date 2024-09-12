@@ -1,4 +1,4 @@
-import random, time, clickhouse_driver, collections, pprint
+import random, time, clickhouse_driver, collections, pprint, re
 import asyncio, time, traceback, logging, sys, datetime
 import numpy as np
 
@@ -14,13 +14,29 @@ from gmqtt import Client as MQTTClient
 import config
 from misc import *
 
-STREAMING_LENGTH = 1000         # seconds
+STREAMING_LENGTH = 1200         # seconds
 STREAMING_LENGTH_MIN = 200     # seconds
 STREAMING_LENGTH_MAX = 3600    # seconds
 TIME_SHIFT_S = 3600*2          # to shift database timestamps stored in UTC
 TIME_SHIFT = np.timedelta64( TIME_SHIFT_S, 's' )
 
 clickhouse = clickhouse_driver.Client('localhost', user=config.CLICKHOUSE_USER, password=config.CLICKHOUSE_PASSWORD )
+
+# Category20 colors: https://docs.bokeh.org/en/latest/docs/reference/palettes.html
+cat20 = ('#1f77b4', '#aec7e8', '#ff7f0e', '#ffbb78', '#2ca02c', '#98df8a', '#d62728', '#ff9896', '#9467bd', '#c5b0d5', '#8c564b', '#c49c94', '#e377c2', '#f7b6d2', '#7f7f7f', '#c7c7c7', '#bcbd22', '#dbdb8d', '#17becf', '#9edae5')
+
+colors = {
+    "pv"            : ["#00FF00", "#00C000", "#008000"],
+    "mppt1"         : [None     , "#00FFC0", "#00C080"],
+    "mppt2"         : [None     , "#C0FF00", "#80C000"],
+    "battery"       : ["#FFC080", "#C0A060", "#807040"],
+    "fakemeter"     : ["#FFFFFF", "#C0C0C0", "#808080"],
+    "grid_port"     : ["cyan"   , "#9edae5", "#17becf"],
+    "input"         : ["#FFFF00", "#C0C000", "#808000"],
+    "soc"           : ["#00FF00", "#00C000", "#008000"],
+    "temperature"   : ["#FF0000", "#FF00A0", "#FFA000"],
+}
+
 
 # For window title
 TITLE_DATA = { k:None for k in (
@@ -32,48 +48,53 @@ TITLE_DATA = { k:None for k in (
 #   ( topic, unit, label, color, dash, scale, attrs ) < must be tuples
 #
 DATA_STREAMS = [
-    ( "pv/evse/energy"                                   , "W"   , "EVSE kWh"                    , "#FFFFFF"  , "solid",   1.0 , {"visible":False}  , {} ),
-    ( "pv/evse/meter/active_power"                       , "W"   , "EVSE"                        , "#FF80FF"  , "solid",   1.0 , {}                 , {} ),
-    ( "pv/evse/rwr_current_limit"                        , "W"   , "EVSE ILim"                   , "#FFFFFF"  , "solid", 235.0 , {"visible":False}  , {} ),
-    ( "pv/evse/virtual_current_limit"                    , "W"   , "EVSE ILim (virtual)"         , "#FF00FF"  , "solid", 235.0 , {"visible":False}  , {} ),
-    ( "pv/meter/house_power"                             , "W"   , "House"                       , "#8080FF"  , "solid",   1.0 , {}                 , {} ),
-    ( "pv/meter/phase_1_power"                           , "W"   , "Phase 1"                     , "#FF8000"  , "solid",   1.0 , {}                 , {} ),
-    ( "pv/meter/phase_2_power"                           , "W"   , "Phase 2"                     , "#FF0080"  , "solid",   1.0 , {}                 , {} ),
-    ( "pv/meter/phase_3_power"                           , "W"   , "Phase 3"                     , "#FF8080"  , "solid",   1.0 , {}                 , {} ),
-    ( "pv/meter/phase_1_line_to_neutral_volts"           , "V"   , "Phase 1"                     , "orange"   , "solid",   1.0 , {}                 , {} ),
-    ( "pv/meter/phase_2_line_to_neutral_volts"           , "V"   , "Phase 2"                     , "orange"   , "solid",   1.0 , {}                 , {} ),
-    ( "pv/meter/phase_3_line_to_neutral_volts"           , "V"   , "Phase 3"                     , "orange"   , "solid",   1.0 , {}                 , {} ),
-    ( "pv/meter/total_power"                             , "W"   , "Grid"                        , "#FF0000"  , "solid",   1.0 , {}                 , {} ),
-    ( "pv/router/excess_avg"                             , "W"   , "Route excess"                , "#FF00FF"  , "solid",  -1.0 , {}                 , {} ),
-    ( "pv/router/excess_avg_nobat"                       , "W"   , "Route excess nobat"          , "#8000FF"  , "solid",  -1.0 , {}                 , {} ),
-    ( "pv/total_battery_power"                           , "W"   , "Battery"                     , "#C08040"  , "solid",   1.0 , {}                 , {} ),
-    ( "pv/total_input_power"                             , "W"   , "Input power"                 , "#C0C000"  , "solid",   1.0 , {}                 , {} ),
-    ( "pv/total_pv_power"                                , "W"   , "Total PV"                    , "#00FF00"  , "solid",   1.0 , {}                 , {} ),
-    ( "pv/battery_soc"                                   , "%"   , "Battery SOC"                 , "#008000"  , "solid",   1.0 , {}                 , {} ),
-    ( "pv/meter/req_period"                              , "s"   , "req_period"                  , "#00FF00"  , "solid",   1.0 , {}                 , {"aggregate":"max"} ),
-    ( "pv/solis%d/battery_power"                         , "W"   , "S%d Battery"                 , "#FFC080"  , "solid",   1.0 , {}                 , {} ),
-    ( "pv/solis%d/fakemeter/active_power"                , "W"   , "S%d FakeMeter"               , "#FFFFFF"  , "solid",   1.0 , {"visible":False}  , {} ),
-    ( "pv/solis%d/input_power"                           , "W"   , "S%d Input"                   , "#FFFF00"  , "solid",   1.0 , {}                 , {} ),
-    ( "pv/solis%d/meter/active_power"                    , "W"   , "S%d Grid port"               , "cyan"     , "solid",   1.0 , {}                 , {} ),
-    ( "pv/solis%d/pv_power"                              , "W"   , "S%d PV"                      , "#00C000"  , "solid",   1.0 , {}                 , {} ),
-    ( "pv/solis%d/mppt1_power"                           , "W"   , "S%d MPPT1"                   , "#008000"  , "solid",   1.0 , {"visible":False}  , {} ),
-    ( "pv/solis%d/mppt2_power"                           , "W"   , "S%d MPPT2"                   , "#00C000"  , "solid",   1.0 , {"visible":False}  , {} ),
-    ( "pv/solis%d/battery_current"                       , "A"   , "S%d Bat current"             , "#FF8000"  , "solid",   1.0 , {"visible":False}  , {} ),
-    ( "pv/solis%d/battery_max_charge_current"            , "A"   , "S%d Bat max current"         , "#0080FF"  , "solid",   1.0 , {"visible":False}  , {} ),
-    ( "pv/solis%d/bms_battery_charge_current_limit"      , "A"   , "S%d BMS max charge"          , "blue"     , "solid",   1.0 , {}                 , {} ),
-    ( "pv/solis%d/bms_battery_current"                   , "A"   , "S%d Battery current"         , "#FFC080"  , "solid",   1.0 , {"visible":False}  , {} ),
-    ( "pv/solis%d/bms_battery_discharge_current_limit"   , "A"   , "S%d BMS max discharge"       , "red"      , "solid",   1.0 , {}                 , {} ),
-    ( "pv/solis%d/mppt1_current"                         , "A"   , "S%d MPPT1"                   , "#FFFF00"  , "solid",   1.0 , {}                 , {} ),
-    ( "pv/solis%d/mppt2_current"                         , "A"   , "S%d MPPT2"                   , "#FFFFFF"  , "solid",   1.0 , {}                 , {} ),
-    ( "pv/solis%d/bms_battery_soc"                       , "%"   , "S%d Battery SOC"             , "green"    , "solid",   1.0 , {"visible":False}  , {} ),
-    ( "pv/solis%d/mppt1_voltage"                         , "V"   , "S%d MPPT1"                   , "#FFFF00"  , "solid",   1.0 , {}                 , {} ),
-    ( "pv/solis%d/mppt2_voltage"                         , "V"   , "S%d MPPT2"                   , "#FFFFFF"  , "solid",   1.0 , {}                 , {} ),
-    ( "pv/solis%d/battery_voltage"                       , "V"   , "S%d Bat voltage"             , "#FFFF00"  , "solid",   1.0 , {"visible":False}  , {} ),
-  # ( "pv/solis%d/dc_bus_voltage"                        , "V"   , "S%d DC Bus"                  , "#FFFFFF"  , "solid",   1.0 , {}                 , {} ),
-    ( "pv/solis%d/temperature"                           , "°C"  , "S%d Temperature"             , "orange"   , "solid",   1.0 , {"visible":False}  , {} ),
-  # ( "pv/solis%d/energy_generated_today"                , "kWh" , "S%d Energy generated"        , "green"    , "solid",   1.0 , {}                 , {"mode":"delta"} ),
-  # ( "pv/solis%d/meter/export_active_energy"            , "kWh" , "S%d Solis export"            , "#00FF80"  , "solid",   1.0 , {}                 , {"mode":"delta"} ),
-  # ( "pv/solis%d/meter/import_active_energy"            , "kWh" , "S%d Solis import"            , "#FFC000"  , "solid",   1.0 , {}                 , {"mode":"delta"} ),
+    ( "pv/total_pv_power"                                , "W"   , "Total PV"                    , "pv"            , "solid",    1.0 , {}                 , {} ),
+    ( "pv/solis%d/pv_power"                              , "W"   , "S%d PV"                      , "pv"            , "solid",    1.0 , {}                 , {} ),
+    ( "pv/solis%d/mppt1_power"                           , "W"   , "S%d MPPT1"                   , "mppt1"         , "solid",    1.0 , {}                 , {} ),
+    ( "pv/solis%d/mppt2_power"                           , "W"   , "S%d MPPT2"                   , "mppt2"         , "solid",    1.0 , {}                 , {} ),
+    ( "pv/solis%d/mppt1_current"                         , "A"   , "S%d MPPT1"                   , "mppt2"         , "solid",    1.0 , {}                 , {} ),
+    ( "pv/solis%d/mppt2_current"                         , "A"   , "S%d MPPT2"                   , "mppt1"         , "solid",    1.0 , {}                 , {} ),
+    ( "pv/solis%d/mppt1_voltage"                         , "V"   , "S%d MPPT1"                   , "mppt1"         , "solid",    1.0 , {}                 , {} ),
+    ( "pv/solis%d/mppt2_voltage"                         , "V"   , "S%d MPPT2"                   , "mppt2"         , "solid",    1.0 , {}                 , {} ),
+
+    ( "pv/total_battery_power"                           , "W"   , "Battery"                     , "battery"       , "solid",    1.0 , {}                 , {} ),
+    ( "pv/solis%d/battery_power"                         , "W"   , "S%d Battery"                 , "battery"       , "solid",    1.0 , {}                 , {} ),
+    ( "pv/solis%d/battery_current"                       , "A"   , "S%d Bat current"             , "battery"       , "solid",    1.0 , {"visible":False}  , {} ),
+    ( "pv/solis%d/battery_max_charge_current"            , "A"   , "S%d Bat max charge"          , "battery"       , "dashed",   1.0 , {"visible":False}  , {} ),
+    ( "pv/solis%d/battery_max_discharge_current"         , "A"   , "S%d Bat max discharge"       , "battery"       , "dotted",   1.0 , {"visible":False}  , {} ),
+    ( "pv/solis%d/bms_battery_current"                   , "A"   , "S%d Battery current"         , "battery"       , "solid",    1.0 , {"visible":False}  , {} ),
+    ( "pv/solis%d/bms_battery_charge_current_limit"      , "A"   , "S%d BMS max charge"          , "battery"       , "dashed",   1.0 , {}                 , {} ),
+    ( "pv/solis%d/bms_battery_discharge_current_limit"   , "A"   , "S%d BMS max discharge"       , "battery"       , "dotted",   1.0 , {}                 , {} ),
+    ( "pv/solis%d/bms_battery_soc"                       , "%"   , "S%d Battery SOC"             , "soc"           , "solid",    1.0 , {"visible":False}  , {} ),
+    ( "pv/solis%d/battery_voltage"                       , "V"   , "S%d Bat voltage"             , "battery"       , "solid",    1.0 , {"visible":False}  , {} ),
+    ( "pv/battery_soc"                                   , "%"   , "Battery SOC"                 , "soc"           , "solid",    1.0 , {}                 , {} ),
+    ( "pv/battery_max_charge_power"                      , "W"   , "Battery Max Charge"          , "battery"       , "dashed",   1.0 , {}                 , {} ),
+    ( "pv/router/battery_min_charge_power"               , "W"   , "Battery Min Charge"          , "battery"       , "dashed",   1.0 , {}                 , {} ),
+
+
+    ( "pv/evse/energy"                                   , "W"   , "EVSE kWh"                    , "#FFFFFF"       , "solid",    1.0 , {"visible":False}  , {} ),
+    ( "pv/evse/meter/active_power"                       , "W"   , "EVSE"                        , "#FF80FF"       , "solid",    1.0 , {}                 , {} ),
+    ( "pv/evse/rwr_current_limit"                        , "W"   , "EVSE ILim"                   , "#FFFFFF"       , "solid",  235.0 , {"visible":False}  , {} ),
+    ( "pv/evse/virtual_current_limit"                    , "W"   , "EVSE ILim (virtual)"         , "#808080"       , "dashed", 235.0 , {"visible":False}  , {} ),
+    ( "pv/meter/house_power"                             , "W"   , "House"                       , "#8080FF"       , "solid",    1.0 , {}                 , {} ),
+    ( "pv/meter/phase_1_power"                           , "W"   , "Phase 1"                     , "#FF0000"       , "solid",    1.0 , {}                 , {} ),
+    ( "pv/meter/phase_2_power"                           , "W"   , "Phase 2"                     , "#00C000"       , "solid",    1.0 , {}                 , {} ),
+    ( "pv/meter/phase_3_power"                           , "W"   , "Phase 3"                     , "#0080FF"       , "solid",    1.0 , {}                 , {} ),
+    ( "pv/meter/phase_1_line_to_neutral_volts"           , "V"   , "Phase 1"                     , "#ffbb78"       , "solid",    1.0 , {}                 , {} ),
+    ( "pv/meter/phase_2_line_to_neutral_volts"           , "V"   , "Phase 2"                     , "#aec7e8"       , "solid",    1.0 , {}                 , {} ),
+    ( "pv/meter/phase_3_line_to_neutral_volts"           , "V"   , "Phase 3"                     , "#98df8a"       , "solid",    1.0 , {}                 , {} ),
+    ( "pv/meter/total_power"                             , "W"   , "Grid"                        , "#FF0000"       , "solid",    1.0 , {}                 , {} ),
+    ( "pv/router/excess_avg"                             , "W"   , "Route excess"                , "#FF00FF"       , "solid",   -1.0 , {}                 , {} ),
+    ( "pv/router/excess_avg_nobat"                       , "W"   , "Route excess nobat"          , "#FF00FF"       , "solid",   -1.0 , {}                 , {} ),
+    ( "pv/total_input_power"                             , "W"   , "Input"                       , "input"         , "solid",    1.0 , {}                 , {} ),
+    ( "pv/total_output_power"                            , "W"   , "Grid Ports"                  , "grid_port"     , "solid",    1.0 , {}                 , {} ),
+    ( "pv/meter/req_period"                              , "s"   , "req_period"                  , "#FFFF00"       , "solid",    1.0 , {}                 , {"aggregate":"max"} ),
+    ( "pv/solis%d/fakemeter/active_power"                , "W"   , "S%d FakeMeter"               , "fakemeter"     , "solid",    1.0 , {"visible":False}  , {} ),
+    ( "pv/solis%d/input_power"                           , "W"   , "S%d Input"                   , "input"         , "solid",    1.0 , {}                 , {} ),
+    ( "pv/solis%d/meter/active_power"                    , "W"   , "S%d Grid port"               , "grid_port"     , "solid",    1.0 , {}                 , {} ),
+  # ( "pv/solis%d/dc_bus_voltage"                        , "V"   , "S%d DC Bus"                  , (cat20,8)       , "solid",    1.0 , {}                 , {} ),
+    ( "pv/solis%d/temperature"                           , "°C"  , "S%d Temperature"             , "temperature"   , "solid",    1.0 , {"visible":False}  , {} ),
+  # ( "pv/solis%d/energy_generated_today"                , "kWh" , "S%d Energy generated"        , (cat20,4)       , "solid",    1.0 , {}                 , {"mode":"delta"} ),
 ]
 
 if 0:
@@ -130,7 +151,9 @@ PLOT_LAYOUTS = [
                 "pv/meter/house_power"                           ,
                 "pv/meter/total_power"                           ,
                 "pv/total_battery_power"                         ,
-                "pv/solis%d/pv_power"                            ,
+                "pv/total_output_power"                          ,
+                "pv/evse/meter/active_power"                     ,
+                # "pv/solis%d/pv_power"                            ,
             ],[
                 "pv/battery_soc"                                 ,
                 "pv/solis%d/bms_battery_soc"                          ,
@@ -143,13 +166,33 @@ PLOT_LAYOUTS = [
                 "pv/total_pv_power"                              ,
                 "pv/meter/house_power"                           ,
                 "pv/meter/total_power"                           ,
-                "pv/total_input_power"                           ,
+                # "pv/total_input_power"                           ,
+                "pv/total_battery_power"                           ,
+                # "pv/battery_max_charge_power"                           ,
+                "pv/router/battery_min_charge_power"             ,
                 "pv/evse/meter/active_power"                     ,
                 "pv/evse/rwr_current_limit"                      ,
                 "pv/evse/virtual_current_limit"                  ,
                 "pv/router/excess_avg"                           ,
-                "pv/router/excess_avg_nobat"                     ,
+                # "pv/router/excess_avg_nobat"                     ,
             ]
+        ]
+    ],[ "Strings", 
+        [
+            [
+                "pv/total_pv_power"                              ,
+                "pv/solis%d/pv_power"                            ,
+            ],[
+                "pv/solis1/mppt1_power"                          ,
+                "pv/solis1/mppt2_power"                          ,
+            ],[
+                "pv/solis2/mppt1_power"                          ,
+                "pv/solis2/mppt2_power"                          ,
+            ],[
+                "pv/solis%d/mppt1_voltage"                       ,
+                "pv/solis%d/mppt2_voltage"                       ,
+            ]
+
         ]
     ],[ "Balance", 
         [
@@ -166,7 +209,8 @@ PLOT_LAYOUTS = [
                 "pv/solis%d/meter/active_power"                  ,
             ],[
                 "pv/solis%d/input_power"                         ,
-                "pv/solis%d/meter/active_power"                  ,
+                "pv/solis%d/battery_power"                         ,
+                # "pv/solis%d/meter/active_power"                  ,
                 "pv/solis%d/pv_power"                            ,
             ]
         ]
@@ -176,9 +220,15 @@ PLOT_LAYOUTS = [
 def insert_inverters_data_streams( l ):
     for topic, unit, label, color, dash, scale, bokeh_attrs, attrs in l:
         if "%d" in topic:
-            for solis, dash in (1,"dashed"),(2,"dotted"):
-                yield topic%solis, unit, label%solis, color, dash, scale, bokeh_attrs, attrs
+            for solis, _ in (1,"dashed"),(2,"dotted"):
+                if c:=colors.get(color):
+                    c = c[solis]
+                else:
+                    c = color
+                yield topic%solis, unit, label%solis, c, dash, scale, bokeh_attrs, attrs
         else:
+            if c:=colors.get(color):
+                color = c[0]
             yield topic, unit, label, color, dash, scale, bokeh_attrs, attrs
 
 def insert_inverters_plot_layout( l ):
@@ -259,6 +309,13 @@ class DataStream( object ):
         while len(self.x) and self.x[0] < limit:
             x = self.x.popleft()
             self.y.popleft()
+
+    def realtime( self ):
+        if self.y:
+            return self.y[-1]
+        else:
+            return 0
+
 
     # get values from database (non streaming mode only)
     def get( self, tstart, tend=None, lod_length=3600 ):
@@ -365,6 +422,7 @@ class PVDashboard():
     def __init__( self, app, doc ):
         doc.theme = 'dark_minimal'
         self.app = app
+        self.streaming_length = STREAMING_LENGTH
 
         # Duplicate Data Streams
         #   [ [ "Tab name", [ list of rows [ list of traces ]]
@@ -427,22 +485,52 @@ class PVDashboard():
             column = bokeh.layouts.column( *rows, width_policy="max", height_policy="max" )
             tabs.append( TabPanel( child=column, title=tab_title ))
 
+        #
+        #   Power Gauges
+        #
+        power_gauge_topics = (
+                "pv/total_pv_power"                              ,
+                "pv/meter/house_power"                           ,
+                "pv/meter/total_power"                           ,
+                "pv/total_input_power"                           ,
+                "pv/total_battery_power"                         ,
+                "pv/evse/meter/active_power"                     ,
+                "pv/router/excess_avg"                           ,
+            )
+        self.gauge_tab_power_gauge_datastreams = [ self.app.data_streams[k] for k in power_gauge_topics ]
+        power_gauge_labels = [ ds.label for ds in self.gauge_tab_power_gauge_datastreams ]
+
+        # Gauge tab
+        p = self.power_gauge_fig = bokeh.plotting.figure( y_range=power_gauge_labels, sizing_mode   = "stretch_both", x_range=(-5000,12000), title="Realtime", toolbar_location=None)
+        tabs.append( TabPanel( child=self.power_gauge_fig, title="Gauges" ))
+        self.gauge_tab_power_gauges = p.hbar( 
+            y           =power_gauge_labels, 
+            left        =0, 
+            right       = [ ds.realtime() for ds in self.gauge_tab_power_gauge_datastreams ], 
+            fill_color  = [ ds.bokeh_attrs["line_color"] for ds in self.gauge_tab_power_gauge_datastreams ],
+            height      = 0.9, 
+            line_width  = 0)
+        # p.y_range.range_padding = 0.1
+        # p.ygrid.grid_line_color = None
+        # p.legend.location = "top_left"
+        # p.axis.minor_tick_line_color = None
+        # p.outline_line_color = None
+
         self.tabs = Tabs( width_policy="max", height_policy="max", tabs=tabs )
         self.tabs.on_change('active', self.event_on_tab_change )
 
         self.autorange_enabled = True
-        self.button_group = bokeh.models.widgets.CheckboxButtonGroup( labels=["Autorange"], active=[0] )
-        self.button_group.on_change( "active", self.buttons_onclick )
+        self.button_group_actions_labels = [ "Autorange" ]
+        self.button_group_actions = bokeh.models.widgets.CheckboxButtonGroup( labels=self.button_group_actions_labels, active=[0] )
+        self.button_group_actions.on_change( "active", self.button_action_onclick )
 
-        doc.add_root( bokeh.layouts.column( [ self.tabs, self.button_group ], width_policy="max", height_policy="max" ))
+        self.button_group_length_labels = [ "60min", "20min", "10min", "3min", "1min" ]
+        self.button_group_length = bokeh.models.widgets.RadioButtonGroup( labels=self.button_group_length_labels, active=1 )
+        self.button_group_length.on_change( "active", self.buttons_length_onclick )
 
-        # self.range_slider = Slider(start=STREAMING_LENGTH_MIN, end=STREAMING_LENGTH_MAX, value=STREAMING_LENGTH, step=100, title="Range")
-        # self.range_slider.on_change("value", self.range_slider_on_change)
+        doc.add_root( bokeh.layouts.column( [ self.tabs, bokeh.layouts.row([ self.button_group_actions, self.button_group_length ]) ], width_policy="max", height_policy="max" ))
 
         self.lod_slider_value = 1
-        # self.lod_slider = Slider(start=1, end=100, value=self.lod_slider_value, step=1, title="Smooth")
-        # self.lod_slider.on_change("value", self.lod_slider_on_change)
-        # self.lod_slider_value = 1
 
         self.lod_reduce = False
         self.streaming  = True
@@ -467,15 +555,18 @@ class PVDashboard():
     def event_reset( self, event=None ):
         self.streaming = True
         self.figs[0].x_range.follow = "end"
-        self.figs[0].x_range.follow_interval = np.timedelta64( STREAMING_LENGTH, 's' )
+        self.figs[0].x_range.follow_interval = np.timedelta64( self.streaming_length, 's' )
         self.figs[0].x_range.range_padding = 0
-        self.streaming_update()
+        self.streaming_update( force=True )
 
     #   Yields a list of PlotHolder's to redraw, removing those that don't need to be
     #   like inactive tabs, not visible, no data, etc
-    def get_redraw_list( self ):
+    def get_redraw_list( self, force=False ):
         for topic,plotholders in self.lines.items():
             for ph in plotholders:
+                if force:
+                    yield ph
+                    continue
                 stream  = ph.stream
                 if self.tabs.active != ph.tab:      # ignore inactive tabs
                     continue
@@ -483,17 +574,22 @@ class PVDashboard():
                     continue
                 if self.streaming:
                     if not stream.x:
-                        if len(ph.line.data_source["x"]) and not stream.x:
+                        # if ph.line.data_source and len(ph.line.data_source["x"]) and not stream.x:
                             # last bit of data was evicted from the stream, but it is still displayed
                             # so we need to update it
-                            yield ph
+                            # yield ph
                         continue
                     if ph.last_update == stream.x[-1]:   # is there new data?
                         continue                    # no new data, so no need to redraw
                 yield ph
 
 
-    def streaming_update( self ):
+    def streaming_update( self, force=False ):
+
+        ds = self.gauge_tab_power_gauges.data_source
+        ds.data["right"] = [ ds.realtime() for ds in self.gauge_tab_power_gauge_datastreams ]
+        ds.trigger("data",ds.data,ds.data)
+
         if not self.streaming:
             return
 
@@ -522,21 +618,6 @@ class PVDashboard():
             return None
         return int(t1), int(t2)  # in milliseconds
 
-    # def lod_slider_on_change( self, attr, oldvalue, value ):
-    #     self.lod_slider_value = value
-    #     if not self.streaming and self.tick.ticked():
-    #         self.redraw( attr, force=True )
-
-    # def range_slider_on_change( self, attr, oldvalue, value ):
-    #     value = min(STREAMING_LENGTH_MAX,max(STREAMING_LENGTH_MIN,value))
-    #     global STREAMING_LENGTH
-    #     STREAMING_LENGTH = value
-    #     for key,stream in DATA_STREAMS.items():
-    #         stream.load()
-    #     for fig in self.figs.values():
-    #         fig.x_range.follow_interval = np.timedelta64( STREAMING_LENGTH, 's' )
-    #     # self.redraw( attr )
-
     def event_lod_start( self, event ):
         # print( event )
         self.streaming  = False
@@ -553,7 +634,7 @@ class PVDashboard():
 
     def redraw( self, event, force=False ):
         if self.streaming:
-            self.streaming_update()
+            self.streaming_update( force )
             return
         if not (trange := self.get_t_range()):
             return
@@ -599,17 +680,25 @@ class PVDashboard():
             fig.y_range.start = mi
             fig.y_range.end   = ma
 
-    def buttons_onclick( self, attr, old, new ):
+    def button_action_onclick( self, attr, old_idx, new_idx ):
+        old = [ self.button_group_actions_labels[_] for _ in old_idx ]
+        new = [ self.button_group_actions_labels[_] for _ in new_idx ]
         clicked = set(new).symmetric_difference(old)
         enabled  = set(new).difference(old)
-        disabled = set(old).difference(new)
 
         # autorange button
-        self.autorange_enabled = 0 in enabled
-        if 0 in enabled:
+        self.autorange_enabled = "Autorange" in enabled
+        if "Autorange" in enabled:
             self.autorange()
 
-
+    def buttons_length_onclick( self, attr, old_idx, new_idx ):
+        old = self.button_group_length_labels[ old_idx ]
+        new = self.button_group_length_labels[ new_idx ]
+        if m:=re.match(r"(\d+)min",new):
+            length = int(m.groups()[0])
+            self.streaming_length = length*60
+            print( self.streaming_length )
+            self.event_reset()
 
     # def event_generic( self, event ):
         # self.redraw( event, force=True )

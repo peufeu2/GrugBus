@@ -96,16 +96,21 @@ from config_secret import *
 MQTT_RATE_LIMIT = {
     # Frequent
     "pv/total_pv_power"                              : ( 1,  150, "avg" ),
-    "pv/total_battery_power"                         : ( 1,  60, "avg" ),
+    "pv/total_battery_power"                         : ( 1,   60, "avg" ),
     "pv/total_input_power"                           : ( 1,  150, "avg" ),
-    "pv/battery_soc"                                 : ( 60,  0, "avg" ),
+    "pv/battery_soc"                                 : ( 60,   0, "avg" ),
+    "pv/battery_max_charge_power"                    : ( 60, 150, "avg" ),
 
-    "pv/meter/total_power"                           : ( 1,  10, "avg" ),
-    "pv/meter/house_power"                           : ( 1,  10, "avg" ),
+    "pv/meter/is_online"                             : ( 60,   0, "" ),
+    "pv/total_grid_port_power"                       : ( 1,  150, "avg" ),
+    "pv/solis1/fakemeter/active_power"               : ( 1,   50, "avg" ),
+
+    "pv/meter/total_power"                           : ( 1,   10, "avg" ),
+    "pv/meter/house_power"                           : ( 1,   10, "avg" ),
     "pv/solis1/input_power"                          : ( 1,  110, "avg" ),
-    "pv/evse/meter/active_power"                     : ( 60, 10, "avg" ),
-    "pv/router/excess_avg"                           : ( 1,  10, "avg" ),
-    "pv/solis1/meter/active_power"                   : ( 1,  10, "avg" ),
+    "pv/evse/meter/active_power"                     : ( 10,  10, "avg" ),
+    "pv/router/excess_avg"                           : ( 1,   10, "avg" ),
+    "pv/solis1/meter/active_power"                   : ( 1,   10, "avg" ),
 
     # EVSE
     "pv/evse/charge_state"                           : ( 60, 0    , ""  ),

@@ -191,7 +191,8 @@ class EVSE( grugbus.SlaveDevice ):
                 if mi <= power <= ma:
                     print("in range")
                     self.target_power = None
-                    self.command_interval.at_most(1)        # previous  command executed: shorten timeout
+                    self.command_interval.at_most(5)        # previous  command executed: shorten timeout
+# TODO                    self.command_interval.at_most(1)        # previous  command executed: shorten timeout
             return
 
         print( "execute", delta_i )
