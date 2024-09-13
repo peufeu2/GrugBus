@@ -111,7 +111,7 @@ class EVSE( grugbus.SlaveDevice ):
             self.event_all.set()
             self.event_all.clear()
 
-    async def route( self, excess, fast_route ):
+    async def route( self, excess ):
         # Moving average of excess power (returns None is not enough data was accumulated yet)
         avg_excess  = self.avg_excess.append( excess )
         power       = self.local_meter.active_power.value
@@ -136,6 +136,10 @@ class EVSE( grugbus.SlaveDevice ):
             await self.set_virtual_current_limit( self.ensure_i )    # set current to minimum value to allow charging to begin
             print("force charge")
             return
+
+        #
+        #   TODO: charging start/stop logic is defective, it starts too fast and doesn't stop unless there is way too much power draw
+        #
 
         # Should we start charge ?
         if self.is_charging_paused():
@@ -191,8 +195,8 @@ class EVSE( grugbus.SlaveDevice ):
                 if mi <= power <= ma:
                     print("in range")
                     self.target_power = None
-                    self.command_interval.at_most(5)        # previous  command executed: shorten timeout
-# TODO                    self.command_interval.at_most(1)        # previous  command executed: shorten timeout
+                    # self.command_interval.at_most(5)        # previous  command executed: shorten timeout
+                    self.command_interval.at_most(1)        # previous  command executed: shorten timeout
             return
 
         print( "execute", delta_i )
@@ -205,6 +209,8 @@ class EVSE( grugbus.SlaveDevice ):
         target_i = self.rwr_current_limit.value
         self.target_power = power+(delta_i-1.8)*voltage, power+(delta_i+1.8)*voltage
         self.settled = False
+        self.mqtt.publish_value( self.mqtt_topic+"target_power_min",  round(self.target_power[0],2) )
+        self.mqtt.publish_value( self.mqtt_topic+"target_power_max",  round(self.target_power[1],2) )
 
 
     def is_charging_paused( self ):

@@ -40,7 +40,7 @@ if 1:
     async def set_sdm120_address( new_address=1 ):
         d = grugbus.SlaveDevice( 
                 AsyncModbusSerialClient(
-                    port            = "COM4",
+                    port            = config.COM_PORT_LOCALMETER1,
                     timeout         = 1,
                     retries         = 2,
                     baudrate        = 9600,
@@ -48,7 +48,7 @@ if 1:
                     parity          = "N",
                     stopbits        = 1,
                 ),
-                1,          # Modbus address
+                3,          # Modbus address
                 "meter", "SDM120 Smartmeter", 
                 Eastron_SDM120.MakeRegisters() )
         await d.modbus.connect()
@@ -74,12 +74,12 @@ if 1:
 
 
         # Display Import - Export (default is Import + Export)
-        await d.rwr_measurement_mode.write( 3 )
+        # await d.rwr_measurement_mode.write( 3 )
         await d.rwr_measurement_mode.read()
         print( "measurement_mode", d.rwr_measurement_mode.value )
 
         # # set scroll time to 0 (no scrolling)
-        await d.rwr_display_config.write( 0 )
+        # await d.rwr_display_config.write( 0 )
         await d.rwr_display_config.read()
         print( "display_config : 0x%04x" % d.rwr_display_config.value )
 

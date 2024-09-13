@@ -69,7 +69,7 @@ COM_PORT_METER       = "/dev/serial/by-id/usb-FTDI_USB_RS485_3-if01-port0"   # M
 # How often we modbus these devices
 #   Tuples: (period, starting point in period)
 #
-POLL_PERIOD_METER       = (0.2, 0.1)
+POLL_PERIOD_METER       = (0.2, 0.0)
 POLL_PERIOD_SOLIS_METER = (0.2, 0.0)
 POLL_PERIOD_EVSE_METER  = (0.2, 0.0)
 POLL_PERIOD_SOLIS       = (0.2, 0.0)
@@ -93,24 +93,27 @@ from config_secret import *
 #           60, 50  limit to every 60 seconds unless the value changes by 50
 #
 ############################################################################
+
 MQTT_RATE_LIMIT = {
     # Frequent
     "pv/total_pv_power"                              : ( 1,  150, "avg" ),
-    "pv/total_battery_power"                         : ( 1,   60, "avg" ),
+    "pv/total_battery_power"                         : ( 1,  100, "avg" ),
     "pv/total_input_power"                           : ( 1,  150, "avg" ),
     "pv/battery_soc"                                 : ( 60,   0, "avg" ),
     "pv/battery_max_charge_power"                    : ( 60, 150, "avg" ),
 
     "pv/meter/is_online"                             : ( 60,   0, "" ),
     "pv/total_grid_port_power"                       : ( 1,  150, "avg" ),
-    "pv/solis1/fakemeter/active_power"               : ( 1,   50, "avg" ),
+    "pv/solis1/fakemeter/active_power"               : ( 1,  100, "avg" ),
 
     "pv/meter/total_power"                           : ( 1,   10, "avg" ),
     "pv/meter/house_power"                           : ( 1,   10, "avg" ),
     "pv/solis1/input_power"                          : ( 1,  110, "avg" ),
-    "pv/evse/meter/active_power"                     : ( 10,  10, "avg" ),
-    "pv/router/excess_avg"                           : ( 1,   10, "avg" ),
-    "pv/solis1/meter/active_power"                   : ( 1,   10, "avg" ),
+    "pv/evse/meter/active_power"                     : ( 10, 110, "avg" ),
+    "pv/router/excess_avg"                           : ( 1,  110, "avg" ),
+    "pv/router/battery_min_charge_power"             : ( 10, 150, "avg" ),
+    # "pv/router/excess_avg_nobat"                     : ( 1,   10, "avg" ),
+    "pv/solis1/meter/active_power"                   : ( 1,  100, "avg" ),
 
     # EVSE
     "pv/evse/charge_state"                           : ( 60, 0    , ""  ),
@@ -130,9 +133,9 @@ MQTT_RATE_LIMIT = {
     "pv/evse/meter/current"                          : ( 10, 0.1  , "avg"  ),
 
     # Meter
-    "pv/meter/phase_1_power"                         : ( 10, 25   , "avg" ),
-    "pv/meter/phase_2_power"                         : ( 10, 25   , "avg" ),
-    "pv/meter/phase_3_power"                         : ( 10, 25   , "avg" ),
+    "pv/meter/phase_1_power"                         : ( 2, 100  , "avg" ),
+    "pv/meter/phase_2_power"                         : ( 2, 100  , "avg" ),
+    "pv/meter/phase_3_power"                         : ( 2, 100  , "avg" ),
     "pv/meter/average_line_current_thd"              : ( 10, 10   , "avg" ),
     "pv/meter/average_line_to_neutral_volts_thd"     : ( 10, 10   , "avg" ),
     # "pv/meter/is_online"                             : ( 10, 0    , "" ),
@@ -153,21 +156,21 @@ MQTT_RATE_LIMIT = {
     "pv/solis1/battery_power"                        : ( 10, 25 , "avg" ),
     "pv/solis1/bms_battery_power"                    : ( 10, 25 , "avg" ),
 
-    "pv/solis1/battery_voltage"                      : ( 10, 0.1 , "avg" ),
-    "pv/solis1/bms_battery_voltage"                  : ( 10, 0.1 , "avg" ),
-    "pv/solis1/dc_bus_half_voltage"                  : ( 10, 3   , "avg" ),
-    "pv/solis1/dc_bus_voltage"                       : ( 10, 3   , "avg" ),
-    "pv/solis1/backup_voltage"                       : ( 10, 3   , "avg" ),
-    "pv/solis1/mppt1_voltage"                        : ( 10, 3   , "avg" ),
-    "pv/solis1/mppt2_voltage"                        : ( 10, 3   , "avg" ),
-    "pv/solis1/phase_a_voltage"                      : ( 10, 3   , "avg" ),
+    "pv/solis1/battery_voltage"                      : ( 10, 0.2 , "avg" ),
+    "pv/solis1/bms_battery_voltage"                  : ( 10, 0.2 , "avg" ),
+    "pv/solis1/dc_bus_half_voltage"                  : ( 10, 10   , "avg" ),
+    "pv/solis1/dc_bus_voltage"                       : ( 10, 10   , "avg" ),
+    "pv/solis1/backup_voltage"                       : ( 10, 10   , "avg" ),
+    "pv/solis1/mppt1_voltage"                        : ( 10, 10   , "avg" ),
+    "pv/solis1/mppt2_voltage"                        : ( 10, 10   , "avg" ),
+    "pv/solis1/phase_a_voltage"                      : ( 10, 10   , "avg" ),
 
-    "pv/solis1/battery_current"                      : ( 10, 0.1 , "avg" ),
-    "pv/solis1/battery_max_charge_current"           : ( 10, 0.1 , "avg" ),
-    "pv/solis1/battery_max_discharge_current"        : ( 10, 0.1 , "avg" ),
-    "pv/solis1/bms_battery_charge_current_limit"     : ( 10, 0.1 , "avg" ),
-    "pv/solis1/bms_battery_current"                  : ( 10, 0.1 , "avg" ),
-    "pv/solis1/bms_battery_discharge_current_limit"  : ( 10, 0.1 , "avg" ),
+    "pv/solis1/battery_current"                      : ( 10, 0.5 , "avg" ),
+    "pv/solis1/battery_max_charge_current"           : ( 10, 0.5 , "avg" ),
+    "pv/solis1/battery_max_discharge_current"        : ( 10, 0.5 , "avg" ),
+    "pv/solis1/bms_battery_charge_current_limit"     : ( 10, 0.5 , "avg" ),
+    "pv/solis1/bms_battery_current"                  : ( 10, 0.5 , "avg" ),
+    "pv/solis1/bms_battery_discharge_current_limit"  : ( 10, 0.5 , "avg" ),
 
     "pv/solis1/mppt1_current"                        : ( 10, 0.1 , "avg" ),
     "pv/solis1/mppt2_current"                        : ( 10, 0.1 , "avg" ),

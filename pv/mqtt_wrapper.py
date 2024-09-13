@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import time, gmqtt, logging
+from path import Path
 from misc import *
 import config
 
@@ -48,6 +49,7 @@ class MQTTWrapper:
         self.mqtt.set_auth_credentials( config.MQTT_USER, config.MQTT_PASSWORD )
         self.is_connected = False
         self._published_data = {}
+        self._subscriptions = {}
 
         for topic, (period, margin, mode) in config.MQTT_RATE_LIMIT.items():
             p = self._published_data[topic] = RateLimit( margin, period, mode, len(self._published_data)%60 )
@@ -101,19 +103,37 @@ class MQTTWrapper:
         self.mqtt.publish( topic, text, qos=0 )
 
     def on_connect(self, client, flags, rc, properties):
+        log.info("MQTT connected")
         self.is_connected = True
+        for topic in self._subscriptions:
+            self.mqtt.subscribe( topic )
 
     def on_disconnect(self, client, packet, exc=None):
+        log.info("MQTT disconnected")
         self.is_connected = False
-
-    async def on_message(self, client, topic, payload, qos, properties):
-        pass
 
     def on_subscribe(self, client, mid, qos, properties):
         pass
 
-    # limit "topic" (and all descendants) to one message every "period" seconds
-    # unless there is a change of more than 
-    def rate_limit( self, topic, period, change ):
-        self
+    def subscribe_callback( self, topic, callback ):
+        l = self._subscriptions.setdefault( topic, [] ) # insert into callback directory
+        if self.is_connected and not l:
+            self.mqtt.subscribe( topic )                # if it's not in there already, we have to subscribe
+        l.append( callback )
+
+    async def on_message(self, client, topic, payload, qos, properties):
+        async def try_topic( t ):
+            if cb_list := self._subscriptions.get( t ):
+                for cb in cb_list:
+                    await cb( topic, payload, qos, properties )
+
+        await try_topic( topic )
+        cur = Path( topic )
+        while cur:
+            parent = cur.dirname()
+            await try_topic( parent / "#" )
+            cur = parent
+
+
+
 

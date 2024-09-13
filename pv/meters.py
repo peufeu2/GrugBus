@@ -274,9 +274,12 @@ class FakeSmartmeter( grugbus.LocalServer ):
         self.is_online = False
         self.mqtt = mqtt
 
+        self.last_inverter_query_time = 0
+
     # This is called when the inverter sends a request to this server
     def _on_getValues( self, fc_as_hex, address, count, ctx ):
         #   The main meter is read in another coroutine, which also sets registers in this object. Check this was done.
+        self.last_inverter_query_time = time.monotonic()
         if not self.is_online:
             # return value is False so pymodbus server will abort the request, which the inverter
             # correctly interprets as the meter being offline

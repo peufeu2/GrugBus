@@ -240,7 +240,6 @@ class SlaveDevice( DeviceBase ):
         try:
             await self.connect()
             start_time = time.monotonic()
-            result = []
             update_list = []
             for fcode, chunk in self.reg_list_to_chunks( read_list, max_hole_size ):
                 # print( fcode, ":", " ".join( "%d-%d" % (c[0],c[1]) for c in chunk ))
@@ -277,13 +276,16 @@ class SlaveDevice( DeviceBase ):
             # to make sure all registers were processed. Otherwise, due to the await above,
             # a mix of old and new values could be present in the object during the read
             # and seen by other coroutines
+            result = []
             if update_list:
                 self.is_online = True
-            for fcode, chunk, start_addr, reg_data in update_list:
-                for reg_start_addr, reg_end_addr, reg in chunk:
-                    offset = reg.addr - start_addr
-                    reg.decode( fcode, reg_data[ offset:(offset+reg.word_length) ] )
-                    result.append( reg )
+                for fcode, chunk, start_addr, reg_data in update_list:
+                    for reg_start_addr, reg_end_addr, reg in chunk:
+                        offset = reg.addr - start_addr
+                        reg.decode( fcode, reg_data[ offset:(offset+reg.word_length) ] )
+                        result.append( reg )
+                if not old_is_online:
+                    log.info( "Modbus: %s (%s) is online" % (self.key, self.name) )
             return result
         except Exception as e:
             self.is_online = False

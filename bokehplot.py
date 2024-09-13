@@ -58,7 +58,7 @@ DATA_STREAMS = [
     ( "pv/solis%d/mppt2_voltage"                         , "V"   , "S%d MPPT2"                   , "mppt2"         , "solid",    1.0 , {}                 , {} ),
 
     ( "pv/total_battery_power"                           , "W"   , "Battery"                     , "battery"       , "solid",    1.0 , {}                 , {} ),
-    ( "pv/solis%d/battery_power"                         , "W"   , "S%d Battery"                 , "battery"       , "solid",    1.0 , {}                 , {} ),
+    ( "pv/solis%d/battery_power"                         , "W"   , "S%d Battery"                 , "battery"       , "solid",    1.0 , {"visible":False}  , {} ),
     ( "pv/solis%d/battery_current"                       , "A"   , "S%d Bat current"             , "battery"       , "solid",    1.0 , {"visible":False}  , {} ),
     ( "pv/solis%d/battery_max_charge_current"            , "A"   , "S%d Bat max charge"          , "battery"       , "dashed",   1.0 , {"visible":False}  , {} ),
     ( "pv/solis%d/battery_max_discharge_current"         , "A"   , "S%d Bat max discharge"       , "battery"       , "dotted",   1.0 , {"visible":False}  , {} ),
@@ -72,10 +72,14 @@ DATA_STREAMS = [
     ( "pv/router/battery_min_charge_power"               , "W"   , "Battery Min Charge"          , "battery"       , "dashed",   1.0 , {}                 , {} ),
 
 
-    ( "pv/evse/energy"                                   , "W"   , "EVSE kWh"                    , "#FFFFFF"       , "solid",    1.0 , {"visible":False}  , {} ),
+    ( "pv/evse/energy"                                   , "kWh" , "EVSE"                        , "#FF80FF"       , "solid",  0.001 , {"visible":False}  , {} ),
     ( "pv/evse/meter/active_power"                       , "W"   , "EVSE"                        , "#FF80FF"       , "solid",    1.0 , {}                 , {} ),
     ( "pv/evse/rwr_current_limit"                        , "W"   , "EVSE ILim"                   , "#FFFFFF"       , "solid",  235.0 , {"visible":False}  , {} ),
     ( "pv/evse/virtual_current_limit"                    , "W"   , "EVSE ILim (virtual)"         , "#808080"       , "dashed", 235.0 , {"visible":False}  , {} ),
+
+    ( "pv/evse/target_power_min"                         , "W"   , "EVSE Min"         , "#808080"       , "dashed", 1.0 , {"visible":False}  , {} ),
+    ( "pv/evse/target_power_max"                         , "W"   , "EVSE Max"         , "#808080"       , "dashed", 1.0 , {"visible":False}  , {} ),
+
     ( "pv/meter/house_power"                             , "W"   , "House"                       , "#8080FF"       , "solid",    1.0 , {}                 , {} ),
     ( "pv/meter/phase_1_power"                           , "W"   , "Phase 1"                     , "#FF0000"       , "solid",    1.0 , {}                 , {} ),
     ( "pv/meter/phase_2_power"                           , "W"   , "Phase 2"                     , "#00C000"       , "solid",    1.0 , {}                 , {} ),
@@ -84,17 +88,28 @@ DATA_STREAMS = [
     ( "pv/meter/phase_2_line_to_neutral_volts"           , "V"   , "Phase 2"                     , "#aec7e8"       , "solid",    1.0 , {}                 , {} ),
     ( "pv/meter/phase_3_line_to_neutral_volts"           , "V"   , "Phase 3"                     , "#98df8a"       , "solid",    1.0 , {}                 , {} ),
     ( "pv/meter/total_power"                             , "W"   , "Grid"                        , "#FF0000"       , "solid",    1.0 , {}                 , {} ),
-    ( "pv/router/excess_avg"                             , "W"   , "Route excess"                , "#FF00FF"       , "solid",   -1.0 , {}                 , {} ),
-    ( "pv/router/excess_avg_nobat"                       , "W"   , "Route excess nobat"          , "#FF00FF"       , "solid",   -1.0 , {}                 , {} ),
-    ( "pv/total_input_power"                             , "W"   , "Input"                       , "input"         , "solid",    1.0 , {}                 , {} ),
+    ( "pv/router/excess_avg"                             , "W"   , "Route excess"                , "#FF00FF"       , "solid",   -1.0 , {"visible":False}  , {} ),
+    ( "pv/router/excess_avg_nobat"                       , "W"   , "Route excess nobat"          , "#FF00FF"       , "solid",   -1.0 , {"visible":False}  , {} ),
+    ( "pv/total_input_power"                             , "W"   , "Battery Proxy"               , "input"         , "solid",    1.0 , {}                 , {} ),
     ( "pv/total_output_power"                            , "W"   , "Grid Ports"                  , "grid_port"     , "solid",    1.0 , {}                 , {} ),
     ( "pv/meter/req_period"                              , "s"   , "req_period"                  , "#FFFF00"       , "solid",    1.0 , {}                 , {"aggregate":"max"} ),
     ( "pv/solis%d/fakemeter/active_power"                , "W"   , "S%d FakeMeter"               , "fakemeter"     , "solid",    1.0 , {"visible":False}  , {} ),
-    ( "pv/solis%d/input_power"                           , "W"   , "S%d Input"                   , "input"         , "solid",    1.0 , {}                 , {} ),
+    ( "pv/solis%d/input_power"                           , "W"   , "S%d Battery Proxy"           , "input"         , "solid",    1.0 , {}                 , {} ),
     ( "pv/solis%d/meter/active_power"                    , "W"   , "S%d Grid port"               , "grid_port"     , "solid",    1.0 , {}                 , {} ),
   # ( "pv/solis%d/dc_bus_voltage"                        , "V"   , "S%d DC Bus"                  , (cat20,8)       , "solid",    1.0 , {}                 , {} ),
-    ( "pv/solis%d/temperature"                           , "°C"  , "S%d Temperature"             , "temperature"   , "solid",    1.0 , {"visible":False}  , {} ),
-  # ( "pv/solis%d/energy_generated_today"                , "kWh" , "S%d Energy generated"        , (cat20,4)       , "solid",    1.0 , {}                 , {"mode":"delta"} ),
+    ( "pv/solis%d/temperature"                           , "°C"  , "S%d Temperature"             , "temperature"   , "solid",    1.0 , {}                 , {} ),
+    ( "pv/solis%d/energy_generated_today"                , "kWh" , "S%d Energy generated"        , "pv"            , "solid",    1.0 , {}                 , {"mode":"delta"} ),
+    ( "pv/evse/meter/import_active_energy"               , "kWh" , "EVSE meter"                  , "#FFC0FF"       , "solid",    1.0 , {}                 , {"mode":"delta"} ),
+    ( "pv/solis%d/meter/import_active_energy"            , "kWh" , "S%d Import"                  , "input"         , "solid",    1.0 , {}                 , {"mode":"delta"} ),
+    ( "pv/solis%d/meter/export_active_energy"            , "kWh" , "S%d Export"                  , "grid_port"     , "solid",    1.0 , {}                 , {"mode":"delta"} ),
+
+    ( "pv/cpu_temp_c"                                    , "°C"  , "Pi CPU Temperature"          , "#FF0000"       , "solid",    1.0 , {}                 , {} ),
+    ( "pv/cpu_load_percent"                              , "%"   , "Pi CPU Load"                 , "#00FF00"       , "solid",    1.0 , {}                 , {} ),
+    ( "pv/disk_space_gb"                                 , "GB"  , "Pi Disk Space"               , "#0080FF"       , "solid",    1.0 , {}                 , {} ),
+                
+                
+                
+
 ]
 
 if 0:
@@ -151,6 +166,7 @@ PLOT_LAYOUTS = [
                 "pv/meter/house_power"                           ,
                 "pv/meter/total_power"                           ,
                 "pv/total_battery_power"                         ,
+                "pv/total_input_power"                         ,
                 "pv/total_output_power"                          ,
                 "pv/evse/meter/active_power"                     ,
                 # "pv/solis%d/pv_power"                            ,
@@ -166,15 +182,17 @@ PLOT_LAYOUTS = [
                 "pv/total_pv_power"                              ,
                 "pv/meter/house_power"                           ,
                 "pv/meter/total_power"                           ,
-                # "pv/total_input_power"                           ,
+                "pv/total_input_power"                           ,
                 "pv/total_battery_power"                           ,
-                # "pv/battery_max_charge_power"                           ,
+                "pv/battery_max_charge_power"                           ,
                 "pv/router/battery_min_charge_power"             ,
                 "pv/evse/meter/active_power"                     ,
                 "pv/evse/rwr_current_limit"                      ,
                 "pv/evse/virtual_current_limit"                  ,
                 "pv/router/excess_avg"                           ,
                 # "pv/router/excess_avg_nobat"                     ,
+                "pv/evse/target_power_min"                       ,
+                "pv/evse/target_power_max"                       ,
             ]
         ]
     ],[ "Strings", 
@@ -209,9 +227,26 @@ PLOT_LAYOUTS = [
                 "pv/solis%d/meter/active_power"                  ,
             ],[
                 "pv/solis%d/input_power"                         ,
-                "pv/solis%d/battery_power"                         ,
-                # "pv/solis%d/meter/active_power"                  ,
+                # "pv/solis%d/battery_power"                         ,
                 "pv/solis%d/pv_power"                            ,
+            ]
+        ]
+    ],[ "Energy", 
+        [
+            [
+                "pv/evse/meter/import_active_energy",
+                "pv/evse/energy",
+                "pv/solis%d/meter/import_active_energy",
+                "pv/solis%d/meter/export_active_energy",
+            ]
+        ]
+    ],[ "Machine",
+        [
+            [
+                "pv/solis%d/temperature" ,
+                "pv/cpu_temp_c"          ,
+                "pv/cpu_load_percent"    ,
+                "pv/disk_space_gb"       ,
             ]
         ]
     ]
@@ -490,22 +525,21 @@ class PVDashboard():
         #
         power_gauge_topics = (
                 "pv/total_pv_power"                              ,
-                "pv/meter/house_power"                           ,
-                "pv/meter/total_power"                           ,
                 "pv/total_input_power"                           ,
-                "pv/total_battery_power"                         ,
+                "pv/meter/house_power"                           ,
                 "pv/evse/meter/active_power"                     ,
+                "pv/meter/total_power"                           ,
                 "pv/router/excess_avg"                           ,
             )
         self.gauge_tab_power_gauge_datastreams = [ self.app.data_streams[k] for k in power_gauge_topics ]
         power_gauge_labels = [ ds.label for ds in self.gauge_tab_power_gauge_datastreams ]
 
         # Gauge tab
-        p = self.power_gauge_fig = bokeh.plotting.figure( y_range=power_gauge_labels, sizing_mode   = "stretch_both", x_range=(-5000,12000), title="Realtime", toolbar_location=None)
+        p = self.power_gauge_fig = bokeh.plotting.figure( y_range=bokeh.models.FactorRange(factors=list(reversed(power_gauge_labels))), sizing_mode   = "stretch_both", x_range=(-5000,12000), title="Realtime", toolbar_location=None)
         tabs.append( TabPanel( child=self.power_gauge_fig, title="Gauges" ))
         self.gauge_tab_power_gauges = p.hbar( 
             y           =power_gauge_labels, 
-            left        =0, 
+            left        = [ ds.realtime() for ds in self.gauge_tab_power_gauge_datastreams ], 
             right       = [ ds.realtime() for ds in self.gauge_tab_power_gauge_datastreams ], 
             fill_color  = [ ds.bokeh_attrs["line_color"] for ds in self.gauge_tab_power_gauge_datastreams ],
             height      = 0.9, 
@@ -583,13 +617,27 @@ class PVDashboard():
                         continue                    # no new data, so no need to redraw
                 yield ph
 
-
-    def streaming_update( self, force=False ):
-
+    def update_gauges( self ):
         ds = self.gauge_tab_power_gauges.data_source
-        ds.data["right"] = [ ds.realtime() for ds in self.gauge_tab_power_gauge_datastreams ]
+        prev = None
+        # ds.data["left"] = list(ds.data["right"])
+        for n, datastream in enumerate( self.gauge_tab_power_gauge_datastreams ):
+            if prev is None or n>=4:
+                a = 0
+                b = prev = datastream.realtime()
+            else:
+                a = prev
+                b = prev = prev - datastream.realtime()
+            prev = None
+            ds.data["right"][n] = max( a,b )
+            ds.data["left"] [n] = min( a,b )
+
+        # First one is total_pv
+        # ds.data["right"] = [ ds.realtime() for ds in self.gauge_tab_power_gauge_datastreams ]
         ds.trigger("data",ds.data,ds.data)
 
+    def streaming_update( self, force=False ):
+        self.update_gauges()
         if not self.streaming:
             return
 
