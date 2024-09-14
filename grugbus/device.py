@@ -52,7 +52,7 @@ class DeviceBase( ):
         self.name        = name
         self.key         = key
         self.max_regs_in_command = {}
-        for fcode in 1,2,15:  self.max_regs_in_command[fcode] = max_bits_in_command
+        for fcode in 1,2,5,15:  self.max_regs_in_command[fcode] = max_bits_in_command
         for fcode in 3,4,16:  self.max_regs_in_command[fcode] = max_regs_in_command
 
         self.registers  = []
@@ -214,7 +214,7 @@ class SlaveDevice( DeviceBase ):
                 if remain:
                     result.append(( fcode, remain ))            # process last record
 
-        # print( self.key, [(chunk[0][0], chunk[-1][1]-chunk[0][0]) for fcode, chunk in result] )
+        # print( self.key, [(fcode,chunk[0][0], chunk[-1][1]-chunk[0][0]) for fcode, chunk in result] )
         return result
 
     async def read_regs( self, read_list, retries=None, max_hole_size=None ):
@@ -257,7 +257,10 @@ class SlaveDevice( DeviceBase ):
                             resp = await func( start_addr, end_addr-start_addr, self.bus_address )
                             if isinstance( resp, ExceptionResponse ):
                                 raise ModbusException( str( resp ) )
-                            reg_data = resp.registers
+                            if fcode != 2:
+                                reg_data = resp.registers
+                            else:
+                                reg_data = resp.bits
                             if self.modbus._async_mutex._waiters:
                                 await asyncio.sleep(0.003)  # wait until serial is flushed before releasing lock
                         update_list.append( (fcode, chunk, start_addr, reg_data) )

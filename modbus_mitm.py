@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-import os, pprint, time, sys, serial, socket, traceback, struct, datetime, logging, math, traceback, shutil, collections
+import os, pprint, time, sys, serial, socket, traceback, struct, datetime, logging, logging.handlers, math, traceback, shutil, collections
 from path import Path
 
 # This program is supposed to run on a potato (Allwinner H3 SoC) and uses async/await,
@@ -74,9 +74,13 @@ This is sometimes not intuitive, but at least it's the same convention everywher
 logging.basicConfig( encoding='utf-8', 
                      level=logging.INFO,
                      format='[%(asctime)s] %(levelname)s:%(message)s',
-                     handlers=[logging.FileHandler(filename=Path(__file__).stem+'.log'), 
-                            logging.StreamHandler(stream=sys.stdout)])
+                     handlers=[
+                            logging.handlers.RotatingFileHandler(Path(__file__).stem+'.log', mode='a', maxBytes=5*1024*1024, backupCount=2, encoding=None, delay=False),
+                            # logging.FileHandler(filename=Path(__file__).stem+'.log'), 
+                            logging.StreamHandler(stream=sys.stdout)
+                    ])
 log = logging.getLogger(__name__)
+
 
 # set max reconnect wait time for Fronius
 # pymodbus.constants.Defaults.ReconnectDelayMax = 60000   # in milliseconds
@@ -565,6 +569,27 @@ class SolisManager():
                 inverters_online        = []
 
                 # TODO: degraded modes
+
+
+
+                #   Need to know when battery is full for routing (otherwise we will reserve power to charge it)
+                #   SOC > 95 and abs(battery_power) < 100 for 10s: battery full
+                #
+
+                        # if self.battery_max_charge_current in regs:
+                            # self.battery_dcdc_active.value = self.battery_max_charge_current.value != 0
+
+
+                # TODO: use battery_detected register (edit: doesn't work)
+                #   llc_bus_voltage
+                #   battery_charge_discharge_enable
+                #   battery_charge_discharge_direction
+                #   battery_charge_discharge_current
+                #   switching_machine_setting
+                #   b_battery_status
+                #
+                #
+
 
                 for solis in self.inverters:
                     # if inverter queried its fake meter, it is online

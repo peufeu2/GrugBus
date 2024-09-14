@@ -100,6 +100,15 @@ class Solis( grugbus.SlaveDevice ):
                 self.battery_max_discharge_current        ,
             ],[
                 self.rwr_power_on_off                     ,              
+
+                # TODO
+                self.llc_bus_voltage,
+                self.battery_charge_discharge_enable,
+                self.battery_charge_discharge_direction,
+                self.battery_charge_discharge_current,
+                # self.switching_machine_setting,
+                self.b_battery_status,
+
             ],[
                 self.rwr_energy_storage_mode              ,
                 self.rwr_backup_output_enabled            ,

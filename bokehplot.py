@@ -107,9 +107,13 @@ DATA_STREAMS = [
     ( "pv/cpu_load_percent"                              , "%"   , "Pi CPU Load"                 , "#00FF00"       , "solid",    1.0 , {}                 , {} ),
     ( "pv/disk_space_gb"                                 , "GB"  , "Pi Disk Space"               , "#0080FF"       , "solid",    1.0 , {}                 , {} ),
                 
+    ( "pv/solis1/llc_bus_voltage"                        , "V"  , "LLC BUS"               , "#FF80FF"       , "solid",    1.0 , {}                 , {} ),
                 
-                
-
+    ( "pv/solis1/battery_charge_discharge_enable"        , "V"  , "battery_charge_discharge_enable"    , "#FF80FF"       , "solid",    1.0 , {}                 , {} ),
+    ( "pv/solis1/battery_charge_discharge_direction"     , "V"  , "battery_charge_discharge_direction" , "#FF80FF"       , "solid",    1.0 , {}                 , {} ),
+    ( "pv/solis1/battery_charge_discharge_current"       , "V"  , "battery_charge_discharge_current"   , "#FF80FF"       , "solid",    1.0 , {}                 , {} ),
+    ( "pv/solis1/switching_machine_setting"              , "V"  , "switching_machine_setting"          , "#FF80FF"       , "solid",    1.0 , {}                 , {} ),
+    ( "pv/solis1/b_battery_status"                       , "V"  , "b_battery_status"                   , "#FF80FF"       , "solid",    1.0 , {}                 , {} ),
 ]
 
 if 0:
@@ -170,6 +174,8 @@ PLOT_LAYOUTS = [
                 "pv/total_output_power"                          ,
                 "pv/evse/meter/active_power"                     ,
                 # "pv/solis%d/pv_power"                            ,
+                "pv/solis1/battery_power",
+
             ],[
                 "pv/battery_soc"                                 ,
                 "pv/solis%d/bms_battery_soc"                          ,
@@ -227,7 +233,7 @@ PLOT_LAYOUTS = [
                 "pv/solis%d/meter/active_power"                  ,
             ],[
                 "pv/solis%d/input_power"                         ,
-                # "pv/solis%d/battery_power"                         ,
+                "pv/solis%d/battery_power"                         ,
                 "pv/solis%d/pv_power"                            ,
             ]
         ]
@@ -262,7 +268,14 @@ PLOT_LAYOUTS = [
                 "pv/solis1/bms_battery_current"                  ,
             ]
         ]
-    ],
+    ],["TEST",
+        [ "pv/solis1/llc_bus_voltage" ],
+        [ "pv/solis1/battery_charge_discharge_enable" ],
+        [ "pv/solis1/battery_charge_discharge_direction" ],
+        [ "pv/solis1/battery_charge_discharge_current" ],
+        [ "pv/solis1/switching_machine_setting" ],
+        [ "pv/solis1/b_battery_status" ],
+    ]
 ]
 
 def insert_inverters_data_streams( l ):

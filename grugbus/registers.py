@@ -277,12 +277,11 @@ class RegBool( RegBase ):
             fcode:     function code used during this read operation, passed again as verification, because fcodes are a great source of bugs
             data:      words corresponding to this register, must contain self.word_length uint16
         """
+        print("RegBood: decode", data )
         assert fcode in self.fcodes
         if len(data) != self.word_length:
             raise IndexError( "decode(): data passed contains %d words, but we expect %d words to decode %s" % (len(data),self.word_length,self.key))
-
-        self.value = self.raw_value = data  # no need to convert bools
-        return self.value
+        return self._post_decode( data ) 
 
     def encode( self ):
         """
@@ -332,7 +331,6 @@ class Reg16( RegBase ):
         # even if both struct codes are the same and it does no conversion, hence the
         # commented test above, which is useless
         data = struct.unpack( self._struct_decode_unpack, struct.pack( self._struct_decode_pack, *data ))
-
         return self._post_decode( data )    # apply units
 
     def encode( self ):
