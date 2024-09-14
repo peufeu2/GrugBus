@@ -1,15 +1,16 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-import time, asyncio, datetime, logging, collections, traceback, pymodbus
+import time, asyncio, datetime, logging, collections, traceback, pymodbus, orjson
 from pymodbus.exceptions import ModbusException
 from asyncio.exceptions import TimeoutError
 
 # Device wrappers and misc local libraries
 import grugbus
 from grugbus.devices import Solis_S5_EH1P_6K_2020_Extras, Eastron_SDM120, Eastron_SDM630, Acrel_1_Phase, EVSE_ABB_Terra, Acrel_ACR10RD16TE4
-import config
+from pv.mqtt_wrapper import MQTTWrapper
 from misc import *
+import config
 
 log = logging.getLogger(__name__)
 
@@ -28,6 +29,8 @@ class Solis( grugbus.SlaveDevice ):
         self.fake_meter  = fake_meter    # meter emulation on meter port
         self.mqtt        = mqtt
         self.mqtt_topic  = mqtt_topic
+        self.mqtt_written_regs = {}
+        mqtt.register_callbacks( self, "cmnd/" + mqtt_topic )
 
         # These are computed using values polled from the inverter
          # inverter reacts slower when battery works (charge or discharge), see comments in Router
@@ -230,3 +233,41 @@ class Solis( grugbus.SlaveDevice ):
                 await self.set_time( dt )
                 inverter_time = await self.get_time()
                 log.info( "Inverter time: %s, Pi time: %s" % (inverter_time.isoformat(), dt.isoformat()))
+
+    @MQTTWrapper.decorate_callback( "read_regs", orjson.loads )
+    async def cb_read_regs( self, topic, payload, qos, properties ):
+        print("Callback:", self.key, topic, payload )
+        for addr in payload:
+            if reg := self.regs_by_key.get( addr ) or self.regs_by_addr.get( addr ):
+                await reg.read()
+                print( "Reg:", reg.key, "read", reg.value )
+            else:
+                resp = await self.modbus.read_holding_registers( addr, 1, self.bus_address )
+                print( "Reg:", addr, "read", resp.registers[0] )
+
+    @MQTTWrapper.decorate_callback( "write_regs", orjson.loads )
+    async def cb_write_regs( self, topic, payload, qos, properties ):
+        print("Callback:", self.key, topic, payload )
+        for addr, value in payload:
+            if reg := self.regs_by_key.get( addr ) or self.regs_by_addr.get( addr ):
+                old_value = await reg.read()
+                if reg.key not in self.mqtt_written_regs:
+                    self.mqtt_written_regs[reg.key] = old_value
+                await reg.write( value )
+                print( "Reg:", reg.key, "read", old_value, "write", value, "read", await reg.read() )
+            else:
+                resp = await self.modbus.read_holding_registers( addr, 1, self.bus_address )
+                old_value = resp.registers[0]
+                if addr not in self.mqtt_written_regs:
+                    self.mqtt_written_regs[addr] = old_value
+                await self.modbus.write_register( addr, value, self.bus_address )
+                resp = await self.modbus.read_holding_registers( addr, 1, self.bus_address )
+                print( "Reg:", addr, "read", old_value, "write", value, "read", resp.registers[0] )
+
+
+
+
+
+
+
+

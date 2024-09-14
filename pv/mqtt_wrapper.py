@@ -40,6 +40,8 @@ class RateLimit:
         return r
 
 class MQTTWrapper:
+    _callbacks_generated = set()
+
     def __init__( self, identifier ):
         self.mqtt = gmqtt.Client( identifier )
         self.mqtt.on_connect    = self.on_connect
@@ -50,7 +52,6 @@ class MQTTWrapper:
         self.is_connected = False
         self._published_data = {}
         self._subscriptions = {}
-        self._callbacks_generated = set()
 
         for topic, (period, margin, mode) in config.MQTT_RATE_LIMIT.items():
             p = self._published_data[topic] = RateLimit( margin, period, mode, len(self._published_data)%60 )
@@ -139,7 +140,8 @@ class MQTTWrapper:
 
     #   Decorates a method as a MQTT callback
     #
-    def decorate_callback( self, topic, datatype=str, validation=None ):
+    @classmethod
+    def decorate_callback( cls, topic, datatype=str, validation=None ):
         def decorator( func ):
             @functools.wraps( func )
             async def callback( self, topic, payload, qos, properties ):
@@ -158,7 +160,7 @@ class MQTTWrapper:
                         return
                 await func( self, topic, payload, qos, properties )
             callback.mqtt_topic = topic
-            self._callbacks_generated.add( callback )
+            cls._callbacks_generated.add( callback )
             return callback
         return decorator
 

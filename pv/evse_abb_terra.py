@@ -140,6 +140,8 @@ class EVSE( grugbus.SlaveDevice ):
         #
         #   TODO: charging start/stop logic is defective, it starts too fast and doesn't stop unless there is way too much power draw
         #
+        #   TODO: After going down, hold off going up for 30s
+        #
 
         # Should we start charge ?
         if self.is_charging_paused():

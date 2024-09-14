@@ -291,7 +291,7 @@ class Router():
         bp_max  = mgr.battery_max_charge_power
         
         # When SOC is 100%, Solis will not charge even if the battery requests current, so don't reserve any power
-        if soc >= 100:
+        if soc >= 99:
             bp_max = 0
 
         # if EV charging has begun, pretend we have more SOC than we have to avoid start/stop cycles
@@ -535,10 +535,6 @@ class SolisManager():
         self.total_battery_power      = 0    # Battery power for both inverters (positive for charging)
         self.battery_max_charge_power = 0    
 
-    @mqtt.decorate_callback("test1", int, range(0,10))
-    async def cb_test1( self, topic, payload, qos, properties ):
-        pass
-
     ########################################################################################
     #
     #   Compute power values and fill fake meter fields
@@ -601,14 +597,13 @@ class SolisManager():
                 
                 #   Fake Meter
                 # shift slightly to avoid import when we can afford it
-                if total_battery_power > 200:
-                    meter_power_tweaked += battery_soc*total_battery_power*0.0001
+                # if total_battery_power > 200:
+                    # meter_power_tweaked += battery_soc*total_battery_power*0.0001
                 total_input_power  = total_pv_power + total_grid_port_power
 
                 # if len( inverters_with_battery ) == 2:
                     # print( "2 batts",  self.solis1.battery_power.value, self.solis2.battery_power.value )
 
-                print( inverters_online )
                 for solis in self.inverters:
                     if  len( inverters_online ) == 1:
                         fake_power = meter_power_tweaked
@@ -868,7 +863,6 @@ class SolisManager():
 
         # register mqtt config callbacks
         mqtt.register_callbacks( self, "cmnd/pv/" )
-
 
         try:
             async with asyncio.TaskGroup() as tg:
