@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-import time, gmqtt, logging
+import time, gmqtt, logging, functools
 from path import Path
 from misc import *
 import config
@@ -50,6 +50,7 @@ class MQTTWrapper:
         self.is_connected = False
         self._published_data = {}
         self._subscriptions = {}
+        self._callbacks_generated = set()
 
         for topic, (period, margin, mode) in config.MQTT_RATE_LIMIT.items():
             p = self._published_data[topic] = RateLimit( margin, period, mode, len(self._published_data)%60 )
@@ -59,7 +60,7 @@ class MQTTWrapper:
 
     def publish_value( self, topic, value, format=str ):
         if not self.mqtt.is_connected:
-            log.error( "Trying to publish %s on unconnected MQTT" % prefix )
+            log.error( "Trying to publish %s on unconnected MQTT" % topic )
             return
 
         if value is None:
@@ -119,7 +120,9 @@ class MQTTWrapper:
         l = self._subscriptions.setdefault( topic, [] ) # insert into callback directory
         if self.is_connected and not l:
             self.mqtt.subscribe( topic )                # if it's not in there already, we have to subscribe
-        l.append( callback )
+        if callback not in l:
+            l.append( callback )
+        print( "MQTT: registered callback for %s on %s" % (topic, callback.__name__) )
 
     async def on_message(self, client, topic, payload, qos, properties):
         async def try_topic( t ):
@@ -133,6 +136,41 @@ class MQTTWrapper:
             parent = cur.dirname()
             await try_topic( parent / "#" )
             cur = parent
+
+    #   Decorates a method as a MQTT callback
+    #
+    def decorate_callback( self, topic, datatype=str, validation=None ):
+        def decorator( func ):
+            @functools.wraps( func )
+            async def callback( self, topic, payload, qos, properties ):
+                try:
+                    payload = datatype( payload )
+                except Exception as e:
+                    log.error( "MQTT callback: %s: topic %s expects %s, received %r" % (e, topic, datatype, payload))
+                    return
+                if hasattr( validation, "__contains__" ):
+                    if payload not in validation:
+                        log.error( "MQTT callback: Out of range: topic %s expects %s, received %r" % (topic, validation, payload))
+                        return
+                elif validation:
+                    if not validation( payload ):
+                        log.error( "MQTT callback: Invalid value: topic %s received %r" % (topic, payload))
+                        return
+                await func( self, topic, payload, qos, properties )
+            callback.mqtt_topic = topic
+            self._callbacks_generated.add( callback )
+            return callback
+        return decorator
+
+    #   Subscribes and registers callbacks defined with the previous function
+    def register_callbacks( self, obj, mqtt_topic="" ):
+        for attr in dir( obj ):
+            method = getattr( obj, attr )
+            if callable(method) and hasattr(method,"mqtt_topic"):
+                if func := getattr( method, "__func__", None):
+                    if func in self._callbacks_generated:
+                        self.subscribe_callback( mqtt_topic + method.mqtt_topic, method )
+
 
 
 

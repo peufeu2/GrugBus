@@ -38,7 +38,13 @@ class Metronome:
 
 class Chrono:
     def __init__( self ):
+        self.reset()
+
+    def reset( self ):
         self.tick = time.monotonic()
+
+    def elapsed( self ):
+        return time.monotonic() - self.tick
 
     def lap( self ):
         t = time.monotonic()
@@ -57,7 +63,8 @@ class Timeout:
             self.expiry = 0
 
     def reset( self, duration=None ):
-        self.expiry   = time.monotonic() + (duration or self.duration)
+        self.start_time = st = time.monotonic()
+        self.expiry   = st + (duration or self.duration)
 
     def at_least( self, duration ):
         self.expiry   = max( self.expiry, time.monotonic() + duration )
@@ -70,6 +77,9 @@ class Timeout:
 
     def remain( self ):
         return max(0, self.expiry - time.monotonic())
+
+    def elapsed( self ):
+        return time.monotonic() - self.start_time
 
 class BoundedCounter:
     def __init__( self, value, minimum, maximum ):

@@ -31,7 +31,7 @@ colors = {
     "mppt2"         : [None     , "#C0FF00", "#80C000"],
     "battery"       : ["#FFC080", "#C0A060", "#807040"],
     "fakemeter"     : ["#FFFFFF", "#C0C0C0", "#808080"],
-    "grid_port"     : ["cyan"   , "#9edae5", "#17becf"],
+    "grid_port"     : ["cyan"   , "#00C0C0", "#008080"],
     "input"         : ["#FFFF00", "#C0C000", "#808000"],
     "soc"           : ["#00FF00", "#00C000", "#008000"],
     "temperature"   : ["#FF0000", "#FF00A0", "#FFA000"],
@@ -82,11 +82,11 @@ DATA_STREAMS = [
 
     ( "pv/meter/house_power"                             , "W"   , "House"                       , "#8080FF"       , "solid",    1.0 , {}                 , {} ),
     ( "pv/meter/phase_1_power"                           , "W"   , "Phase 1"                     , "#FF0000"       , "solid",    1.0 , {}                 , {} ),
-    ( "pv/meter/phase_2_power"                           , "W"   , "Phase 2"                     , "#00C000"       , "solid",    1.0 , {}                 , {} ),
-    ( "pv/meter/phase_3_power"                           , "W"   , "Phase 3"                     , "#0080FF"       , "solid",    1.0 , {}                 , {} ),
-    ( "pv/meter/phase_1_line_to_neutral_volts"           , "V"   , "Phase 1"                     , "#ffbb78"       , "solid",    1.0 , {}                 , {} ),
-    ( "pv/meter/phase_2_line_to_neutral_volts"           , "V"   , "Phase 2"                     , "#aec7e8"       , "solid",    1.0 , {}                 , {} ),
-    ( "pv/meter/phase_3_line_to_neutral_volts"           , "V"   , "Phase 3"                     , "#98df8a"       , "solid",    1.0 , {}                 , {} ),
+    ( "pv/meter/phase_2_power"                           , "W"   , "Phase 2"                     , "#00FF00"       , "solid",    1.0 , {}                 , {} ),
+    ( "pv/meter/phase_3_power"                           , "W"   , "Phase 3"                     , "#FFFF00"       , "solid",    1.0 , {}                 , {} ),
+    ( "pv/meter/phase_1_line_to_neutral_volts"           , "V"   , "Phase 1"                     , "#FF0000"       , "solid",    1.0 , {}                 , {} ),
+    ( "pv/meter/phase_2_line_to_neutral_volts"           , "V"   , "Phase 2"                     , "#00FF00"       , "solid",    1.0 , {}                 , {} ),
+    ( "pv/meter/phase_3_line_to_neutral_volts"           , "V"   , "Phase 3"                     , "#FFFF00"       , "solid",    1.0 , {}                 , {} ),
     ( "pv/meter/total_power"                             , "W"   , "Grid"                        , "#FF0000"       , "solid",    1.0 , {}                 , {} ),
     ( "pv/router/excess_avg"                             , "W"   , "Route excess"                , "#FF00FF"       , "solid",   -1.0 , {"visible":False}  , {} ),
     ( "pv/router/excess_avg_nobat"                       , "W"   , "Route excess nobat"          , "#FF00FF"       , "solid",   -1.0 , {"visible":False}  , {} ),
@@ -249,7 +249,20 @@ PLOT_LAYOUTS = [
                 "pv/disk_space_gb"       ,
             ]
         ]
-    ]
+    ],["S1 history", 
+        [
+            [
+                "pv/total_pv_power"                              ,
+                "pv/meter/house_power"                           ,
+                "pv/meter/total_power"                           ,
+                "pv/solis1/battery_power"                        ,
+                "pv/solis1/meter/active_power"                          ,
+            ],[
+                "pv/solis1/bms_battery_soc"                      ,
+                "pv/solis1/bms_battery_current"                  ,
+            ]
+        ]
+    ],
 ]
 
 def insert_inverters_data_streams( l ):

@@ -535,6 +535,10 @@ class SolisManager():
         self.total_battery_power      = 0    # Battery power for both inverters (positive for charging)
         self.battery_max_charge_power = 0    
 
+    @mqtt.decorate_callback("test1", int, range(0,10))
+    async def cb_test1( self, topic, payload, qos, properties ):
+        pass
+
     ########################################################################################
     #
     #   Compute power values and fill fake meter fields
@@ -569,7 +573,7 @@ class SolisManager():
                 for solis in self.inverters:
                     # if inverter queried its fake meter, it is online
                     # Special case if the Wifi dongle is inserted instead of the COM cable
-                    if ((solis.is_online and solis.inverter_status == 3) or (not solis.is_online)) and solis.fake_meter.last_inverter_query_time > time.monotonic()-5:
+                    if ((solis.is_online and solis.inverter_status.value == 3) or (not solis.is_online)) and solis.fake_meter.last_inverter_query_time > time.monotonic()-5:
                         inverters_online.append( solis )
 
                     lm = solis.local_meter
@@ -604,15 +608,16 @@ class SolisManager():
                 # if len( inverters_with_battery ) == 2:
                     # print( "2 batts",  self.solis1.battery_power.value, self.solis2.battery_power.value )
 
+                print( inverters_online )
                 for solis in self.inverters:
-                    if len( inverters_online ) == 2:
+                    if  len( inverters_online ) == 1:
+                        fake_power = meter_power_tweaked
+                    else:
                         # balance power between inverters
                         if len( inverters_with_battery ) == 2:
                             fake_power = meter_power_tweaked * 0.5 + 0.05*(solis.battery_power.value - total_battery_power*0.5)
                         else:
                             fake_power = meter_power_tweaked * 0.5 + 0.05*(solis.input_power.value - total_input_power*0.5)
-                    else:
-                        fake_power = meter_power_tweaked
 
                     fm = solis.fake_meter
                     fm.active_power           .value = fake_power
@@ -853,12 +858,17 @@ class SolisManager():
         )
         self.inverters = (self.solis1, self.solis2)
 
+        #   Web server
         app = aiohttp.web.Application()
         app.add_routes([aiohttp.web.get('/', self.webresponse), aiohttp.web.get('/solar_api/v1/GetInverterRealtimeData.cgi', self.webresponse)])
         runner = aiohttp.web.AppRunner(app, access_log=False)
         await runner.setup()
         site = aiohttp.web.TCPSite(runner,host=config.SOLARPI_IP,port=8080)
         await site.start()
+
+        # register mqtt config callbacks
+        mqtt.register_callbacks( self, "cmnd/pv/" )
+
 
         try:
             async with asyncio.TaskGroup() as tg:

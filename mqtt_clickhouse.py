@@ -501,7 +501,10 @@ async def transfer_data( mqtt ):
             timer = Metronome( config.CLICKHOUSE_INSERT_PERIOD_SECONDS )
             while True:
                 try:
-                    pool.add( *orjson.loads( await rsock.readline() ) )
+                    line = await rsock.readline()
+                    if not line:
+                        return
+                    pool.add( *orjson.loads( line ) )
                 except Exception as e:
                     log.exception( "Error" )
 
