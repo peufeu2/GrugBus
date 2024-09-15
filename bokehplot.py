@@ -59,6 +59,7 @@ DATA_STREAMS = [
 
     ( "pv/total_battery_power"                           , "W"   , "Battery"                     , "battery"       , "solid",    1.0 , {}                 , {} ),
     ( "pv/solis%d/battery_power"                         , "W"   , "S%d Battery"                 , "battery"       , "solid",    1.0 , {"visible":False}  , {} ),
+    ( "pv/solis%d/battery_dcdc_power"                    , "W"   , "S%d Battery DC/DC"           , "battery"       , "dotted",    1.0 , {"visible":False}  , {} ),
     ( "pv/solis%d/battery_current"                       , "A"   , "S%d Bat current"             , "battery"       , "solid",    1.0 , {"visible":False}  , {} ),
     ( "pv/solis%d/battery_max_charge_current"            , "A"   , "S%d Bat max charge"          , "battery"       , "dashed",   1.0 , {"visible":False}  , {} ),
     ( "pv/solis%d/battery_max_discharge_current"         , "A"   , "S%d Bat max discharge"       , "battery"       , "dotted",   1.0 , {"visible":False}  , {} ),
@@ -109,11 +110,10 @@ DATA_STREAMS = [
                 
     ( "pv/solis1/llc_bus_voltage"                        , "V"  , "LLC BUS"               , "#FF80FF"       , "solid",    1.0 , {}                 , {} ),
                 
-    ( "pv/solis1/battery_charge_discharge_enable"        , "V"  , "battery_charge_discharge_enable"    , "#FF80FF"       , "solid",    1.0 , {}                 , {} ),
-    ( "pv/solis1/battery_charge_discharge_direction"     , "V"  , "battery_charge_discharge_direction" , "#FF80FF"       , "solid",    1.0 , {}                 , {} ),
-    ( "pv/solis1/battery_charge_discharge_current"       , "V"  , "battery_charge_discharge_current"   , "#FF80FF"       , "solid",    1.0 , {}                 , {} ),
-    ( "pv/solis1/switching_machine_setting"              , "V"  , "switching_machine_setting"          , "#FF80FF"       , "solid",    1.0 , {}                 , {} ),
-    ( "pv/solis1/b_battery_status"                       , "V"  , "b_battery_status"                   , "#FF80FF"       , "solid",    1.0 , {}                 , {} ),
+    ( "pv/solis1/battery_dcdc_enable"                    , "V"  , "battery_dcdc_enable"    , "#FFFF00"       , "solid",    1.0 , {}                 , {} ),
+    ( "pv/solis1/b_battery_status"                       , "V"  , "b_battery_status"                   , "#00FF00"       , "solid",    1.0 , {}                 , {} ),
+    ( "pv/solis1/b_limit_operation"                      , "V"  , "b_limit_operation"                  , "#FF00FF"       , "solid",    1.0 , {}                 , {} ),
+    ( "pv/solis1/battery_dcdc_current"                   , "V"  , "battery_dcdc_current"   , "#FF80FF"       , "solid",    1.0 , {}                 , {} ),
 ]
 
 if 0:
@@ -174,7 +174,7 @@ PLOT_LAYOUTS = [
                 "pv/total_output_power"                          ,
                 "pv/evse/meter/active_power"                     ,
                 # "pv/solis%d/pv_power"                            ,
-                "pv/solis1/battery_power",
+                # "pv/solis1/battery_power",
 
             ],[
                 "pv/battery_soc"                                 ,
@@ -233,7 +233,8 @@ PLOT_LAYOUTS = [
                 "pv/solis%d/meter/active_power"                  ,
             ],[
                 "pv/solis%d/input_power"                         ,
-                "pv/solis%d/battery_power"                         ,
+                # "pv/solis%d/battery_power"                         ,
+                "pv/solis%d/battery_dcdc_power"                  ,
                 "pv/solis%d/pv_power"                            ,
             ]
         ]
@@ -268,14 +269,11 @@ PLOT_LAYOUTS = [
                 "pv/solis1/bms_battery_current"                  ,
             ]
         ]
-    ],["TEST",
+    ],["TEST", [
         [ "pv/solis1/llc_bus_voltage" ],
-        [ "pv/solis1/battery_charge_discharge_enable" ],
-        [ "pv/solis1/battery_charge_discharge_direction" ],
-        [ "pv/solis1/battery_charge_discharge_current" ],
-        [ "pv/solis1/switching_machine_setting" ],
-        [ "pv/solis1/b_battery_status" ],
-    ]
+        [ "pv/solis1/battery_dcdc_enable","pv/solis1/b_battery_status", "pv/solis1/b_limit_operation" ],
+        [ "pv/solis1/battery_dcdc_current", "pv/solis1/battery_current" ],
+    ]]
 ]
 
 def insert_inverters_data_streams( l ):

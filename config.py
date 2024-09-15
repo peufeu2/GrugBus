@@ -115,6 +115,13 @@ MQTT_RATE_LIMIT = {
     # "pv/router/excess_avg_nobat"                     : ( 1,   10, "avg" ),
     "pv/solis1/meter/active_power"                   : ( 1,  100, "avg" ),
 
+    "pv/solis1/battery_dcdc_enable"                  : (60,   0, "" ),
+    "pv/solis1/battery_dcdc_current"                 : (10, 0.5, "avg" ),
+    "pv/solis1/battery_dcdc_power"                   : (1,  100, "avg" ),
+    "pv/solis1/llc_bus_voltage"                      : (10,  10, "avg" ),
+    "pv/solis1/b_limit_operation"                    : (60,   0, "" ),
+    "pv/solis1/b_battery_status"                     : (60,   0, "" ),
+
     # EVSE
     "pv/evse/charge_state"                           : ( 60, 0    , ""  ),
     "pv/evse/charging_unpaused"                      : ( 60, 0    , ""  ),

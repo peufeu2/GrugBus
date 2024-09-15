@@ -82,14 +82,34 @@ class Timeout:
         return time.monotonic() - self.start_time
 
 class BoundedCounter:
-    def __init__( self, value, minimum, maximum ):
-        self.value   = value
-        self.minimum = minimum
-        self.maximum = maximum
+    def __init__( self, value, minimum, maximum, func=float ):
+        self._func = func
+        self.minimum = func( minimum )
+        self.maximum = func( maximum )
+        self.set(value)
+
+    def set( self, value ):
+        self.value = min( self.maximum, max( self.minimum, self._func( value )))
+        return self.value
+
+    def to_maximum( self ):
+        self.value = self.maximum
+
+    def to_minimum( self ):
+        self.value = self.minimum
+
+    def at_maximum( self ):
+        return self.value == self.maximum
+
+    def at_minimum( self ):
+        return self.value == self.minimum
 
     def add( self, increment ):
-        self.value = min( self.maximum, max( self.minimum, self.value + increment ))
-        return self.value 
+        return self.set( self.pretend_add( increment ))
+
+    def pretend_add( self, increment ):
+        return min( self.maximum, max( self.minimum, self._func( self.value + increment )))
+
 
 #
 #   Time weighted moving average

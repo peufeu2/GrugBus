@@ -349,7 +349,8 @@ BIT05 Allow grid to charge the battery 0—Allow 1—Not allow",,,,
 4,33133,,"U16 ","0,1V","Battery voltage ",,"float",,,,,,
 4,33134,,"S16 ","0,1A","Battery current ",,"float",,"10 ↔ 1A
 WRONG Official doc : Positive：charging Negative：discharging
-Inverter: it’s always positive even if discharging, sign is in next register",,,,
+Inverter: it’s always positive even if discharging, sign is in next register
+Smoothed over several seconds. For real time value, see 33203 and following registers.",,,,
 4,33135,,"U16 ",,"Battery current direction",,"int",,"Battery charging and discharging direction.
 0: charging
 1: discharging",,,,
@@ -361,7 +362,7 @@ Inverter: it’s always positive even if discharging, sign is in next register",
 4,33140,,"U16 ","1,00 %","BMS Battery health SOH",,"float",,"100 ↔ 100%
 ",,,,
 4,33141,,"U16 ","0.01V ","BMS Battery voltage ",,"float",,,,,,
-4,33142,,"S16 ","0.1A ","BMS Battery current ",,"float",,"Always positive",,,,
+4,33142,,"S16 ","0.1A ","BMS Battery current ",,"float",,"Always positive. Lags by a few seconds due to BMS transmission.",,,,
 4,33143,,"U16 ","0.1A ","BMS Battery charge current limit",,"float",,,,,,
 4,33144,,"U16 ","0.1A ","BMS Battery discharge current limit",,"float",,,,,,
 4,33145,,"U16 ",,"BMS Battery fault information 01",,"bitfield",,"(from BMS information, LV inverter only, HV inverter see register document)
@@ -427,9 +428,9 @@ HV hybrid：
 4,33200,,"U16",,"Backup output enabled",,"int",,"0-Disabled 1-Enabled",,,,
 4,33201,,"U16","0,1V","Backup output reference voltage ",,"float",,,,,,
 4,33202,,"U16","0,01Hz","Backup output reference frequency",,"float",,,,,,
-4,33203,,"U16",,"Battery charge/discharge Enable","Battery charge discharge Enable","int",,"1-Enable 0-Disable",,,,
-4,33204,,"U16",,"Battery charge/discharge Direction","Battery charge discharge Direction","int",,"0-Charge 1-Discharge",,,,
-4,33205,,"U16","0,1A","Battery charge/discharge Current","Battery charge discharge Current","float",,,,,,
+4,33203,,"U16",,"Battery charge/discharge Enable","Battery dcdc Enable","int",,"1-Enable 0-Disable",,,,
+4,33204,,"U16",,"Battery charge/discharge Direction","Battery dcdc Direction","int",,"0-Charge 1-Discharge",,,,
+4,33205,,"U16","0,1A","Battery charge/discharge Current","Battery dcdc Current","float",,"This reacts instantly to changes in current (battery_current is smoothed)",,,,
 4,33206,,"U16","0,1A","Battery max charge current",,"float",,,,,,
 4,33207,,"U16","0,1A","Battery max discharge current",,"float",,,,,,
 4,33208,,"U16","0,1V","Battery under voltage Protection ",,"float",,,,,,
@@ -808,11 +809,11 @@ Maximum: 70A，Default: 70A, Accuracy: 1A",,,,
 3,43129,,"U16","10W ","Remote Control Force Battery Discharge Power",,"float",,"Available when 43135 is Force Discharge
 10W up to Device back-up output power ; default 0 
 Battery is charged using PV+Grid
-Limit registers take has priority over Force registers",,,,
+Limit registers 43130 43131 take priority over Force registers",,,,
 3,43130,,"U16","10W ","Battery Charge Power Limit",,"float",,"10W up to Device back-up output power ; default 0 invalid ; not saved in flash
-Limit registers take has priority over Force registers",,,,
+Limit registers 43130 43131 take priority over Force registers",,,,
 3,43131,,"U16","10W ","Battery Discharge Power Limit",,"float",,"10W up to Device back-up output power ; default 0 invalid ; not saved in flash
-Limit registers take has priority over Force registers
+Limit registers 43130 43131 take priority over Force registers
 https://diysolarforum.com/threads/modbus-register-backflow-power-for-solis-hybrid-inverter.60195/post-755016",,,,
 3,43132,,"U16",,"Remote Control Grid Adjustment",,"int",,"0=OFF
 1=ON with ‘system grid connection point’
@@ -827,7 +828,7 @@ When set to ON, Remote Control Grid Adjustment will set to OFF",,,,
 3,43136,,"U16","10W ","Remote Control Force Battery Charge Power",,"float",,"Available when 43135 is Force Charge
 10W up to Device back-up output power ; default 0 
 Battery is discharged and power is exported
-Limit registers take has priority over Force registers",,,,
+Limit registers 43130 43131 take priority over Force registers",,,,
 3,43137,,"U16","1,00 %","Off grid overdischarge SOC",,"int",,,,,,
 3,43138,,"U16","1,00 %","EPS Overdischarge SOC",,"int",,,,,,
 3,43139,,"U16","0.010s ","EPS Switching Time",,"float",,"1 <--> 10ms, 10~99990ms

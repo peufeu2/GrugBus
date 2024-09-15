@@ -277,7 +277,6 @@ class RegBool( RegBase ):
             fcode:     function code used during this read operation, passed again as verification, because fcodes are a great source of bugs
             data:      words corresponding to this register, must contain self.word_length uint16
         """
-        print("RegBood: decode", data )
         assert fcode in self.fcodes
         if len(data) != self.word_length:
             raise IndexError( "decode(): data passed contains %d words, but we expect %d words to decode %s" % (len(data),self.word_length,self.key))

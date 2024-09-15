@@ -43,6 +43,7 @@ class Solis( grugbus.SlaveDevice ):
         # This has no lag, as pv_power is reported in real time.
         # TODO: this also includes backup output power, so we should substract it
         self.input_power = grugbus.registers.FakeRegister( "input_power", 0, "int", 0 )
+        self.battery_dcdc_power = grugbus.registers.FakeRegister( "battery_dcdc_power", 0, "int", 0 )
 
         #   Other coroutines that need inverter register values can wait on these events to 
         #   grab the values when they are read
@@ -54,11 +55,16 @@ class Solis( grugbus.SlaveDevice ):
                 self.pv_power                   ,
 
                 self.battery_voltage            ,
-                self.battery_current            ,
-                self.battery_current_direction  ,
+
+                self.battery_dcdc_enable,
+                self.battery_dcdc_direction,
+                self.battery_dcdc_current,
             ]
 
         self.reg_sets = [ frequent_regs + regs for regs in [[
+                self.battery_current            ,
+                self.battery_current_direction  ,
+            ],[
                 self.energy_generated_today               ,  
                 self.energy_generated_yesterday           ,      
             ],[
@@ -103,10 +109,8 @@ class Solis( grugbus.SlaveDevice ):
 
                 # TODO
                 self.llc_bus_voltage,
-                self.battery_charge_discharge_enable,
-                self.battery_charge_discharge_direction,
-                self.battery_charge_discharge_current,
                 # self.switching_machine_setting,
+                self.b_limit_operation,
                 self.b_battery_status,
 
             ],[
@@ -152,12 +156,21 @@ class Solis( grugbus.SlaveDevice ):
                         #
 
                         # Add polarity to battery parameters
+                        # slow measured battery current
                         if self.battery_current_direction in regs:
                             regs.remove( self.battery_current_direction )
                             if self.battery_current_direction.value:    # positive current/power means charging, negative means discharging
                                 self.battery_current.value     *= -1
                             self.battery_power.value       = self.battery_current.value * self.battery_voltage.value
-                            mqtt.publish_reg( topic, self.battery_power )
+                            regs.append( self.battery_power )
+
+                        # fast current setting
+                        if self.battery_dcdc_direction in regs:
+                            regs.remove( self.battery_dcdc_direction )
+                            if self.battery_dcdc_direction.value:    # positive current/power means charging, negative means discharging
+                                self.battery_dcdc_current.value *= -1
+                            self.battery_dcdc_power.value = self.battery_dcdc_current.value * self.battery_voltage.value
+                            regs.append( self.battery_dcdc_power )
 
                         # Prepare MQTT publish
                         for reg in regs:

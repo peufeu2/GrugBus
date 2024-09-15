@@ -28,8 +28,10 @@ class EVSE( grugbus.SlaveDevice ):
         self.mqtt_topic  = mqtt_topic
         self.local_meter = local_meter
 
+        # Modbus polling
+        self.tick      = Metronome( config.POLL_PERIOD_EVSE )   # how often we poll it over modbus
+        self.event_all = asyncio.Event()  # Fires when all registers are read, for slower processes
         self.rwr_current_limit.value = 0.0
-
         self.regs_to_read = (
             self.charge_state       ,
             self.current_limit      ,
@@ -39,6 +41,18 @@ class EVSE( grugbus.SlaveDevice ):
             self.error_code         ,
             self.socket_state
         )
+
+        # settings, DO NOT CHANGE as these are set in the ISO standard
+        self.i_pause = 5.0          # current limit in pause mode
+        self.i_start = 6.0          # minimum current limit for charge, can be set to below 6A if charge should pause when solar not available
+        self.i_max   = 30.0         # maximum current limit
+
+        # incremented/decremented depending on excess power to start/stop charge
+        self.start_counter = BoundedCounter( 0, -10, 10 )
+        self.stop_counter  = BoundedCounter( 0, -10, 10 )
+
+        # current limit that will be sent to the EVSE
+        self.current_limit_counter = BoundedCounter( self.i_start, self.i_start, self.i_max, round )
 
         #   This setting deserves a comment... This is the time interval between current_limit commands to the EVSE.
         #   After each command:
@@ -55,36 +69,40 @@ class EVSE( grugbus.SlaveDevice ):
         self.command_interval_small = Timeout( 10, expired=True )
         self.resend_current_limit_timeout = Timeout( 10, expired=True )
 
-        # settings, DO NOT CHANGE as these are set in the ISO standard
-        self.i_pause = 5.0          # current limit in pause mode
-        self.i_start = 6.0          # minimum current limit for charge, can be set to below 6A if charge should pause when solar not available
-        self.i_max   = 30.0         # maximum current limit
-
-        # see comments in set_virtual_current_limit()
-        self.virtual_i_min   = -5.0   # bounds
-        self.virtual_i_max   = 32.0  # bounds
-        self.virtual_i_pause   = -3.0 # hysteresis comparator: virtual_current_limit threshold to go from charge to pause
-        self.virtual_i_unpause = 1.0 # hysteresis comparator: virtual_current_limit threshold to go from pause to charge
-        self.virtual_current_limit = self.virtual_i_min
-
-        self.ensure_i   = 6         # guarantee this charge current
-        self.ensure_Wh  = 0       # until this energy has been delivered
+        # forced charge mdoe
+        self.force_charge_i   = 6         # guarantee this charge current
+        self.force_charge_Wh  = 0       # until this energy has been delivered
         self.p_threshold_start = 1400   # minimum excess power to start charging
 
-        self.p_dead_band_fast = 0.5 * 240
-        self.p_dead_band_slow = 0.5 * 240
+        # dead band for power routing
+        self.p_dead_band = 0.5 * 240
 
-        self.tick      = Metronome( config.POLL_PERIOD_EVSE )   # how often we poll it over modbus
-        self.event_all = asyncio.Event()  # Fires when all registers are read, for slower processes
-
-        self.route_tick = Metronome( 1 )
-        self.avg_excess = MovingAverage( 10 )
+        # state variables
         self.target_power   = None
         self.previous_delta = 0
-        self.settled        = False
+        self.last_call      = Chrono()
 
-    async def stop( self ):
-        await self.set_virtual_current_limit( self.virtual_i_min )
+    async def stop_charge( self, log=True ):
+        if log:
+            log.info("EVSE: stop charge")
+        self.target_power = None
+        self.start_counter.to_minimum()
+        self.stop_counter.to_minimum()
+        await self.set_current_limit( self.i_pause )
+        self.publish_target_power()
+
+    async def start_charge( self ):
+        log.info("EVSE: start charge")
+        self.target_power = None
+        self.start_counter.to_maximum()
+        self.stop_counter.to_maximum()
+        await self.set_current_limit( self.i_start )
+        self.publish_target_power()
+
+    def publish_target_power( self ):
+        t = self.target_power or (0,0)
+        self.mqtt.publish_value( self.mqtt_topic+"target_power_min",  round(t[0],2) )
+        self.mqtt.publish_value( self.mqtt_topic+"target_power_max",  round(t[1],2) )
 
     async def read_coroutine( self ):
         mqtt = self.mqtt
@@ -113,16 +131,20 @@ class EVSE( grugbus.SlaveDevice ):
 
     async def route( self, excess ):
         # Moving average of excess power (returns None is not enough data was accumulated yet)
-        avg_excess  = self.avg_excess.append( excess )
         power       = self.local_meter.active_power.value
         voltage     = self.local_meter.voltage.value
+        time_since_last = min( 1, self.last_call.lap() )
+
+
+        # monitor excess power to decide if we can start charge
+        if excess >= self.p_threshold_start: self.start_counter.add( time_since_last )
+        else:                                self.start_counter.add( -time_since_last )
 
         # if EV is not plugged, or everything is not initialized yet, do not charge
-        if ((self.socket_state.value) != 0x111 or None in (power, voltage, avg_excess) ):
+        if ((self.socket_state.value) != 0x111 or None in (power, voltage, excess) ):
             # set charge to paused, it will take many loops to increment this enough to start
-            # print("noinit", self.socket_state.value, power, voltage, avg_excess)
-            await self.set_virtual_current_limit( self.virtual_i_min )
-            return
+            # print("noinit", self.socket_state.value, power, voltage, aexcess)
+            return await self.stop_charge( log=self.is_charging_unpaused() )
 
         # TODO: do not trip breaker     mgr.meter.phase_1_current
 
@@ -131,23 +153,18 @@ class EVSE( grugbus.SlaveDevice ):
         #              1-2-300 : waiting for the car or current limit below 6A, not charging
         #              400     : charging
 
-        # At the beginning of charge, deliver requested amount of power no matter what
-        if self.energy.value < self.ensure_Wh:
-            await self.set_virtual_current_limit( self.ensure_i )    # set current to minimum value to allow charging to begin
-            print("force charge")
-            return
-
-        #
-        #   TODO: charging start/stop logic is defective, it starts too fast and doesn't stop unless there is way too much power draw
-        #
-        #   TODO: After going down, hold off going up for 30s
-        #
+        # Handle forced charge
+        if self.energy.value < self.force_charge_Wh:
+            self.start_counter.to_maximum()
+            self.stop_counter.to_maximum()
+            self.current_limit_counter.minimum = self.force_charge_i
+        else:
+            self.current_limit_counter.minimum = self.i_start
 
         # Should we start charge ?
         if self.is_charging_paused():
-            if avg_excess > self.p_threshold_start:
-                await self.set_virtual_current_limit( self.i_start )
-                print("start")
+            if self.start_counter.at_maximum():
+                await self.start_charge()
             return
 
         # now we're in charge mode
@@ -158,61 +175,62 @@ class EVSE( grugbus.SlaveDevice ):
             # - Or it is in the final balancing stage, and we want that to finish cleanly no matter what excess PV is.
             # In both cases, we just do nothing.
             self.command_interval.reset( 6 )
-            self.target_power = None
-            print("startup")
             return
+
+        # Should we stop charge ?
+        if self.stop_counter.at_minimum():
+            return await self.stop_charge()
+
+        # Are we waiting for power to settle after a command?
+        if self.target_power:
+            mi, ma = self.target_power
+            print( "target: %d<%d<%d" % (mi, power, ma))
+            if mi <= power <= ma:
+                print("in range")
+                self.target_power = None
+                self.publish_target_power()
+                self.command_interval.at_most(1)  # previous command was executed: if timeout was still running, shorten it
 
         # Finally... adjust current.
-        # Since the car imposes 1A steps, if we have a small excess that is lower than the power step
-        # then don't bother.
+        # Since the car imposes 1A steps, if we have a small excess that is lower than 1A then don't bother.
         delta_i = 0
-        if abs(excess) > self.p_dead_band_fast:
-            delta_i     = excess * 0.004
+        if abs(excess) > self.p_dead_band:
+            delta_i     = round( excess * 0.004 )
 
-        # Now charge with solar only
-        # EVSE is slow, the car takes 2 seconds to respond to commands, then the inverter needs to adjust,
-        # new value of excess power needs to stabilize, etc, before a new power setting can he issued.
-        # This means we have to wait long enough between commands.
-        change = await self.adjust_virtual_current_limit( delta_i, dry_run=True )
-        if not change:
-            # Next time, if a change is required, we will wait a little
-            # this is to wait for power to settle
-            self.command_interval.at_least(1)
-            return
-
-        print( "excess %5d power %5d ilim %5d change %5d" % (excess, power, self.rwr_current_limit.value, change))
-
-        # do not bang it with lots of small adjustments
-        if abs(delta_i) <= 2 and not self.command_interval_small.expired():
-            return
+        # stop charge if are at minimulm power and repeatedly try to go lower
+        if delta_i < 0 and self.current_limit_counter.at_minimum():
+            self.stop_counter.add( -time_since_last )
+        else:
+            self.stop_counter.add( time_since_last )
 
         print("timeout remain", self.command_interval.remain())
         if not self.command_interval.expired():
-            # For a large adjustment we can override the timout
-            # by checking if the car is drawing the power we requested
-            if self.target_power:
-                # try to shorten timeout
-                mi, ma = self.target_power
-                print( "target: %d<%d<%d" % (mi, power, ma))
-                if mi <= power <= ma:
-                    print("in range")
-                    self.target_power = None
-                    # self.command_interval.at_most(5)        # previous  command executed: shorten timeout
-                    self.command_interval.at_most(1)        # previous  command executed: shorten timeout
+            return
+
+        # Now charge with solar only
+        # EVSE is slow, the car takes >2 seconds to respond to commands, then the inverter needs to adjust,
+        # new value of excess power needs to stabilize, etc, before a new power setting can he issued.
+        # This means we have to wait long enough between commands.
+        change = await self.adjust_current_limit( delta_i, dry_run=True )
+
+        print( "excess %5d power %5d ilim %5d delta %s change %5d ssc %s" % (excess, power, self.rwr_current_limit.value, delta_i, change, self.stop_counter.value ))
+
+        if not change:
+            return
+
+        # special case: do not bang it with lots of small adjustments
+        if abs(delta_i) <= 2 and not self.command_interval_small.expired():
             return
 
         print( "execute", delta_i )
-        await self.adjust_virtual_current_limit( delta_i )
-        self.previous_delta = delta_i
+        self.previous_delta = delta_i = await self.adjust_current_limit( delta_i )
         self.command_interval.reset( 9 )
         self.command_interval_small.reset( 6 )
 
         # set target so we know it's executed
         target_i = self.rwr_current_limit.value
         self.target_power = power+(delta_i-1.8)*voltage, power+(delta_i+1.8)*voltage
-        self.settled = False
-        self.mqtt.publish_value( self.mqtt_topic+"target_power_min",  round(self.target_power[0],2) )
-        self.mqtt.publish_value( self.mqtt_topic+"target_power_max",  round(self.target_power[1],2) )
+        self.publish_target_power()
 
 
     def is_charging_paused( self ):
@@ -221,46 +239,21 @@ class EVSE( grugbus.SlaveDevice ):
     def is_charging_unpaused( self ):
         return self.rwr_current_limit.value >= self.i_start
 
-    async def adjust_virtual_current_limit( self, increment, dry_run=False ):
-        if increment:
-            # make it slow to shut down but fast to start again when a cloud passes
-            newval = self.virtual_current_limit + increment
-            # if newval < self.virtual_i_unpause:
-            #     increment = max( -0.1, increment )
-            #     newval = self.virtual_current_limit + increment
-            return await self.set_virtual_current_limit( newval, dry_run )
-        else:
-            return 0
+    async def adjust_current_limit( self, increment, dry_run=False ):
+        # the car rounds current to the nearest integer number of amps, so 
+        # the counter automatically rounds too, this avoids useless writes
+        limit = self.current_limit_counter.pretend_add( increment )
+        return  await self.set_current_limit( limit, dry_run )
 
-    # Adjusting current when charging takes a few seconds so we can do it often.
-    # But pausing and restarting charge is slow (>30s) so we should not do it just because there was a spike in the
-    # exported power measured by the meter.
-    # When current limit is 6A, EVSE will start charging. Below that it will pause.
-    # So we use a virtual_current_limit that is adjusted according to excess power, then derive the real current limit from it:
-    # when the virtual current limit is lower than 6A but not too low, we keep the real current limit at 6A so it keeps charging.
-    # This avoids short pause/restart cycles;
-    async def set_virtual_current_limit( self, v_limit, dry_run=False ):
-        # clip it
-        v_limit = min( self.virtual_i_max, max( self.virtual_i_min, v_limit ))
-
-        # hysteresis comparator
-        threshold = self.virtual_i_pause if self.is_charging_unpaused() else self.virtual_i_unpause
-
-        if v_limit <= threshold:      current_limit = self.i_pause     # very low: pause charging
-        elif v_limit <= self.i_start: current_limit = self.i_start     # low but not too low: keep charging at min power
-        else:                         current_limit = min( self.i_max, v_limit ) # above 6A: send current limit unchanged
-
-        # avoid useless writes since the car rounds it
+    async def set_current_limit( self, current_limit, dry_run=False ):
         current_limit = round(current_limit)
-
-        # returns True if the value changed
-        delta_i = current_limit - self.rwr_current_limit.value
+        delta_i = current_limit - self.current_limit_counter.value  # did it change?
 
         # execute if dry_run is false
         if not dry_run:
-            self.virtual_current_limit = v_limit
             if delta_i or self.resend_current_limit_timeout.expired():
                 self.resend_current_limit_timeout.reset()
+                self.current_limit_counter.set( current_limit )
                 await self.rwr_current_limit.write( current_limit )
                 print( "write limit", current_limit )
 
@@ -270,7 +263,6 @@ class EVSE( grugbus.SlaveDevice ):
                 mqtt = self.mqtt
                 topic = self.mqtt_topic
                 mqtt.publish_reg( topic, self.rwr_current_limit )
-                mqtt.publish_value( topic+"virtual_current_limit",  round(self.virtual_current_limit,2) )
                 mqtt.publish_value( topic+"charging_unpaused"    ,  self.is_charging_unpaused() )
                 if config.LOG_MODBUS_WRITE_REQUEST_TIME:
                     self.mqtt.publish_value( self.mqtt_topic+"req_time", round( self.last_transaction_duration,2 ) )
