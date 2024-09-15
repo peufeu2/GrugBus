@@ -228,9 +228,10 @@ class EVSE( grugbus.SlaveDevice ):
         self.command_interval_small.reset( 6 )
 
         # set target so we know it's executed
-        target_i = self.rwr_current_limit.value
-        self.target_power = power+(delta_i-1.8)*voltage, power+(delta_i+1.8)*voltage
-        self.publish_target_power()
+        if abs(delta_i) > 2:
+            target_i = self.rwr_current_limit.value
+            self.target_power = power+(delta_i-1.8)*voltage, power+(delta_i+1.8)*voltage
+            self.publish_target_power()
 
 
     def is_charging_paused( self ):

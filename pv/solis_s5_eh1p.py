@@ -45,6 +45,10 @@ class Solis( grugbus.SlaveDevice ):
         self.input_power = grugbus.registers.FakeRegister( "input_power", 0, "int", 0 )
         self.battery_dcdc_power = grugbus.registers.FakeRegister( "battery_dcdc_power", 0, "int", 0 )
 
+        self.mppt1_power       = grugbus.registers.FakeRegister( "mppt1_power", 0, "int", 0 )
+        self.mppt2_power       = grugbus.registers.FakeRegister( "mppt1_power", 0, "int", 0 )
+        self.bms_battery_power = grugbus.registers.FakeRegister( "bms_battery_power", 0, "int", 0 )
+
         #   Other coroutines that need inverter register values can wait on these events to 
         #   grab the values when they are read
         self.event_power = asyncio.Event()  # Fires every time frequent_regs below are read
@@ -110,8 +114,8 @@ class Solis( grugbus.SlaveDevice ):
                 # TODO
                 self.llc_bus_voltage,
                 # self.switching_machine_setting,
-                self.b_limit_operation,
-                self.b_battery_status,
+                # self.b_limit_operation,
+                # self.b_battery_status,
 
             ],[
                 self.rwr_energy_storage_mode              ,
@@ -164,30 +168,33 @@ class Solis( grugbus.SlaveDevice ):
                             self.battery_power.value       = self.battery_current.value * self.battery_voltage.value
                             regs.append( self.battery_power )
 
-                        # fast current setting
+                        # fast current setting using the DC/DC setpoint
                         if self.battery_dcdc_direction in regs:
                             regs.remove( self.battery_dcdc_direction )
                             if self.battery_dcdc_direction.value:    # positive current/power means charging, negative means discharging
                                 self.battery_dcdc_current.value *= -1
+                            if (self.llc_bus_voltage.value or 0) < 50:        # fix: ignore current when DC/DC is off
+                                self.battery_dcdc_current.value = 0
                             self.battery_dcdc_power.value = self.battery_dcdc_current.value * self.battery_voltage.value
                             regs.append( self.battery_dcdc_power )
-
-                        # Prepare MQTT publish
-                        for reg in regs:
-                            mqtt.publish_reg( topic, reg )
-
-                        if self.battery_max_charge_current in regs:
-                            self.battery_dcdc_active.value = self.battery_max_charge_current.value != 0
+                            self.battery_dcdc_active.value = bool( self.battery_max_charge_current.value and self.battery_dcdc_current.value )
 
                         # Add useful metrics to avoid asof joins in database
                         if self.mppt1_voltage in regs:
-                            mqtt.publish_value( topic+"mppt1_power", int( self.mppt1_current.value * self.mppt1_voltage.value ))
-                            mqtt.publish_value( topic+"mppt2_power", int( self.mppt2_current.value * self.mppt2_voltage.value ))
+                            self.mppt1_power.value = int( self.mppt1_current.value * self.mppt1_voltage.value )
+                            self.mppt2_power.value = int( self.mppt2_current.value * self.mppt2_voltage.value )
+                            regs.append( self.mppt1_power )
+                            regs.append( self.mppt2_power )
 
                         if self.bms_battery_current in regs:
                             if self.battery_current_direction.value:    # positive current/power means charging, negative means discharging
                                 self.bms_battery_current.value *= -1
-                            mqtt.publish_value( topic+"bms_battery_power", int( self.bms_battery_current.value * self.bms_battery_voltage.value ))
+                            self.bms_battery_power.value = int( self.bms_battery_current.value * self.bms_battery_voltage.value )
+                            regs.append( self.bms_battery_power )
+
+                        # Prepare MQTT publish
+                        for reg in regs:
+                            mqtt.publish_reg( topic, reg )
 
                     finally:
                         # wake up other coroutines waiting for fresh values

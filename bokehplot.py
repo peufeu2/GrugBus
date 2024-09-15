@@ -76,7 +76,6 @@ DATA_STREAMS = [
     ( "pv/evse/energy"                                   , "kWh" , "EVSE"                        , "#FF80FF"       , "solid",  0.001 , {"visible":False}  , {} ),
     ( "pv/evse/meter/active_power"                       , "W"   , "EVSE"                        , "#FF80FF"       , "solid",    1.0 , {}                 , {} ),
     ( "pv/evse/rwr_current_limit"                        , "W"   , "EVSE ILim"                   , "#FFFFFF"       , "solid",  235.0 , {"visible":False}  , {} ),
-    ( "pv/evse/virtual_current_limit"                    , "W"   , "EVSE ILim (virtual)"         , "#808080"       , "dashed", 235.0 , {"visible":False}  , {} ),
 
     ( "pv/evse/target_power_min"                         , "W"   , "EVSE Min"         , "#808080"       , "dashed", 1.0 , {"visible":False}  , {} ),
     ( "pv/evse/target_power_max"                         , "W"   , "EVSE Max"         , "#808080"       , "dashed", 1.0 , {"visible":False}  , {} ),
@@ -121,7 +120,6 @@ if 0:
 "pv/evse/energy"                                 ,
 "pv/evse/meter/active_power"                     ,
 "pv/evse/rwr_current_limit"                      ,
-"pv/evse/virtual_current_limit"                  ,
 "pv/meter/house_power"                           ,
 "pv/meter/phase_1_power"                         ,
 "pv/meter/phase_2_power"                         ,
@@ -194,7 +192,6 @@ PLOT_LAYOUTS = [
                 "pv/router/battery_min_charge_power"             ,
                 "pv/evse/meter/active_power"                     ,
                 "pv/evse/rwr_current_limit"                      ,
-                "pv/evse/virtual_current_limit"                  ,
                 "pv/router/excess_avg"                           ,
                 # "pv/router/excess_avg_nobat"                     ,
                 "pv/evse/target_power_min"                       ,
