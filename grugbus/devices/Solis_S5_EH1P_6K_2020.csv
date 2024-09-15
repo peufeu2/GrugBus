@@ -430,7 +430,9 @@ HV hybrid：
 4,33202,,"U16","0,01Hz","Backup output reference frequency",,"float",,,,,,
 4,33203,,"U16",,"Battery charge/discharge Enable","Battery dcdc Enable","int",,"1-Enable 0-Disable",,,,
 4,33204,,"U16",,"Battery charge/discharge Direction","Battery dcdc Direction","int",,"0-Charge 1-Discharge",,,,
-4,33205,,"U16","0,1A","Battery charge/discharge Current","Battery dcdc Current","float",,"This reacts instantly to changes in current (battery_current is smoothed)",,,,
+4,33205,,"U16","0,1A","Battery charge/discharge Current","Battery dcdc Current","float",,"This reacts instantly to changes in current (battery_current is smoothed)
+But… it sometimes gives bogus values (ie 20A current while the enable is true and no charging occurs)
+Not usable !",,,,
 4,33206,,"U16","0,1A","Battery max charge current",,"float",,,,,,
 4,33207,,"U16","0,1A","Battery max discharge current",,"float",,,,,,
 4,33208,,"U16","0,1V","Battery under voltage Protection ",,"float",,,,,,

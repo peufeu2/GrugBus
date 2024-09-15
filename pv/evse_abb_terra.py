@@ -8,6 +8,7 @@ from asyncio.exceptions import TimeoutError
 # Device wrappers and misc local libraries
 import grugbus
 from grugbus.devices import EVSE_ABB_Terra
+from pv.mqtt_wrapper import MQTTWrapper
 import config
 from misc import *
 
@@ -27,6 +28,7 @@ class EVSE( grugbus.SlaveDevice ):
         self.mqtt        = mqtt
         self.mqtt_topic  = mqtt_topic
         self.local_meter = local_meter
+        mqtt.register_callbacks( self, "cmnd/" + mqtt_topic )
 
         # Modbus polling
         self.tick      = Metronome( config.POLL_PERIOD_EVSE )   # how often we poll it over modbus
@@ -35,7 +37,7 @@ class EVSE( grugbus.SlaveDevice ):
         self.regs_to_read = (
             self.charge_state       ,
             self.current_limit      ,
-            self.current            ,
+            # self.current            ,
             # self.active_power       ,
             self.energy             ,
             self.error_code         ,
@@ -48,8 +50,8 @@ class EVSE( grugbus.SlaveDevice ):
         self.i_max   = 30.0         # maximum current limit
 
         # incremented/decremented depending on excess power to start/stop charge
-        self.start_counter = BoundedCounter( 0, -10, 10 )
-        self.stop_counter  = BoundedCounter( 0, -10, 10 )
+        self.start_counter = BoundedCounter( 0, -60, 60 )
+        self.stop_counter  = BoundedCounter( 0, -60, 60 )
 
         # current limit that will be sent to the EVSE
         self.current_limit_counter = BoundedCounter( self.i_start, self.i_start, self.i_max, round )
@@ -65,13 +67,13 @@ class EVSE( grugbus.SlaveDevice ):
         #   Excess power also needs to settle before it can be used to calculate a new current_limit command.
         #   All this means it will be quite slow. Issue a command, ignore excess power during about 4 seconds, then smooth it for 3 seconds, get a new value, update.
         #   The length of the smoothing is in the deque in Router() class.
-        self.command_interval       = Timeout( 10, expired=True )
-        self.command_interval_small = Timeout( 10, expired=True )
+        self.command_interval             = Timeout( 10, expired=True )
+        self.command_interval_small       = Timeout( 10, expired=True )
         self.resend_current_limit_timeout = Timeout( 10, expired=True )
 
         # forced charge mdoe
         self.force_charge_i   = 6         # guarantee this charge current
-        self.force_charge_Wh  = 0       # until this energy has been delivered
+        self.force_charge_kWh  = 0       # until this energy has been delivered
         self.p_threshold_start = 1400   # minimum excess power to start charging
 
         # dead band for power routing
@@ -82,8 +84,8 @@ class EVSE( grugbus.SlaveDevice ):
         self.previous_delta = 0
         self.last_call      = Chrono()
 
-    async def stop_charge( self, log=True ):
-        if log:
+    async def stop_charge( self, print_log=True ):
+        if print_log:
             log.info("EVSE: stop charge")
         self.target_power = None
         self.start_counter.to_minimum()
@@ -103,6 +105,18 @@ class EVSE( grugbus.SlaveDevice ):
         t = self.target_power or (0,0)
         self.mqtt.publish_value( self.mqtt_topic+"target_power_min",  round(t[0],2) )
         self.mqtt.publish_value( self.mqtt_topic+"target_power_max",  round(t[1],2) )
+
+    @MQTTWrapper.decorate_callback( "force_charge_i", int, range(6,30) )
+    async def cb_force_charge_i( self, topic, payload, qos, properties ):
+        self.force_charge_i   = payload
+
+    @MQTTWrapper.decorate_callback( "force_charge_kWh", int, range(0,80) )
+    async def cb_force_charge_kWh( self, topic, payload, qos, properties ):
+        self.force_charge_kWh   = payload
+
+    @MQTTWrapper.decorate_callback( "p_threshold_start", int, range(0,2000) )
+    async def cb_p_threshold_start( self, topic, payload, qos, properties ):
+        self.p_threshold_start   = payload
 
     async def read_coroutine( self ):
         mqtt = self.mqtt
@@ -144,7 +158,7 @@ class EVSE( grugbus.SlaveDevice ):
         if ((self.socket_state.value) != 0x111 or None in (power, voltage, excess) ):
             # set charge to paused, it will take many loops to increment this enough to start
             # print("noinit", self.socket_state.value, power, voltage, aexcess)
-            return await self.stop_charge( log=self.is_charging_unpaused() )
+            return await self.stop_charge( print_log=self.is_charging_unpaused() )
 
         # TODO: do not trip breaker     mgr.meter.phase_1_current
 
@@ -154,7 +168,7 @@ class EVSE( grugbus.SlaveDevice ):
         #              400     : charging
 
         # Handle forced charge
-        if self.energy.value < self.force_charge_Wh:
+        if self.energy.value < self.force_charge_kWh:
             self.start_counter.to_maximum()
             self.stop_counter.to_maximum()
             self.current_limit_counter.minimum = self.force_charge_i

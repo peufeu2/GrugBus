@@ -34,7 +34,7 @@ class Solis( grugbus.SlaveDevice ):
 
         # These are computed using values polled from the inverter
          # inverter reacts slower when battery works (charge or discharge), see comments in Router
-        self.battery_dcdc_active = grugbus.registers.FakeRegister( "battery_dcdc_active", True, "int", 0 )
+        # self.battery_dcdc_active = grugbus.registers.FakeRegister( "battery_dcdc_active", True, "int", 0 )
 
         # For power routing we need to know battery power, in order to steal some of it when we want to.
         # The inverter's report of battery_power is slow (2 seconds lag) and does not account for energy stored
@@ -43,7 +43,7 @@ class Solis( grugbus.SlaveDevice ):
         # This has no lag, as pv_power is reported in real time.
         # TODO: this also includes backup output power, so we should substract it
         self.input_power = grugbus.registers.FakeRegister( "input_power", 0, "int", 0 )
-        self.battery_dcdc_power = grugbus.registers.FakeRegister( "battery_dcdc_power", 0, "int", 0 )
+        # self.battery_dcdc_power = grugbus.registers.FakeRegister( "battery_dcdc_power", 0, "int", 0 )
 
         self.mppt1_power       = grugbus.registers.FakeRegister( "mppt1_power", 0, "int", 0 )
         self.mppt2_power       = grugbus.registers.FakeRegister( "mppt1_power", 0, "int", 0 )
@@ -59,15 +59,14 @@ class Solis( grugbus.SlaveDevice ):
                 self.pv_power                   ,
 
                 self.battery_voltage            ,
+                self.battery_current            ,
+                self.battery_current_direction  ,
 
-                self.battery_dcdc_enable,
-                self.battery_dcdc_direction,
-                self.battery_dcdc_current,
+                # self.battery_dcdc_direction,
+                # self.battery_dcdc_current,
             ]
 
         self.reg_sets = [ frequent_regs + regs for regs in [[
-                self.battery_current            ,
-                self.battery_current_direction  ,
             ],[
                 self.energy_generated_today               ,  
                 self.energy_generated_yesterday           ,      
@@ -168,17 +167,16 @@ class Solis( grugbus.SlaveDevice ):
                             self.battery_power.value       = self.battery_current.value * self.battery_voltage.value
                             regs.append( self.battery_power )
 
-                        # fast current setting using the DC/DC setpoint
-                        if self.battery_dcdc_direction in regs:
-                            regs.remove( self.battery_dcdc_direction )
-                            if self.battery_dcdc_direction.value:    # positive current/power means charging, negative means discharging
-                                self.battery_dcdc_current.value *= -1
-                            if (self.llc_bus_voltage.value or 0) < 50:        # fix: ignore current when DC/DC is off
-                                self.battery_dcdc_current.value = 0
-                            self.battery_dcdc_power.value = self.battery_dcdc_current.value * self.battery_voltage.value
-                            regs.append( self.battery_dcdc_power )
-                            self.battery_dcdc_active.value = bool( self.battery_max_charge_current.value and self.battery_dcdc_current.value )
-
+                        # # fast current setting using the DC/DC setpoint
+                        # if self.battery_dcdc_direction in regs:
+                        #     regs.remove( self.battery_dcdc_direction )
+                        #     if self.battery_dcdc_direction.value:    # positive current/power means charging, negative means discharging
+                        #         self.battery_dcdc_current.value *= -1
+                        #     if (self.llc_bus_voltage.value or 0) < 50:        # fix: ignore current when DC/DC is off
+                        #         self.battery_dcdc_current.value = 0
+                        #     self.battery_dcdc_power.value = self.battery_dcdc_current.value * self.battery_voltage.value
+                        #     regs.append( self.battery_dcdc_power )
+                        
                         # Add useful metrics to avoid asof joins in database
                         if self.mppt1_voltage in regs:
                             self.mppt1_power.value = int( self.mppt1_current.value * self.mppt1_voltage.value )

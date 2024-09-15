@@ -127,15 +127,15 @@ MQTT_RATE_LIMIT = {
     "pv/evse/charging_unpaused"                      : ( 60, 0    , ""  ),
     "pv/evse/current"                                : ( 60, 0.2  , "avg"  ),
     "pv/evse/current_limit"                          : ( 60, 0    , "avg"  ),
-    "pv/evse/energy"                                 : ( 60, 0.01 , "avg"  ),
+    "pv/evse/charge_energy"                          : ( 60, 0.01 , ""  ),
     "pv/evse/error_code"                             : ( 60, 0    , ""  ),
     "pv/evse/req_time"                               : ( 60, 0.01 , "avg"  ),
     "pv/evse/rwr_current_limit"                      : ( 60, 0    , "avg"  ),
     "pv/evse/socket_state"                           : ( 60, 0    , ""  ),
     "pv/evse/virtual_current_limit"                  : ( 60, 0    , "avg"  ),
 
-    "pv/evse/meter/export_active_energy"             : ( 60, 0.01 , "avg"  ),
-    "pv/evse/meter/import_active_energy"             : ( 60, 0.01 , "avg"  ),
+    "pv/evse/meter/export_active_energy"             : ( 60, 0.01 , ""  ),
+    "pv/evse/meter/import_active_energy"             : ( 60, 0.01 , ""  ),
     "pv/evse/meter/voltage"                          : ( 10, 1    , "avg"  ),
     "pv/evse/meter/current"                          : ( 10, 0.1  , "avg"  ),
 
