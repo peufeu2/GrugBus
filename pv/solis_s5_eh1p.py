@@ -46,7 +46,7 @@ class Solis( grugbus.SlaveDevice ):
         # self.battery_dcdc_power = grugbus.registers.FakeRegister( "battery_dcdc_power", 0, "int", 0 )
 
         self.mppt1_power       = grugbus.registers.FakeRegister( "mppt1_power", 0, "int", 0 )
-        self.mppt2_power       = grugbus.registers.FakeRegister( "mppt1_power", 0, "int", 0 )
+        self.mppt2_power       = grugbus.registers.FakeRegister( "mppt2_power", 0, "int", 0 )
         self.bms_battery_power = grugbus.registers.FakeRegister( "bms_battery_power", 0, "int", 0 )
 
         #   Other coroutines that need inverter register values can wait on these events to 

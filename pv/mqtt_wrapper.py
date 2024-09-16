@@ -158,7 +158,7 @@ class MQTTWrapper:
                     if not validation( payload ):
                         log.error( "MQTT callback: Invalid value: topic %s received %r" % (topic, payload))
                         return
-                log.info("MQTT callback: %s(%s,%s,%s,%s,%s)", func, self, topic, payload, qos, properties)
+                # log.info("MQTT callback: %s(%s,%s,%s,%s,%s)", func, self, topic, payload, qos, properties)
                 await func( self, topic, payload, qos, properties )
             callback.mqtt_topic = topic
             cls._callbacks_generated.add( callback )

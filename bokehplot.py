@@ -73,7 +73,7 @@ DATA_STREAMS = [
     ( "pv/router/battery_min_charge_power"               , "W"   , "Battery Min Charge"          , "battery"       , "dashed",   1.0 , {}                 , {} ),
 
 
-    ( "pv/evse/charge_energy"                            , "kWh" , "EVSE"                        , "#FF80FF"       , "solid",    1.0 , {"visible":False}  , {} ),
+    ( "pv/evse/energy"                            , "kWh" , "EVSE"                        , "#FF80FF"       , "solid",    1.0 , {"visible":False}  , {} ),
     ( "pv/evse/meter/active_power"                       , "W"   , "EVSE"                        , "#FF80FF"       , "solid",    1.0 , {}                 , {} ),
     ( "pv/evse/rwr_current_limit"                        , "W"   , "EVSE ILim"                   , "#FFFFFF"       , "solid",  235.0 , {"visible":False}  , {} ),
 
@@ -91,7 +91,7 @@ DATA_STREAMS = [
     ( "pv/router/excess_avg"                             , "W"   , "Route excess"                , "#FF00FF"       , "solid",   -1.0 , {"visible":False}  , {} ),
     ( "pv/router/excess_avg_nobat"                       , "W"   , "Route excess nobat"          , "#FF00FF"       , "solid",   -1.0 , {"visible":False}  , {} ),
     ( "pv/total_input_power"                             , "W"   , "Battery Proxy"               , "input"         , "solid",    1.0 , {}                 , {} ),
-    ( "pv/total_output_power"                            , "W"   , "Grid Ports"                  , "grid_port"     , "solid",    1.0 , {}                 , {} ),
+    ( "pv/total_grid_port_power"                         , "W"   , "Grid Ports"                  , "grid_port"     , "solid",    1.0 , {}                 , {} ),
     ( "pv/meter/req_period"                              , "s"   , "req_period"                  , "#FFFF00"       , "solid",    1.0 , {}                 , {"aggregate":"max"} ),
     ( "pv/solis%d/fakemeter/active_power"                , "W"   , "S%d FakeMeter"               , "fakemeter"     , "solid",    1.0 , {"visible":False}  , {} ),
     ( "pv/solis%d/input_power"                           , "W"   , "S%d Battery Proxy"           , "input"         , "solid",    1.0 , {}                 , {} ),
@@ -115,48 +115,6 @@ DATA_STREAMS = [
     # ( "pv/solis1/battery_dcdc_current"                   , "V"  , "battery_dcdc_current"   , "#FF80FF"       , "solid",    1.0 , {}                 , {} ),
 ]
 
-if 0:
-    [
-"pv/evse/energy"                                 ,
-"pv/evse/meter/active_power"                     ,
-"pv/evse/rwr_current_limit"                      ,
-"pv/meter/house_power"                           ,
-"pv/meter/phase_1_power"                         ,
-"pv/meter/phase_2_power"                         ,
-"pv/meter/phase_3_power"                         ,
-"pv/meter/phase_1_line_to_neutral_volts"         ,
-"pv/meter/phase_2_line_to_neutral_volts"         ,
-"pv/meter/phase_3_line_to_neutral_volts"         ,
-"pv/meter/total_power"                           ,
-"pv/router/excess_avg"                           ,
-"pv/router/excess_avg_nobat"                     ,
-"pv/total_battery_power"                         ,
-"pv/total_input_power"                           ,
-"pv/total_pv_power"                              ,
-"pv/battery_soc"                                 ,
-"pv/meter/req_period"                            ,
-"pv/solis%d/battery_power"                       ,
-"pv/solis%d/fakemeter/active_power"              ,
-"pv/solis%d/input_power"                         ,
-"pv/solis%d/meter/active_power"                  ,
-"pv/solis%d/pv_power"                            ,
-"pv/solis%d/mppt1_power"                         ,
-"pv/solis%d/mppt2_power"                         ,
-"pv/solis%d/battery_current"                     ,
-"pv/solis%d/battery_max_charge_current"          ,
-"pv/solis%d/bms_battery_charge_current_limit"    ,
-"pv/solis%d/bms_battery_current"                 ,
-"pv/solis%d/bms_battery_discharge_current_limit" ,
-"pv/solis%d/mppt1_current"                       ,
-"pv/solis%d/mppt2_current"                       ,
-"pv/solis%d/bms_battery_soc"                     ,
-"pv/solis%d/mppt1_voltage"                       ,
-"pv/solis%d/mppt2_voltage"                       ,
-"pv/solis%d/battery_voltage"                     ,
-"pv/solis%d/dc_bus_voltage"                      ,
-"pv/solis%d/temperature"                         ,
-    ]
-
 #
 #   [ [ "Tab name", [ list of rows [ list of traces ]]
 PLOT_LAYOUTS = [
@@ -169,7 +127,7 @@ PLOT_LAYOUTS = [
                 "pv/meter/total_power"                           ,
                 "pv/total_battery_power"                         ,
                 "pv/total_input_power"                         ,
-                "pv/total_output_power"                          ,
+                "pv/total_grid_port_power"                          ,
                 "pv/evse/meter/active_power"                     ,
                 # "pv/solis%d/pv_power"                            ,
                 # "pv/solis1/battery_power",
@@ -200,10 +158,11 @@ PLOT_LAYOUTS = [
         ]
     ],[ "Strings", 
         [
+            # [
+            #     "pv/total_pv_power"                              ,
+            #     "pv/solis%d/pv_power"                            ,
+            # ],
             [
-                "pv/total_pv_power"                              ,
-                "pv/solis%d/pv_power"                            ,
-            ],[
                 "pv/solis1/mppt1_power"                          ,
                 "pv/solis1/mppt2_power"                          ,
             ],[
@@ -212,6 +171,9 @@ PLOT_LAYOUTS = [
             ],[
                 "pv/solis%d/mppt1_voltage"                       ,
                 "pv/solis%d/mppt2_voltage"                       ,
+            ],[
+                "pv/solis%d/mppt1_current"                       ,
+                "pv/solis%d/mppt2_current"                       ,
             ]
 
         ]
