@@ -27,3 +27,19 @@ It should output a lot of debug info, perhaps stop with errors or ask some quest
 
 To see how this file is used, check modbus_mitm.py and search for MakeRegisters to see how to instanciate a modbus device.
 
+Included google keywords:
+
+# Fronius TS 100A-1 Smartmeter modbus register map
+
+# Eastron SDM120 Smartmeter modbus register map
+
+# Eastron SDM630 Smartmeter modbus register map
+
+# Acrel ACR10RD16TE4 Smartmeter modbus register map
+
+# EVSE ABB TERRA modbus register map
+
+# Solis S5-EH1P-6K modbus register map
+
+
+

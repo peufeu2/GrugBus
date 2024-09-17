@@ -121,6 +121,7 @@ class MovingAverage:
         self.sum_time  = 0.0
         self.time_window = time_window
         self.tick = 0
+        self.ncalls = 0
 
     def append( self, value ):
         # time since last append
@@ -140,11 +141,18 @@ class MovingAverage:
         q.append( (value,dt) )
 
         # moving average
-        if self.sum_time >= self.time_window:
+        while len(q)>1 and self.sum_time >= self.time_window:
             old_value, old_dt = q.popleft()
             self.sum_value -= old_value
-            self.sum_time -= old_dt
-            return self.sum_value / self.sum_time
+            self.sum_time  -= old_dt
+
+        self.ncalls += 1    # remove rouding error
+        if self.ncalls > 10:
+            self.ncalls = 0
+            self.sum_value = sum( value for value, dt in q )
+            self.sum_time  = sum( dt    for value, dt in q )
+
+        return self.sum_value / self.sum_time
 
         # return None if we don't have enough data yet
 

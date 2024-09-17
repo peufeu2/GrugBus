@@ -16,7 +16,7 @@ from pymodbus.pdu import ExceptionResponse
 # Device wrappers and misc local libraries
 from misc import *
 import grugbus
-from grugbus.devices import Eastron_SDM120
+from grugbus.devices import Eastron_SDM120, Fronius_TS100A
 import config
 
 # pymodbus.pymodbus_apply_logging_config( logging.DEBUG )
@@ -36,7 +36,74 @@ log = logging.getLogger(__name__)
 #       
 #       It has default address 1, so use this function to change it.
 #
+
+
+async def runme():
+
+    m = AsyncModbusSerialClient(
+                    port            = "COM7",
+                    timeout         = 1,
+                    retries         = 2,
+                    baudrate        = 9600,
+                    bytesize        = 8,
+                    parity          = "N",
+                    stopbits        = 1,
+                )
+    print( m )
+    modbus_address = 1
+    await m.connect()
+    addr = 258
+    resp = await m.read_holding_registers( addr, 16, modbus_address )
+    print( addr, resp )
+    print( addr, "read", resp.registers )
+
+    addr = 1024
+    resp = await m.read_holding_registers( addr, 16, modbus_address )
+    print( addr, resp )
+    print( addr, "read", resp.registers )
+    # for addr in range( 0,1000, 10 ):
+        # resp = await self.modbus.read_input_registers( addr, 1, 1 )
+
+# asyncio.run( runme() )
+# stop
+
 if 1:
+    async def set_sdm120_address( new_address=1 ):
+        modbus_address = 1
+        d = grugbus.SlaveDevice( 
+                AsyncModbusSerialClient(
+                    port            = "COM7",
+                    timeout         = 1,
+                    retries         = 2,
+                    baudrate        = 9600,
+                    bytesize        = 8,
+                    parity          = "N",
+                    stopbits        = 1,
+                ),
+                modbus_address,          # Modbus address
+                "meter", "SDM120 Smartmeter", 
+                Fronius_TS100A.MakeRegisters() )
+        await d.modbus.connect()
+
+        addr = 258
+        resp = await d.modbus.read_holding_registers( addr, 16, modbus_address )
+        print( addr, resp )
+        print( addr, "read", resp.registers )
+
+        while True:
+            regs = await d.read_regs( [ d.rwr_active_power ] )
+            for reg in regs:
+                print( "%40s %s" % (reg.key, reg.format_value()))
+            await asyncio.sleep(0.1)
+
+
+        while True:
+            regs = await d.read_regs( d.registers )
+            for reg in regs:
+                print( "%40s %s" % (reg.key, reg.format_value()))
+            await asyncio.sleep(1)
+
+if 0:
     async def set_sdm120_address( new_address=1 ):
         d = grugbus.SlaveDevice( 
                 AsyncModbusSerialClient(
@@ -93,4 +160,5 @@ if 1:
         # await d.rwr_modbus_node_address.read()
         # print( "current address", d.rwr_modbus_node_address.value )
 
-    asyncio.run( set_sdm120_address() )
+
+asyncio.run( set_sdm120_address() )

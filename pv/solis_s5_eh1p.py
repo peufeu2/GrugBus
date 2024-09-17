@@ -49,6 +49,17 @@ class Solis( grugbus.SlaveDevice ):
         self.mppt2_power       = grugbus.registers.FakeRegister( "mppt2_power", 0, "int", 0 )
         self.bms_battery_power = grugbus.registers.FakeRegister( "bms_battery_power", 0, "int", 0 )
 
+        #   Detect when the inverter won't charge the battery. This information is needed for diverting,
+        #   because we want to reserve some power (ie, not divert it) so the inverter can charge its battery.
+        #   In order to do that, we need to know if the inverter wants to charge or not...
+        #   This is a bit subtle, because the inverter doesn't say if it wants to charge.
+        #   Charge is limited to battery_max_charge_current, so when this is zero we're sure.
+        #   Otherwise, when SOC is in the 99-100% range, sometimes it won't wharge, sometimes it will.
+        #   So instead, we check if it is using the battery or not.
+        #
+        self.smooth_bp_abs = MovingAverage( 20 )    # smooth absolute value of battery power
+        self.battery_full  = False
+
         #   Other coroutines that need inverter register values can wait on these events to 
         #   grab the values when they are read
         self.event_power = asyncio.Event()  # Fires every time frequent_regs below are read
@@ -166,6 +177,9 @@ class Solis( grugbus.SlaveDevice ):
                                 self.battery_current.value     *= -1
                             self.battery_power.value       = self.battery_current.value * self.battery_voltage.value
                             regs.append( self.battery_power )
+
+                            bp_abs_avg = self.smooth_bp_abs.append(abs( self.battery_power.value ))   # moving average
+                            self.battery_full = (self.bms_battery_soc.value or 0)>=98 and bp_abs_avg != None and bp_abs_avg < 100
 
                         # # fast current setting using the DC/DC setpoint
                         # if self.battery_dcdc_direction in regs:

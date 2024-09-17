@@ -144,7 +144,6 @@ class Router():
         # queues to smooth measured power
         self.smooth_export = MovingAverage( 1 )
         self.smooth_bp     = MovingAverage( 1 )
-        self.smooth_bp_abs = MovingAverage( 20 )
 
         # Battery charging current is limited to the product of:
         #   1) Full charging current (as requested by BMS depending on SOC)
@@ -255,8 +254,7 @@ class Router():
         soc = mgr.battery_soc            # battery SOC, 0-100
 
         # remove battery power measurement error when battery is fully charged
-        bp_abs_avg = self.smooth_bp_abs.append(abs( mgr.total_battery_power ))
-        if battery_full := soc>=98 and bp_abs_avg != None and bp_abs_avg < 100:
+        if mgr.battery_full:
             bp_proxy = 0
         bp_avg     = self.smooth_bp    .append( bp_proxy )
 
@@ -275,8 +273,8 @@ class Router():
         # until it's no longer charging...
 
         # Get maximum charging power the battery can take, as determined by inverter, according to BMS info
-        if battery_full:    bp_max  = 0
-        else:               bp_max  = mgr.battery_max_charge_power
+        if mgr.battery_full:    bp_max  = 0
+        else:                   bp_max  = mgr.battery_max_charge_power
         
         # how much power do we allocate to charging the battery, according to SOC
         # if EV charging has begun, pretend we have more SOC than we have to avoid start/stop cycles
@@ -516,6 +514,7 @@ class SolisManager():
         self.battery_soc              = 0    # State of charge as reported by inverter
         self.total_battery_power      = 0    # Battery power for both inverters (positive for charging)
         self.battery_max_charge_power = 0    
+        self.battery_full             = 0
 
     ########################################################################################
     #
@@ -546,6 +545,7 @@ class SolisManager():
                 inverters_with_battery  = []
                 inverters_online        = []
                 meters_online           = 0
+                battery_full            = 0
 
                 # TODO: degraded modes
 
@@ -579,9 +579,13 @@ class SolisManager():
 
                         if lm.is_online:
                             solis.input_power.value = pv_power + lm_power
+
+                    battery_full += solis.battery_full
                 
                 #   Fake Meter
                 # shift slightly to avoid import when we can afford it
+                print("battery_full", battery_full)
+                battery_full = (battery_full == len( inverters_with_battery ))
                 if total_battery_power > 200:
                     meter_power_tweaked += battery_soc*total_battery_power*0.0001
                 total_input_power  = total_pv_power + total_grid_port_power
@@ -592,7 +596,9 @@ class SolisManager():
                     else:
                         # balance power between inverters
                         if len( inverters_with_battery ) == 2:
-                            fake_power = meter_power_tweaked * 0.5 + 0.05*(solis.battery_power.value - total_battery_power*0.5)
+                            fake_power = ( meter_power_tweaked * 0.5 
+                                            + 0.05*(solis.battery_power.value - total_battery_power*0.5)
+                                            - 0.01*(solis.pv_power.value - total_pv_power*0.5) )
                         else:
                             fake_power = meter_power_tweaked * 0.5 + 0.05*(solis.input_power.value - total_input_power*0.5)
 
@@ -620,6 +626,7 @@ class SolisManager():
                 self.battery_soc              = battery_soc
                 self.total_battery_power      = total_battery_power
                 self.battery_max_charge_power = battery_max_charge_power
+                self.battery_full             = battery_full
                 self.event_power.set()
                 self.event_power.clear()
 
