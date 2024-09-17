@@ -90,11 +90,13 @@ if 1:
         print( addr, resp )
         print( addr, "read", resp.registers )
 
-        while True:
-            regs = await d.read_regs( [ d.rwr_active_power ] )
-            for reg in regs:
-                print( "%40s %s" % (reg.key, reg.format_value()))
-            await asyncio.sleep(0.1)
+        d.rwr_import_active_energy_kwh.write( 0 )
+
+        # while True:
+            # regs = await d.read_regs( [ d.rwr_active_power ] )
+            # for reg in regs:
+                # print( "%40s %s" % (reg.key, reg.format_value()))
+            # await asyncio.sleep(0.1)
 
 
         while True:
