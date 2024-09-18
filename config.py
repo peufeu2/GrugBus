@@ -71,7 +71,7 @@ COM_PORT_METER       = "/dev/serial/by-id/usb-FTDI_USB_RS485_3-if01-port0"   # M
 #
 POLL_PERIOD_METER       = (0.2, 0.0)
 POLL_PERIOD_SOLIS_METER = (0.2, 0.0)
-POLL_PERIOD_EVSE_METER  = (0.2, 0.0)
+POLL_PERIOD_EVSE_METER  = (0.4, 0.0)
 POLL_PERIOD_SOLIS       = (0.2, 0.0)
 POLL_PERIOD_EVSE        = (1, 0.5)
 

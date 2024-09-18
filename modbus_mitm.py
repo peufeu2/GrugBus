@@ -174,7 +174,7 @@ class Router():
         self.start_timeout = Timeout( 5, expired=False )
 
     async def stop( self ):
-        await mgr.evse.stop_charge()
+        await mgr.evse.pause_charge()
         for d in self.devices:
             d.off()
 
@@ -278,7 +278,7 @@ class Router():
         
         # how much power do we allocate to charging the battery, according to SOC
         # if EV charging has begun, pretend we have more SOC than we have to avoid start/stop cycles
-        if mgr.evse.is_charging_unpaused():
+        if mgr.evse.is_charge_unpaused():
             soc += 5
         bp_min = bp_max * interpolate( self.battery_min_soc, self.battery_min_soc_scale, self.battery_max_soc, self.battery_max_soc_scale, soc )
 

@@ -29,15 +29,31 @@ To see how this file is used, check modbus_mitm.py and search for MakeRegisters 
 
 Included google keywords:
 
-# Fronius TS 100A-1 Smartmeter modbus register map
+# Eastron SDM630 Smartmeter modbus register map
+
+Pros: Excellent three phase smartmeter, measures down to 0W, high resolution (1W), fast reaction time to load changes and quick settling (<0.1s), fast modbus (can be polled >10 times/s), perfect for zero export control or diverting loads. Can be used as three phase plus neutral, three phase without neutral, two phase, etc. Everything is configurable, including backlight. No bulky CTs.
+
+Cons: Computation of import/export is different than French utility meter "Linky" so import/export measurement will be wrong in three phase mode. Linky computes the sum of power used on all phases, so one inverter on one phase can offset the consumption of the house on other phases. SDM630 computes per-phase, so it will count this as one phase exporting and the others importing.
 
 # Eastron SDM120 Smartmeter modbus register map
 
-# Eastron SDM630 Smartmeter modbus register map
+Pros: High resolution (1W), fast reaction time to load changes and quick settling (<0.1s), fast modbus (can be polled >10 times/s).
+
+Cons: Any power lower than 50W reads as zero, so not usable for accurate measurements of small loads or zero export control. Backlight cannot be turned off.
+
+# Fronius TS 100A-1 Smartmeter modbus register map
+
+Pros: None
+
+Cons: Very slow measurement, updated every 2 seconds: unusable for zero export or diverting loads.
 
 # Acrel ACR10RD16TE4 Smartmeter modbus register map
 
+Not tested.
+
 # EVSE ABB TERRA modbus register map
+
+See EVSE_ABB_Terra.md file.
 
 # Solis S5-EH1P-6K modbus register map
 

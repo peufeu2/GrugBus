@@ -113,6 +113,34 @@ DATA_STREAMS = [
     # ( "pv/solis1/b_battery_status"                       , "V"  , "b_battery_status"                   , "#00FF00"       , "solid",    1.0 , {}                 , {} ),
     # ( "pv/solis1/b_limit_operation"                      , "V"  , "b_limit_operation"                  , "#FF00FF"       , "solid",    1.0 , {}                 , {} ),
     # ( "pv/solis1/battery_dcdc_current"                   , "V"  , "battery_dcdc_current"   , "#FF80FF"       , "solid",    1.0 , {}                 , {} ),
+
+    ( "chauffage/depart"             , "°C", "Départ"                   , "#FF0000"  , "solid",   1.0             , {"visible":False}, { }),
+    ( "chauffage/retour"             , "°C", "Retour"                   , "#FF0000"  , "solid",   1.0             , {"visible":False}, { }),
+    ( "chauffage/pac_depart"         , "°C", "PAC départ"               , "#FF8000"  , "solid",   1.0             , {"visible":False}, { }),
+    ( "chauffage/pac_retour"         , "°C", "PAC retour"               , "#FF8000"  , "solid",   1.0             , {"visible":False}, { }),
+    ( "chauffage/debit"              , "°C", "Débit"                    , "#FFFFFF"  , "solid",   1.0             , {"visible":False}, { }),
+    ( "chauffage/pompe"              , "°C", "Pompe"                    , "#80FF80"  , "solid",   1.0             , {"visible":False}, { }),
+    ( "chauffage/et_bureau"          , "°C", "Étage Bureau"             , "#800080"  , "solid",   1.0             , {"visible":False}, { }),
+    ( "chauffage/et_pcbt_depart"     , "°C", "Étage PCBT depart"        , "#8000FF"  , "solid",   1.0             , {"visible":False}, { }),
+    ( "chauffage/et_pcbt_retour"     , "°C", "Étage PCBT retour"        , "#8000FF"  , "solid",   1.0             , {"visible":False}, { }),
+    ( "chauffage/et_pcbt_ambient"    , "°C", "Étage PCBT ambient"       , "#8000FF"  , "solid",   1.0             , {"visible":True }, { }),
+    ( "chauffage/ext_parking"        , "°C", "Extérieur parking"        , "#808000"  , "solid",   1.0             , {"visible":True }, { }),
+    ( "chauffage/ext_sous_balcon"    , "°C", "Extérieur sous balcon"    , "#808000"  , "solid",   1.0             , {"visible":True }, { }),
+    ( "chauffage/rc_pc_cuisine"      , "°C", "RC Cuisine"               , "#0000FF"  , "solid",   1.0             , {"visible":True }, { }),
+    ( "chauffage/rc_pc_pcbt_ambient" , "°C", "RC PCBT ambient"          , "#00FF00"  , "solid",   1.0             , {"visible":True }, { }),
+    ( "chauffage/rc_pc_pcbt_depart"  , "°C", "RC PCBT depart"           , "#00FF00"  , "solid",   1.0             , {"visible":False}, { }),
+    ( "chauffage/rc_pc_pcbt_retour"  , "°C", "RC PCBT retour"           , "#00FF00"  , "solid",   1.0             , {"visible":False}, { }),
+    ( "chauffage/rc_pf_pcbt_ambient" , "°C", "RC PCBT2 ambient"         , "#0080FF"  , "solid",   1.0             , {"visible":True }, { }),
+    ( "chauffage/rc_pf_pcbt_depart"  , "°C", "RC PCBT2 depart"          , "#0080FF"  , "solid",   1.0             , {"visible":False}, { }),
+    ( "chauffage/rc_pf_pcbt_retour"  , "°C", "RC PCBT2 retour"          , "#0080FF"  , "solid",   1.0             , {"visible":False}, { }),
+    ( "chauffage/pac_puits"          , "°C", "PAC puits"                , "#00FFFF"  , "solid",   1.0             , {"visible":False}, { }),
+    ( "chauffage/pac_rejet"          , "°C", "PAC rejet"                , "#008080"  , "solid",   1.0             , {"visible":False}, { }),
+    ( "chauffage/rc_pf_che"          , "°C", "RC Chauffe-eau"           , "#FF8000"  , "solid",   1.0             , {"visible":False}, { }),
+
+
+
+
+
 ]
 
 #
@@ -228,7 +256,34 @@ PLOT_LAYOUTS = [
                 "pv/solis1/bms_battery_current"                  ,
             ]
         ]
-    ],
+    ],["Chauffage",
+        [
+            [
+                "chauffage/depart"             ,
+                "chauffage/retour"             ,
+                "chauffage/pac_depart"         ,
+                "chauffage/pac_retour"         ,
+                "chauffage/debit"              ,
+                "chauffage/pompe"              ,
+                "chauffage/et_bureau"          ,
+                "chauffage/et_pcbt_depart"     ,
+                "chauffage/et_pcbt_retour"     ,
+                "chauffage/et_pcbt_ambient"    ,
+                "chauffage/ext_parking"        ,
+                "chauffage/ext_sous_balcon"    ,
+                "chauffage/rc_pc_cuisine"      ,
+                "chauffage/rc_pc_pcbt_ambient" ,
+                "chauffage/rc_pc_pcbt_depart"  ,
+                "chauffage/rc_pc_pcbt_retour"  ,
+                "chauffage/rc_pf_pcbt_ambient" ,
+                "chauffage/rc_pf_pcbt_depart"  ,
+                "chauffage/rc_pf_pcbt_retour"  ,
+                "chauffage/pac_puits"          ,
+                "chauffage/pac_rejet"          ,
+                "chauffage/rc_pf_che"          ,
+            ]
+        ]
+    ]
     # ["TEST", [
         # [ "pv/solis1/llc_bus_voltage" ],
         # [ "pv/solis1/battery_dcdc_enable","pv/solis1/b_battery_status", "pv/solis1/b_limit_operation" ],
