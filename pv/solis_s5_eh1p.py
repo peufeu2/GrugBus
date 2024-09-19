@@ -208,6 +208,9 @@ class Solis( grugbus.SlaveDevice ):
                         for reg in regs:
                             mqtt.publish_reg( topic, reg )
 
+                        if config.LOG_MODBUS_REQUEST_TIME:
+                            self.publish_modbus_timings()
+
                     finally:
                         # wake up other coroutines waiting for fresh values
                         self.event_power.set()

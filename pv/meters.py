@@ -99,7 +99,6 @@ class SDM630( grugbus.SlaveDevice ):
                 ))
 
     async def read_coroutine( self ):
-        last_poll_time = None
         mqtt  = self.mqtt
         topic = self.mqtt_topic
         while True:
@@ -120,10 +119,7 @@ class SDM630( grugbus.SlaveDevice ):
                     mqtt.publish_value( topic+"is_online", int( self.is_online ))   # set by read_regs(), True if it succeeded, False otherwise
 
                     if config.LOG_MODBUS_REQUEST_TIME:
-                        mqtt.publish_value( topic+"req_time", round( self.last_transaction_duration,2 ))   # log modbus request time, round it for better compression
-                        if last_poll_time:
-                            mqtt.publish_value( topic+"req_period", self.last_transaction_timestamp - last_poll_time )
-                        last_poll_time = self.last_transaction_timestamp
+                        self.publish_modbus_timings()
 
                 except (TimeoutError, ModbusException):
                     await asyncio.sleep(1)
@@ -186,6 +182,9 @@ class SDM120( grugbus.SlaveDevice ):
 
                     for reg in regs:
                         mqtt.publish_reg( topic, reg )
+
+                    if config.LOG_MODBUS_REQUEST_TIME:
+                        self.publish_modbus_timings()
 
                 except (TimeoutError, ModbusException):
                     await asyncio.sleep(1)
@@ -275,28 +274,35 @@ class FakeSmartmeter( grugbus.LocalServer ):
         self.mqtt = mqtt
 
         self.last_inverter_query_time = 0
+        self.data_timestamp = 0
+        self._error_count = 0
+        self._error_tick = Metronome( 10 )
 
     # This is called when the inverter sends a request to this server
     def _on_getValues( self, fc_as_hex, address, count, ctx ):
         #   The main meter is read in another coroutine, which also sets registers in this object. Check this was done.
-        self.last_inverter_query_time = time.monotonic()
-        if not self.is_online:
-            # return value is False so pymodbus server will abort the request, which the inverter
-            # correctly interprets as the meter being offline
-            # log.warning( "FakeSmartmeter cannot reply to client: real smartmeter offline" )
-            return False
+        t = time.monotonic()
+
+        if self.last_inverter_query_time < t-10:
+            log.info("FakeMeter %s: receiving requests", self.key )
+        self.last_inverter_query_time = t
+
+        if self.is_online and self.data_timestamp < t-2.0:
+            # Do not serve stale data
+            self._error_count += 1
+            if self._error_tick.ticked():
+                log.error( "FakeMeter %s: data is too old (%f seconds) [%d errors]", self.key, t-self.data_timestamp, self._error_count )
+            self.is_online = False
+
+        return self.is_online
+        # If return value is False, pymodbus server will abort the request, which the inverter
+        # correctly interprets as the meter being offline
 
         # if enabled, publish lag time
         # if self.mqtt and self.data_timestamp:    # how fresh is this data?
             # self.mqtt.publish_value( "pv/solis1/fakemeter/lag", round( time.monotonic()-self.data_timestamp, 2 ) )
 
-        # tell pymodbus to serve the request
-        return True
-
     # This function starts and runs the modbus server, and never returns as long as the server is running.
-    # Before starting it, communication with the real meter should be initiated, registers read,
-    # dummy registers in this object populated with correct values, and write_regs_to_context() called
-    # to setup the server context, so that we serve correct value to the inverter when it makes a request.
     async def start_server( self ):
         self.server = await StartAsyncSerialServer( context=self.server_ctx, 
             framer          = ModbusRtuFramer,
@@ -310,6 +316,7 @@ class FakeSmartmeter( grugbus.LocalServer ):
             stopbits        = 1,
             strict = False,
             )
+        log.info("%s: exit StartAsyncSerialServer()", self.key )
         # await self.server.start()     # this was for an old pymodbus version
 
 

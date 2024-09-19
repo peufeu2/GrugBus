@@ -71,7 +71,7 @@ COM_PORT_METER       = "/dev/serial/by-id/usb-FTDI_USB_RS485_3-if01-port0"   # M
 #
 POLL_PERIOD_METER       = (0.2, 0.0)
 POLL_PERIOD_SOLIS_METER = (0.2, 0.0)
-POLL_PERIOD_EVSE_METER  = (0.4, 0.0)
+POLL_PERIOD_EVSE_METER  = (0.2, 0.0)
 POLL_PERIOD_SOLIS       = (0.2, 0.0)
 POLL_PERIOD_EVSE        = (1, 0.5)
 
@@ -124,12 +124,14 @@ MQTT_RATE_LIMIT = {
 
     # EVSE
     "pv/evse/charge_state"                           : ( 60, 0    , ""  ),
+    "pv/evse/charge_active"                          : ( 60, 0    , ""  ),
     "pv/evse/charging_unpaused"                      : ( 60, 0    , ""  ),
     "pv/evse/current"                                : ( 60, 0.2  , "avg"  ),
     "pv/evse/current_limit"                          : ( 60, 0    , "avg"  ),
-    "pv/evse/charge_energy"                          : ( 60, 0.01 , ""  ),
+    "pv/evse/energy"                                 : ( 60, 0.01 , ""  ),
     "pv/evse/error_code"                             : ( 60, 0    , ""  ),
     "pv/evse/req_time"                               : ( 60, 0.01 , "avg"  ),
+    "pv/evse/req_period"                             : ( 60, 0.01 , "avg"  ),
     "pv/evse/rwr_current_limit"                      : ( 60, 0    , "avg"  ),
     "pv/evse/socket_state"                           : ( 60, 0    , ""  ),
     "pv/evse/virtual_current_limit"                  : ( 60, 0    , "avg"  ),

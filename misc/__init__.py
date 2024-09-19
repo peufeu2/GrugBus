@@ -171,7 +171,6 @@ def average( l ):
     else:
         return 0
 
-
 if __name__ == "__main__":
     m = MovingAverage( 0.5 )
     for n in range( 100 ):

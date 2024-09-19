@@ -155,6 +155,9 @@ class EVSE( grugbus.SlaveDevice ):
                 mqtt.publish_value( topic+"force_charge_minimum_W", self.force_charge_minimum_W )
                 mqtt.publish_value( topic+"force_charge_until_kWh", self.force_charge_until_kWh       )
 
+                if config.LOG_MODBUS_REQUEST_TIME:
+                    self.publish_modbus_timings()
+
             except (TimeoutError, ModbusException):
                 await asyncio.sleep(1)
 
@@ -316,5 +319,5 @@ class EVSE( grugbus.SlaveDevice ):
             topic = self.mqtt_topic
             mqtt.publish_reg( topic, self.rwr_current_limit )
             if config.LOG_MODBUS_WRITE_REQUEST_TIME:
-                self.mqtt.publish_value( self.mqtt_topic+"req_time", round( self.last_transaction_duration,2 ) )
+                self.publish_modbus_timings()
 

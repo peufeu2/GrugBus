@@ -60,7 +60,9 @@ class DeviceBase( ):
         self.addr_belongs_to_reg = {}
         self.regs_by_addr = {}
 
-        self.last_transaction_duration = 0
+        self.last_transaction_timestamp = 0
+        self.last_transaction_period    = 0
+        self.last_transaction_duration  = 0
         self.default_retries = 3
 
         # SDM120 does not like "write register", it needs "write multiple registers" even if there is just one
@@ -294,8 +296,20 @@ class SlaveDevice( DeviceBase ):
             self.is_online = False
             raise
         finally:
-            self.last_transaction_timestamp = t = time.monotonic()
-            self.last_transaction_duration = t-start_time
+            self._set_timings( start_time )
+
+    def _set_timings( self, start_time ):
+        t = time.monotonic()
+        if self.last_transaction_timestamp:
+            self.last_transaction_period    = t - self.last_transaction_timestamp
+        self.last_transaction_timestamp = t
+        self.last_transaction_duration  = t - start_time
+
+    def publish_modbus_timings( self ):
+        if self.last_transaction_duration:
+            self.mqtt.publish_value( self.mqtt_topic+"req_time",   round( self.last_transaction_duration, 2 ))
+        if self.last_transaction_period:
+            self.mqtt.publish_value( self.mqtt_topic+"req_period", round( self.last_transaction_period, 2 ))
 
 
     async def write_regs( self, write_list, retries=None ):
@@ -395,8 +409,7 @@ class SlaveDevice( DeviceBase ):
             self.is_online = False
             raise
         finally:
-            self.last_transaction_timestamp = t = time.monotonic()
-            self.last_transaction_duration = t-start_time
+            self._set_timings( start_time )
 
     # for debugging
     def dump_all_regs( self, all=False ):

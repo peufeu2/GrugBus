@@ -81,6 +81,7 @@ logging.basicConfig( encoding='utf-8',
                     ])
 log = logging.getLogger(__name__)
 
+# pymodbus.pymodbus_apply_logging_config("DEBUG")
 
 # set max reconnect wait time for Fronius
 # pymodbus.constants.Defaults.ReconnectDelayMax = 60000   # in milliseconds
@@ -584,14 +585,14 @@ class SolisManager():
                 
                 #   Fake Meter
                 # shift slightly to avoid import when we can afford it
-                print("battery_full", battery_full)
+                # print("battery_full", battery_full)
                 battery_full = (battery_full == len( inverters_with_battery ))
                 if total_battery_power > 200:
                     meter_power_tweaked += battery_soc*total_battery_power*0.0001
                 total_input_power  = total_pv_power + total_grid_port_power
 
                 for solis in self.inverters:
-                    if  len( inverters_online ) == 1:
+                    if len( inverters_online ) == 1:
                         fake_power = meter_power_tweaked
                     else:
                         # balance power between inverters
@@ -733,12 +734,13 @@ class SolisManager():
         while True:
             await self.solis1.event_all.wait()
             try:
-                avg = bat_power_avg.append( abs(self.solis1.battery_power.value) ) or 0
-                if self.solis1.temperature.value > 40 or avg > 2000:
-                    timeout_fan_off.reset()
-                    mqtt.publish_value( "cmnd/plugs/tasmota_t3/Power", 1 )
-                elif self.solis1.temperature.value < 35 and timeout_fan_off.expired():
-                    mqtt.publish_value( "cmnd/plugs/tasmota_t3/Power", 0 )
+                if self.solis1.is_online:
+                    avg = bat_power_avg.append( abs(self.solis1.battery_power.value) ) or 0
+                    if self.solis1.temperature.value > 40 or avg > 2000:
+                        timeout_fan_off.reset()
+                        mqtt.publish_value( "cmnd/plugs/tasmota_t3/Power", 1 )
+                    elif self.solis1.temperature.value < 35 and timeout_fan_off.expired():
+                        mqtt.publish_value( "cmnd/plugs/tasmota_t3/Power", 0 )
 
             except (TimeoutError, ModbusException): pass
             except:
@@ -918,8 +920,8 @@ class SolisManager():
 
 
 if 1:
-    mgr = SolisManager()
     try:
+        mgr = SolisManager()
         mgr.start()
     finally:
         logging.shutdown()
@@ -931,7 +933,8 @@ else:
             mgr = SolisManager()
             mgr.start()
         finally:
-            pr.dump_stats("profile.log")
+            logging.shutdown()
+            pr.dump_stats("profile.dump")
 
 
 
