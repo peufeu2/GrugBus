@@ -8,7 +8,7 @@ from config_secret import *
 ##################################################################
 
 LOG_MODBUS_REQUEST_TIME = False
-LOG_MODBUS_WRITE_REQUEST_TIME = True
+LOG_MODBUS_WRITE_REQUEST_TIME = False
 
 ##################################################################
 # mqtt
@@ -76,7 +76,7 @@ POLL_PERIOD_SOLIS       = (0.2, 0.0)
 POLL_PERIOD_EVSE        = (1, 0.5)
 
 # Inverter auto turn on/off settings
-SOLIS_TURNOFF_BATTERY_SOC  = 10
+SOLIS_TURNOFF_BATTERY_SOC  = 8
 SOLIS_TURNOFF_MPPT_VOLTAGE = 30
 SOLIS_TURNON_MPPT_VOLTAGE  = 80
 
@@ -109,7 +109,7 @@ MQTT_RATE_LIMIT = {
     "pv/meter/total_power"                           : ( 1,   10, "avg" ),
     "pv/meter/house_power"                           : ( 1,   10, "avg" ),
     "pv/solis1/input_power"                          : ( 1,  110, "avg" ),
-    "pv/evse/meter/active_power"                     : ( 10, 110, "avg" ),
+    "pv/evse/meter/active_power"                     : ( 10, 110, "" ),
     "pv/router/excess_avg"                           : ( 1,  110, "avg" ),
     "pv/router/battery_min_charge_power"             : ( 10, 150, "avg" ),
     # "pv/router/excess_avg_nobat"                     : ( 1,   10, "avg" ),
@@ -136,7 +136,7 @@ MQTT_RATE_LIMIT = {
     "pv/evse/socket_state"                           : ( 60, 0    , ""  ),
     "pv/evse/virtual_current_limit"                  : ( 60, 0    , "avg"  ),
 
-    "pv/evse/meter/export_active_energy"             : ( 60, 0.01 , ""  ),
+    "pv/evse/meter/export_active_energy"             : ( 600, 0.01 , ""  ),
     "pv/evse/meter/import_active_energy"             : ( 60, 0.01 , ""  ),
     "pv/evse/meter/voltage"                          : ( 10, 1    , "avg"  ),
     "pv/evse/meter/current"                          : ( 10, 0.1  , "avg"  ),

@@ -17,7 +17,7 @@ Other values�: see troubleshooting guide"
 4,"0x4018",,"U32","0.1V","Voltage L2 ","voltage_2","float",1,"Measured voltage"
 4,"0x401A",,"U32","0.1V","Voltage L3 ","voltage_3","float",1,"Measured voltage"
 4,"0x401C",,"U32","1W","Active Power ","active_power","float",0,"Measured active power"
-4,"0x401E",,"U32","0.001kWh","Energy Delivered ","energy","float",0,"Measured transferred energy of the current charging session"
+4,"0x401E",,"U32","0.001kWh","Energy Delivered ","energy","float",3,"Measured transferred energy of the current charging session"
 4,"0x4020",,"U16","1s","Communication timeout ","comm_timeout","float",0,"Readback of 0x4106"
 3,"0x4100",,"U32","0.001A","Set Charging Current Limit ","current_limit","float",3,"Since the charger uses an internal algorithm for load management, the current limit which is set may not be same as charger�s load management decision. For this purpose, read back 400E register.
 Charging session will enter Pause state when the current limit is less than 6A. After that when current limit is set above 6A, charging session will be resumed. The choice of 6A is derived from IEC 61851-1."

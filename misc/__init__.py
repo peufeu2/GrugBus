@@ -60,11 +60,11 @@ class Timeout:
         self.duration = duration
         self.reset( duration )
         if expired:
-            self.expiry = 0
+            self.expiry = 0.
 
     def reset( self, duration=None ):
         self.start_time = st = time.monotonic()
-        self.expiry   = st + (duration or self.duration)
+        self.expiry     = st + (duration or self.duration)
 
     def at_least( self, duration ):
         self.expiry   = max( self.expiry, time.monotonic() + duration )
@@ -72,8 +72,19 @@ class Timeout:
     def at_most( self, duration ):
         self.expiry   = min( self.expiry, time.monotonic() + duration )
 
+    def expire( self ):
+        self.expiry = 0.
+
     def expired( self ):
-        return time.monotonic() > self.expiry
+        if time.monotonic() > self.expiry:
+            self.expiry = 0. # remember expired() was called and returned True
+            return True
+        return False
+
+    # Returns True once after the timeout has expired, then False on
+    # subsequent calls. Useful for one-shots.
+    def expired_once( self ):
+        return self.expiry and self.expired()
 
     def remain( self ):
         return max(0, self.expiry - time.monotonic())
@@ -92,6 +103,14 @@ class BoundedCounter:
         self.value = min( self.maximum, max( self.minimum, self._func( value )))
         return self.value
 
+    def set_maximum( self, maximum ):
+        self.maximum = maximum
+        self.set( self.value )
+
+    def set_minimum( self, minimum ):
+        self.minimum = minimum
+        self.set( self.value )
+
     def to_maximum( self ):
         self.value = self.maximum
 
@@ -106,6 +125,9 @@ class BoundedCounter:
 
     def add( self, increment ):
         return self.set( self.pretend_add( increment ))
+
+    def addsub( self, cond, value ):
+        self.add( value if cond else -value )
 
     def pretend_add( self, increment ):
         return min( self.maximum, max( self.minimum, self._func( self.value + increment )))

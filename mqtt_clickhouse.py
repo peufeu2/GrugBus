@@ -325,7 +325,8 @@ class InsertPooler():
             for dk,dv in v.items():
                 self._add( ts, k+dk, dv )
         elif isinstance( v, list ):
-            print("Ignore", k, v )
+            pass
+            # print("Ignore", k, v )
         else:
             try:
                 # Try to convert to int, will fail if it's a float

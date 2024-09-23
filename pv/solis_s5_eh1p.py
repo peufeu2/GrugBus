@@ -30,7 +30,7 @@ class Solis( grugbus.SlaveDevice ):
         self.mqtt        = mqtt
         self.mqtt_topic  = mqtt_topic
         self.mqtt_written_regs = {}
-        mqtt.register_callbacks( self, "cmnd/" + mqtt_topic )
+        mqtt.register_callbacks( self )
 
         # These are computed using values polled from the inverter
          # inverter reacts slower when battery works (charge or discharge), see comments in Router
@@ -76,7 +76,6 @@ class Solis( grugbus.SlaveDevice ):
                 # self.battery_dcdc_direction,
                 # self.battery_dcdc_current,
             ]
-
         self.reg_sets = [ frequent_regs + regs for regs in [[
             ],[
                 self.energy_generated_today               ,  
@@ -112,6 +111,8 @@ class Solis( grugbus.SlaveDevice ):
                 self.bms_battery_fault_information_01     ,
                 self.bms_battery_fault_information_02     ,
                 self.backup_load_power                    ,
+
+                self.inverting_power_or_rectifying_power    # TODO
             ],[
                 self.battery_charge_energy_today          ,
                 self.battery_discharge_energy_today       ,
@@ -122,12 +123,18 @@ class Solis( grugbus.SlaveDevice ):
                 self.rwr_power_on_off                     ,              
 
                 # TODO
-                self.llc_bus_voltage,
                 # self.switching_machine_setting,
                 # self.b_limit_operation,
                 # self.b_battery_status,
 
-            ],[
+            ], 
+                [ self.b_limit_operation ],
+                [ self.rwr_power_limit_setting ],
+                [ self.rwr_power_limit_switch ],
+                [ self.rwr_actual_power_limit_adjustment_value ],
+                [ self.limit_active_power_adjustment_rated_power ],
+                [ self.actual_power_limit ],
+            [
                 self.rwr_energy_storage_mode              ,
                 self.rwr_backup_output_enabled            ,
             ]]]

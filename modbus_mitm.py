@@ -185,6 +185,7 @@ class Router():
             await asyncio.sleep(5)
             await mgr.event_power.wait()
             log.info("Routing enabled.")
+            await mgr.evse.initialize()
 
             while True:
                 await mgr.event_power.wait()                
@@ -692,6 +693,8 @@ class SolisManager():
         power_reg = solis.rwr_power_on_off
         while True:
             await solis.event_all.wait()
+            if not solis.is_online:
+                continue
             try:
                 # Auto on/off: turn it off at night when the battery is below specified SOC
                 # so it doesn't keep draining it while doing nothing useful
@@ -720,7 +723,7 @@ class SolisManager():
                         
             except (TimeoutError, ModbusException): pass
             except Exception:
-                log.exception("")
+                log.exception("Powersave:")
                 await asyncio.sleep(5)      
 
     ########################################################################################
@@ -842,9 +845,6 @@ class SolisManager():
         )
         self.inverters = (self.solis1, self.solis2)
 
-        # register mqtt config callbacks
-        mqtt.register_callbacks( self, "cmnd/pv/" )
-
         #   Web server
         app = aiohttp.web.Application()
         app.add_routes([aiohttp.web.get('/', self.webresponse), aiohttp.web.get('/solar_api/v1/GetInverterRealtimeData.cgi', self.webresponse)])
@@ -870,6 +870,8 @@ class SolisManager():
                 # todo: powersave is deactivated
                 tg.create_task( log_coroutine( "logic: power calculations", self.power_coroutine( ) ))
                 tg.create_task( log_coroutine( "logic: router",             self.router.route_coroutine( ) ))
+                tg.create_task( log_coroutine( "logic: powersave 1",        self.inverter_powersave_coroutine( self.solis1 ) ))
+                tg.create_task( log_coroutine( "logic: powersave 2",        self.inverter_powersave_coroutine( self.solis2 ) ))
                 tg.create_task( log_coroutine( "sysinfo",                   self.sysinfo_coroutine() ))
         except (KeyboardInterrupt, CancelledError):
             print("Terminated.")

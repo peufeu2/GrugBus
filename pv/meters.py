@@ -164,6 +164,7 @@ class SDM120( grugbus.SlaveDevice ):
             # self.total_active_energy   ,
             # self.total_reactive_energy ,
         ]]
+        self.power_history = collections.deque( maxlen=3 )
 
     async def read_coroutine( self ):
         mqtt  = self.mqtt
@@ -175,6 +176,7 @@ class SDM120( grugbus.SlaveDevice ):
                     await self.tick.wait()
                     try:
                         regs = await self.read_regs( reg_set )
+                        self.power_history.append( self.active_power.value )
                     finally:
                         # wake up other coroutines waiting for fresh values
                         self.event_power.set()

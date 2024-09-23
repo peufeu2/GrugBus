@@ -137,11 +137,28 @@ class MQTTWrapper:
             parent = cur.dirname()
             await try_topic( parent / "#" )
             cur = parent
-
+# """
     #   Decorates a method as a MQTT callback
     #
     @classmethod
     def decorate_callback( cls, topic, datatype=str, validation=None ):
+
+        if hasattr( validation, "__contains__" ):
+            def validator( payload ):
+                if payload in validation:
+                    return True
+                log.error( "MQTT callback: Out of range: topic %s expects %s, received %r" % (topic, validation, payload))
+
+        elif validation:
+            def validator( payload ):
+                if validation( payload ):
+                    return True
+                log.error( "MQTT callback: Invalid value: topic %s received %r" % (topic, payload))
+
+        else:
+            def validator( payload ):
+                return True
+
         def decorator( func ):
             @functools.wraps( func )
             async def callback( self, topic, payload, qos, properties ):
@@ -150,14 +167,8 @@ class MQTTWrapper:
                 except Exception as e:
                     log.error( "MQTT callback: %s: topic %s expects %s, received %r" % (e, topic, datatype, payload))
                     return
-                if hasattr( validation, "__contains__" ):
-                    if payload not in validation:
-                        log.error( "MQTT callback: Out of range: topic %s expects %s, received %r" % (topic, validation, payload))
-                        return
-                elif validation:
-                    if not validation( payload ):
-                        log.error( "MQTT callback: Invalid value: topic %s received %r" % (topic, payload))
-                        return
+                if not validator( payload ):
+                    return
                 # log.info("MQTT callback: %s(%s,%s,%s,%s,%s)", func, self, topic, payload, qos, properties)
                 await func( self, topic, payload, qos, properties )
             callback.mqtt_topic = topic
@@ -172,9 +183,60 @@ class MQTTWrapper:
             if callable(method) and hasattr(method,"mqtt_topic"):
                 if func := getattr( method, "__func__", None):
                     if func in self._callbacks_generated:
-                        self.subscribe_callback( mqtt_topic + method.mqtt_topic, method )
+                        self.subscribe_callback( "cmnd/" + obj.mqtt_topic + method.mqtt_topic, method )
 
 
 
+class MQTTSetting:
+    def __init__( self, container, name, datatype, validation, value ):
+        assert not hasattr( container, name )
+        setattr( container, name, self )
+        self.container = container
+        self.mqtt_topic      = container.mqtt_topic + name
+        self.datatype   = datatype
+        self.validation = validation
+        self.value = value
+        self.set_value( value )
+        container.mqtt.subscribe_callback( "cmnd/"+self.mqtt_topic, self.async_callback )
+        container.mqtt.subscribe_callback( "cmnd/"+self.container.mqtt_topic+"settings", self.async_publish_callback )  # ask to publish all settings
+
+    async def async_publish_callback( self, topic, payload, qos=None, properties=None ):
+        self.publish()
+
+    async def async_callback( self, topic, payload, qos=None, properties=None ):
+        return self.callback( payload, qos, properties )
+
+    def callback( self, payload, qos=None, properties=None ):
+        try:
+            try:    # convert datatype
+                payload = self.datatype( payload )
+            except Exception as e:
+                raise ValueError( "MQTT setting: %s: topic %s expects %s, received %r" % (e, self.mqtt_topic, self.datatype, payload) )
+            # validate value
+            if hasattr( self.validation, "__contains__" ):
+                if payload not in self.validation:
+                    raise ValueError( "MQTT setting: Out of range: topic %s expects %s, received %r" % (self.mqtt_topic, self.validation, payload) )
+            elif self.validation:
+                if not self.validation( payload ):
+                    raise ValueError( "MQTT setting: Invalid value: topic %s received %r" % (self.mqtt_topic, payload) )
+        except Exception as e:
+            log.exception( "MQTTSetting" )
+            raise
+
+        if callable( self.value ):
+            self.value( payload )
+        else:
+            log.info( "MQTTSetting: %s = %s", self.mqtt_topic, payload )
+            self.value = payload
+            self.publish()
+
+    def set_value( self, value ):
+        return self.callback( value )
+
+    def set( self, value ):
+        return self.callback( value )
+
+    def publish( self ):
+        self.container.mqtt.publish_value( self.mqtt_topic, self.value )
 
 

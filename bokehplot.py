@@ -24,6 +24,13 @@ clickhouse = clickhouse_driver.Client('localhost', user=config.CLICKHOUSE_USER, 
 
 # Category20 colors: https://docs.bokeh.org/en/latest/docs/reference/palettes.html
 cat20 = ('#1f77b4', '#aec7e8', '#ff7f0e', '#ffbb78', '#2ca02c', '#98df8a', '#d62728', '#ff9896', '#9467bd', '#c5b0d5', '#8c564b', '#c49c94', '#e377c2', '#f7b6d2', '#7f7f7f', '#c7c7c7', '#bcbd22', '#dbdb8d', '#17becf', '#9edae5')
+def _nextcolor():
+    while True:
+        for _ in cat20:
+            yield _
+_nextcolor = _nextcolor()
+def nextcolor():
+    return next( _nextcolor )
 
 colors = {
     "pv"            : ["#00FF00", "#00C000", "#008000"],
@@ -77,6 +84,10 @@ DATA_STREAMS = [
     ( "pv/evse/meter/active_power"                       , "W"   , "EVSE"                        , "#FF80FF"       , "solid",    1.0 , {}                 , {} ),
     ( "pv/evse/rwr_current_limit"                        , "W"   , "EVSE ILim"                   , "#FFFFFF"       , "solid",  235.0 , {"visible":False}  , {} ),
 
+    ( "pv/evse/command_interval"                         , "s"   , "EVSE timeout L"              , "#FFFFFF"       , "dotted",  1000.0 , {"visible":False}  , {} ),
+    ( "pv/evse/command_interval_small"                   , "s"   , "EVSE timeout S"              , "#808080"       , "dotted",  1000.0 , {"visible":False}  , {} ),
+
+
     ( "pv/evse/target_power_min"                         , "W"   , "EVSE Min"         , "#808080"       , "dashed", 1.0 , {"visible":False}  , {} ),
     ( "pv/evse/target_power_max"                         , "W"   , "EVSE Max"         , "#808080"       , "dashed", 1.0 , {"visible":False}  , {} ),
 
@@ -107,7 +118,18 @@ DATA_STREAMS = [
     ( "pv/cpu_load_percent"                              , "%"   , "Pi CPU Load"                 , "#00FF00"       , "solid",    1.0 , {}                 , {} ),
     ( "pv/disk_space_gb"                                 , "GB"  , "Pi Disk Space"               , "#0080FF"       , "solid",    1.0 , {}                 , {} ),
                 
-    ( "pv/solis1/llc_bus_voltage"                        , "V"  , "LLC BUS"               , "#FF80FF"       , "solid",    1.0 , {}                 , {} ),
+    # ( "pv/solis1/llc_bus_voltage"                        , "V"  , "LLC BUS"               , "#FF80FF"       , "solid",    1.0 , {}                 , {} ),
+
+    ( "pv/solis1/inverting_power_or_rectifying_power"       , "?", "inverting_power_or_rectifying_power"       , nextcolor(), "solid", 1.0, {}, {} ),
+    ( "pv/solis1/grid_port_power"                           , "?", "grid_port_power"                           , nextcolor(), "solid", 1.0, {}, {} ),
+    ( "pv/solis1/b_limit_operation"                         , "?", "b_limit_operation"                         , nextcolor(), "solid", 1.0, {}, {} ),
+    ( "pv/solis1/rwr_power_limit_setting"                   , "?", "rwr_power_limit_setting"                   , nextcolor(), "solid", 1.0, {}, {} ),
+    ( "pv/solis1/rwr_power_limit_switch"                    , "?", "rwr_power_limit_switch"                    , nextcolor(), "solid", 1.0, {}, {} ),
+    ( "pv/solis1/rwr_actual_power_limit_adjustment_value"   , "?", "rwr_actual_power_limit_adjustment_value"   , nextcolor(), "solid", 1.0, {}, {} ),
+    ( "pv/solis1/limit_active_power_adjustment_rated_power" , "?", "limit_active_power_adjustment_rated_power" , nextcolor(), "solid", 1.0, {}, {} ),
+    ( "pv/solis1/actual_power_limit"                        , "?", "actual_power_limit"                        , nextcolor(), "solid", 1.0, {}, {} ),
+    ( "pv/solis1/backup_load_power"                          , "?", "backup_load_power"                        , nextcolor(), "solid", 1.0, {}, {} ),
+     # ( "pv/solis1/operating_status"                       , "Bool"  , "Limit"               , "#FFFFFF"       , "solid",    1.0 , {}                 , {"func":lambda x:3000*(x.astype(np.int64)&64).astype(bool)} ),
                 
     # ( "pv/solis1/battery_dcdc_enable"                    , "V"  , "battery_dcdc_enable"    , "#FFFF00"       , "solid",    1.0 , {}                 , {} ),
     # ( "pv/solis1/b_battery_status"                       , "V"  , "b_battery_status"                   , "#00FF00"       , "solid",    1.0 , {}                 , {} ),
@@ -154,8 +176,8 @@ PLOT_LAYOUTS = [
                 "pv/meter/house_power"                           ,
                 "pv/meter/total_power"                           ,
                 "pv/total_battery_power"                         ,
-                "pv/total_input_power"                         ,
-                "pv/total_grid_port_power"                          ,
+                "pv/total_input_power"                           ,
+                "pv/total_grid_port_power"                       ,
                 "pv/evse/meter/active_power"                     ,
                 # "pv/solis%d/pv_power"                            ,
                 # "pv/solis1/battery_power",
@@ -182,6 +204,8 @@ PLOT_LAYOUTS = [
                 # "pv/router/excess_avg_nobat"                     ,
                 "pv/evse/target_power_min"                       ,
                 "pv/evse/target_power_max"                       ,
+                "pv/evse/command_interval",
+                "pv/evse/command_interval_small",
             ]
         ]
     ],[ "Strings", 
@@ -250,7 +274,7 @@ PLOT_LAYOUTS = [
                 "pv/meter/house_power"                           ,
                 "pv/meter/total_power"                           ,
                 "pv/solis1/battery_power"                        ,
-                "pv/solis1/meter/active_power"                          ,
+                "pv/solis1/meter/active_power"                   ,
             ],[
                 "pv/solis1/bms_battery_soc"                      ,
                 "pv/solis1/bms_battery_current"                  ,
@@ -283,12 +307,26 @@ PLOT_LAYOUTS = [
                 "chauffage/rc_pf_che"          ,
             ]
         ]
+    ],
+    ["TEST", 
+        [
+            [
+
+        "pv/meter/total_power",
+        "pv/solis1/meter/active_power",
+        "pv/solis1/grid_port_power",
+        "pv/solis1/backup_load_power",
+        "pv/solis1/inverting_power_or_rectifying_power"       ,
+        "pv/solis1/grid_port_power"                           ,
+        "pv/solis1/b_limit_operation"                         ,
+        "pv/solis1/rwr_power_limit_setting"                   ,
+        "pv/solis1/rwr_power_limit_switch"                    ,
+        "pv/solis1/rwr_actual_power_limit_adjustment_value"   ,
+        "pv/solis1/limit_active_power_adjustment_rated_power" ,
+        "pv/solis1/actual_power_limit"                        ,
+            ]
+        ]
     ]
-    # ["TEST", [
-        # [ "pv/solis1/llc_bus_voltage" ],
-        # [ "pv/solis1/battery_dcdc_enable","pv/solis1/b_battery_status", "pv/solis1/b_limit_operation" ],
-        # [ "pv/solis1/battery_dcdc_current", "pv/solis1/battery_current" ],
-    # ]
 ]
 
 def insert_inverters_data_streams( l ):
@@ -435,6 +473,8 @@ class DataStream( object ):
                 y=np.repeat(y,2)
                 x[1:-1:2] = x[2::2] - dt
 
+            if func:=self.attrs.get("func"):
+                y = func(y)
             # print( "LOD: %s LEN %s %.01f ms %s" % (lod,len(x),(time.time()-t)*1000,self.topic))
             if self.attrs.get("mode") == "delta":
                 y -= y[0]
@@ -652,8 +692,8 @@ class PVDashboard():
                             # so we need to update it
                             # yield ph
                         continue
-                    if ph.last_update == stream.x[-1]:   # is there new data?
-                        continue                    # no new data, so no need to redraw
+                    # if ph.last_update == stream.x[-1]:   # is there new data?
+                        # continue                    # no new data, so no need to redraw
                 yield ph
 
     def update_gauges( self ):
@@ -680,19 +720,22 @@ class PVDashboard():
         if not self.streaming:
             return
 
+        now = np.datetime64(datetime.datetime.now(), "ms")
         for ph in self.get_redraw_list():
             ds = ph.line.data_source
             stream  = ph.stream
             ph.last_update = stream.x[-1]
             x = np.array( stream.x )
+            y = np.array( stream.y )
+            x = np.hstack((x, [now]   ))      # add last point to finish line on right edge of screen
+            y = np.hstack((y, [y[-1]] ))
+
             trange = self.get_t_range()
             if trange:
                 # do not send the whole history, only what will be displayed
                 start_idx = np.searchsorted( x, np.datetime64(trange[0], "ms") )
-                x = x[start_idx:]
-                y = np.array( stream.y )[start_idx:]
-            else:
-                y = np.array( stream.y )
+                x = x[start_idx:]                   
+                y = y[start_idx:]
 
             ds.data = {"x":x, "y":y}
             ds.trigger('data', ds.data, ds.data )
