@@ -734,6 +734,7 @@ class PVDashboard():
             if trange:
                 # do not send the whole history, only what will be displayed
                 start_idx = np.searchsorted( x, np.datetime64(trange[0], "ms") )
+                start_idx = max( 0, start_idx-1 )
                 x = x[start_idx:]                   
                 y = y[start_idx:]
 
