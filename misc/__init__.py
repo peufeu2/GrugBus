@@ -103,6 +103,9 @@ class BoundedCounter:
         self.value = min( self.maximum, max( self.minimum, self._func( value )))
         return self.value
 
+    def clip( self, value ):
+        return min( self.maximum, max( self.minimum, self._func( value )))
+
     def set_maximum( self, maximum ):
         self.maximum = maximum
         self.set( self.value )

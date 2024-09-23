@@ -188,7 +188,7 @@ class MQTTWrapper:
 
 
 class MQTTSetting:
-    def __init__( self, container, name, datatype, validation, value ):
+    def __init__( self, container, name, datatype, validation, value, callback = None ):
         assert not hasattr( container, name )
         setattr( container, name, self )
         self.container = container
@@ -196,6 +196,7 @@ class MQTTSetting:
         self.datatype   = datatype
         self.validation = validation
         self.value = value
+        self.updated_callback = callback or (lambda x:None)
         self.set_value( value )
         container.mqtt.subscribe_callback( "cmnd/"+self.mqtt_topic, self.async_callback )
         container.mqtt.subscribe_callback( "cmnd/"+self.container.mqtt_topic+"settings", self.async_publish_callback )  # ask to publish all settings
@@ -204,7 +205,8 @@ class MQTTSetting:
         self.publish()
 
     async def async_callback( self, topic, payload, qos=None, properties=None ):
-        return self.callback( payload, qos, properties )
+        self.callback( payload, qos, properties )
+        await self.updated_callback( self )
 
     def callback( self, payload, qos=None, properties=None ):
         try:

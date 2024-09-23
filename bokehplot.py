@@ -120,15 +120,15 @@ DATA_STREAMS = [
                 
     # ( "pv/solis1/llc_bus_voltage"                        , "V"  , "LLC BUS"               , "#FF80FF"       , "solid",    1.0 , {}                 , {} ),
 
-    ( "pv/solis1/inverting_power_or_rectifying_power"       , "?", "inverting_power_or_rectifying_power"       , nextcolor(), "solid", 1.0, {}, {} ),
-    ( "pv/solis1/grid_port_power"                           , "?", "grid_port_power"                           , nextcolor(), "solid", 1.0, {}, {} ),
-    ( "pv/solis1/b_limit_operation"                         , "?", "b_limit_operation"                         , nextcolor(), "solid", 1.0, {}, {} ),
-    ( "pv/solis1/rwr_power_limit_setting"                   , "?", "rwr_power_limit_setting"                   , nextcolor(), "solid", 1.0, {}, {} ),
-    ( "pv/solis1/rwr_power_limit_switch"                    , "?", "rwr_power_limit_switch"                    , nextcolor(), "solid", 1.0, {}, {} ),
-    ( "pv/solis1/rwr_actual_power_limit_adjustment_value"   , "?", "rwr_actual_power_limit_adjustment_value"   , nextcolor(), "solid", 1.0, {}, {} ),
-    ( "pv/solis1/limit_active_power_adjustment_rated_power" , "?", "limit_active_power_adjustment_rated_power" , nextcolor(), "solid", 1.0, {}, {} ),
-    ( "pv/solis1/actual_power_limit"                        , "?", "actual_power_limit"                        , nextcolor(), "solid", 1.0, {}, {} ),
-    ( "pv/solis1/backup_load_power"                          , "?", "backup_load_power"                        , nextcolor(), "solid", 1.0, {}, {} ),
+    # ( "pv/solis1/inverting_power_or_rectifying_power"       , "?", "inverting_power_or_rectifying_power"       , nextcolor(), "solid", 1.0, {}, {} ),
+    # ( "pv/solis1/grid_port_power"                           , "?", "grid_port_power"                           , nextcolor(), "solid", 1.0, {}, {} ),
+    # ( "pv/solis1/b_limit_operation"                         , "?", "b_limit_operation"                         , nextcolor(), "solid", 1.0, {}, {} ),
+    ( "pv/solis1/rwr_power_limit_setting"                   , "?", "43052 rwr_power_limit_setting"                   , nextcolor(), "solid", -60, {}, {} ),
+    # ( "pv/solis1/rwr_power_limit_switch"                    , "?", "rwr_power_limit_switch"                    , nextcolor(), "solid", 1.0, {}, {} ),
+    # ( "pv/solis1/rwr_actual_power_limit_adjustment_value"   , "?", "rwr_actual_power_limit_adjustment_value"   , nextcolor(), "solid", 1.0, {}, {} ),
+    # ( "pv/solis1/limit_active_power_adjustment_rated_power" , "?", "limit_active_power_adjustment_rated_power" , nextcolor(), "solid", 1.0, {}, {} ),
+    ( "pv/solis1/actual_power_limit"                        , "?", "33104 actual_power_limit"                        , nextcolor(), "solid", -0.6, {}, {} ),
+    # ( "pv/solis1/backup_load_power"                          , "?", "backup_load_power"                        , nextcolor(), "solid", 1.0, {}, {} ),
      # ( "pv/solis1/operating_status"                       , "Bool"  , "Limit"               , "#FFFFFF"       , "solid",    1.0 , {}                 , {"func":lambda x:3000*(x.astype(np.int64)&64).astype(bool)} ),
                 
     # ( "pv/solis1/battery_dcdc_enable"                    , "V"  , "battery_dcdc_enable"    , "#FFFF00"       , "solid",    1.0 , {}                 , {} ),
@@ -312,20 +312,24 @@ PLOT_LAYOUTS = [
         [
             [
 
-        "pv/meter/total_power",
         "pv/solis1/meter/active_power",
-        "pv/solis1/grid_port_power",
-        "pv/solis1/backup_load_power",
-        "pv/solis1/inverting_power_or_rectifying_power"       ,
-        "pv/solis1/grid_port_power"                           ,
-        "pv/solis1/b_limit_operation"                         ,
+        # "pv/solis1/backup_load_power",
+        # "pv/solis1/inverting_power_or_rectifying_power"       ,
+        # "pv/solis1/grid_port_power"                           ,
+        # "pv/solis1/b_limit_operation"                         ,
         "pv/solis1/rwr_power_limit_setting"                   ,
-        "pv/solis1/rwr_power_limit_switch"                    ,
-        "pv/solis1/rwr_actual_power_limit_adjustment_value"   ,
-        "pv/solis1/limit_active_power_adjustment_rated_power" ,
+        # "pv/solis1/rwr_power_limit_switch"                    ,
+        # "pv/solis1/rwr_actual_power_limit_adjustment_value"   ,
+        # "pv/solis1/limit_active_power_adjustment_rated_power" ,
         "pv/solis1/actual_power_limit"                        ,
-            ]
-        ]
+            ],
+            [
+                "pv/solis1/pv_power"                              ,
+                "pv/meter/total_power"                           ,
+                "pv/solis1/input_power"                           ,
+                "pv/solis1/meter/active_power"                       ,
+
+            ]        ]
     ]
 ]
 

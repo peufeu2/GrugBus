@@ -33,19 +33,19 @@ class EVSE( grugbus.SlaveDevice ):
         #   Parameters
         #   Note force charge and energy limit settings are reset once the car is unplugged.
         #
-        MQTTSetting( self, "start_excess_threshold_W"   , int  , range( 0, 2001 ) , 1400 )  # minimum excess power to start charging, unless overriden by:    
-        MQTTSetting( self, "charge_detect_threshold_W"  , int  , range( 0, 2001 ) , 1200 )  # minimum excess power to start charging, unless overriden by:    
-        MQTTSetting( self, "force_charge_minimum_A"     , int  , range( 0, 32 )   , 10   )  # guarantee this charge minimum current    
-        MQTTSetting( self, "force_charge_until_kWh"     , int  , range( 0, 81 )   , 0    )  # until this energy has been delivered (0 to disable force charge)
-        MQTTSetting( self, "stop_charge_after_kWh"      , int  , range( 0, 81 )   , 6    )
-        MQTTSetting( self, "offset"                     , int  , range( -10000, 10000 )   , 0    )
-        MQTTSetting( self, "settle_timeout_ms"          , int  , range( 0, 10001 ),  250 )
-        MQTTSetting( self, "command_interval_ms"        , int  , range( 0, 10001 ),  500 )
-        MQTTSetting( self, "command_interval_small_ms"  , int  , range( 0, 10001 ), 9000 )
-        MQTTSetting( self, "dead_band_W"                , int  , range( 0, 501 ),  0.5*240 )        # dead band for power routing
-        MQTTSetting( self, "stability_threshold_W"      , int  , range( 50, 201 ),  150 )
-        MQTTSetting( self, "small_current_step_A"       , int  , ( 1, 2 ),  1 )
-        MQTTSetting( self, "control_gain"               , float, (lambda x: 0.1 <= x <= 0.99),  0.96 )
+        MQTTSetting( self, "start_excess_threshold_W"   , int  , range( 0, 2001 )            , 1400     , self.setting_updated )  # minimum excess power to start charging, unless overriden by:    
+        MQTTSetting( self, "charge_detect_threshold_W"  , int  , range( 0, 2001 )            , 1200     , self.setting_updated )  # minimum excess power to start charging, unless overriden by:    
+        MQTTSetting( self, "force_charge_minimum_A"     , int  , range( 6, 32 )              , 10       , self.setting_updated )  # guarantee this charge minimum current    
+        MQTTSetting( self, "force_charge_until_kWh"     , int  , range( 0, 81 )              , 0        , self.setting_updated )  # until this energy has been delivered (0 to disable force charge)
+        MQTTSetting( self, "stop_charge_after_kWh"      , int  , range( 0, 81 )              , 6        , self.setting_updated )
+        MQTTSetting( self, "offset"                     , int  , range( -10000, 10000 )      , 0        , self.setting_updated )
+        MQTTSetting( self, "settle_timeout_ms"          , int  , range( 0, 10001 )           ,  250     , self.setting_updated )
+        MQTTSetting( self, "command_interval_ms"        , int  , range( 0, 10001 )           ,  500     , self.setting_updated )
+        MQTTSetting( self, "command_interval_small_ms"  , int  , range( 0, 10001 )           , 9000     , self.setting_updated )
+        MQTTSetting( self, "dead_band_W"                , int  , range( 0, 501 )             ,  0.5*240 , self.setting_updated )        # dead band for power routing
+        MQTTSetting( self, "stability_threshold_W"      , int  , range( 50, 201 )            ,  150     , self.setting_updated )
+        MQTTSetting( self, "small_current_step_A"       , int  , ( 1, 2 )                    ,  1       , self.setting_updated )
+        MQTTSetting( self, "control_gain"               , float, (lambda x: 0.1 <= x <= 0.99),  0.96    , self.setting_updated )
 
         # Modbus polling
         self.tick      = Metronome( config.POLL_PERIOD_EVSE )   # how often we poll it over modbus
@@ -92,8 +92,19 @@ class EVSE( grugbus.SlaveDevice ):
         self._prev_car_ready = self.car_ready = None    # if car is plugged in and ready
         self._begin_charge_timestamp = 0                # set when car begins to draw current, for soft start
 
+    # sanitize settings
+    async def setting_updated( self, setting=None ):
+        stop = self.stop_charge_after_kWh
+        force = self.force_charge_until_kWh
+        if stop.value < force.value:
+            if setting is force:    stop.value = force.value = max( stop.value, force.value )
+            elif setting is stop:   stop.value = force.value = min( stop.value, force.value )
+            stop.publish()
+            force.publish()
+
     # Async stuff that can't be in constructor
     async def initialize( self ):
+        await self.setting_updated()
         await self.pause_charge()
 
     def is_charge_paused( self ):
@@ -178,13 +189,13 @@ class EVSE( grugbus.SlaveDevice ):
             self.stop_counter.to_maximum()
             # set lower bound for charge current to the minimum allowed by force charge
             # it is still allowed to use more power if there is more available
-            self.current_limit_counter.minimum = self.force_charge_minimum_A.value
+            self.current_limit_counter.set_minimum( self.force_charge_minimum_A.value )
         else:
             # monitor excess power to decide if we can start charge
             # do it before checking the socket state so when we plug in, it starts immediately
             # if power is available
             self.start_counter.addsub( excess >= self.start_excess_threshold_W.value, time_since_last_call )
-            self.current_limit_counter.minimum = self.i_start   # set lower bound at minimum allowed current
+            self.current_limit_counter.set_minimum( self.i_start )   # set lower bound at minimum allowed current
 
         # Are we connected? If RS485 fails, EVSE will timeout and stop charge.
         if not (self.is_online and self.local_meter.is_online):
@@ -247,14 +258,14 @@ class EVSE( grugbus.SlaveDevice ):
             return
 
         # calculate new limit
-        cur_limit = self.current_limit_counter.value
-        new_limit = round( (power + excess) * self.control_gain.value / voltage )
+        cur_limit = self.rwr_current_limit.value
+        new_limit = (power + excess) * self.control_gain.value / voltage
         self.stop_counter.addsub( new_limit >= self.i_start, time_since_last_call ) # stop charge if we're at minimum power and repeatedly try to go lower
-        new_limit = max( self.i_start, min( self.i_max, new_limit ))                # clip it so we keep charging until stop_counter says we stop
+        new_limit = self.current_limit_counter.clip( new_limit )                # clip it so we keep charging until stop_counter says we stop
         delta_i = new_limit - cur_limit
 
-        self.mqtt.publish_value( self.mqtt_topic+"command_interval_small",  round(self.command_interval_small.remain(),1) )
-        self.mqtt.publish_value( self.mqtt_topic+"command_interval",        round(self.command_interval.remain(),1) )
+        # self.mqtt.publish_value( self.mqtt_topic+"command_interval_small",  round(self.command_interval_small.remain(),1) )
+        # self.mqtt.publish_value( self.mqtt_topic+"command_interval",        round(self.command_interval.remain(),1) )
 
         print( "power %4d voltage %4d current %5.02f limit %d -> %d timeouts %.02f %.02f" % (power, voltage, power/voltage, cur_limit, new_limit, self.command_interval.remain(), self.command_interval_small.remain() ))
 
@@ -362,6 +373,7 @@ class EVSE( grugbus.SlaveDevice ):
     async def set_current_limit( self, current_limit ):
         current_limit = round(current_limit)
         self.current_limit_counter.set( current_limit )
+        # print("set limit", current_limit, "minmax", self.current_limit_counter.minimum, self.current_limit_counter.maximum, "value", self.current_limit_counter.value, "reg", self.rwr_current_limit.value )
 
         if self.resend_current_limit_tick.ticked():        
             # sometimes the EVSE forgets the current limit, so send it at regular intervals
