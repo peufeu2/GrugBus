@@ -86,8 +86,8 @@ class Solis( grugbus.SlaveDevice ):
                 self.mppt2_voltage                        ,
                 self.mppt2_current                        ,
             ],[
-                self.dc_bus_voltage                       ,
-                self.dc_bus_half_voltage                  ,
+                # self.dc_bus_voltage                       ,
+                # self.dc_bus_half_voltage                  ,
                 self.phase_a_voltage                      ,
             ],[
                 self.temperature                          ,
@@ -111,8 +111,6 @@ class Solis( grugbus.SlaveDevice ):
                 self.bms_battery_fault_information_01     ,
                 self.bms_battery_fault_information_02     ,
                 self.backup_load_power                    ,
-
-                self.inverting_power_or_rectifying_power    # TODO
             ],[
                 self.battery_charge_energy_today          ,
                 self.battery_discharge_energy_today       ,
@@ -121,20 +119,7 @@ class Solis( grugbus.SlaveDevice ):
                 self.battery_max_discharge_current        ,
             ],[
                 self.rwr_power_on_off                     ,              
-
-                # TODO
-                # self.switching_machine_setting,
-                # self.b_limit_operation,
-                # self.b_battery_status,
-
-            ], 
-                [ self.b_limit_operation ],
-                [ self.rwr_power_limit_setting ],
-                [ self.rwr_power_limit_switch ],
-                [ self.rwr_actual_power_limit_adjustment_value ],
-                [ self.limit_active_power_adjustment_rated_power ],
-                [ self.actual_power_limit ],
-            [
+            ],[
                 self.rwr_energy_storage_mode              ,
                 self.rwr_backup_output_enabled            ,
             ]]]
@@ -169,7 +154,7 @@ class Solis( grugbus.SlaveDevice ):
                 try:
                     await self.tick.wait()
                     try:
-                        regs = await self.read_regs( reg_set, max_hole_size=4 )
+                        regs = set( await self.read_regs( reg_set, max_hole_size=4 ) )
 
                         #
                         #   Process values. Do not await until it is done, to prevent other tasks from seeing partial results
@@ -183,7 +168,7 @@ class Solis( grugbus.SlaveDevice ):
                             if self.battery_current_direction.value:    # positive current/power means charging, negative means discharging
                                 self.battery_current.value     *= -1
                             self.battery_power.value       = self.battery_current.value * self.battery_voltage.value
-                            regs.append( self.battery_power )
+                            regs.add( self.battery_power )
 
                             bp_abs_avg = self.smooth_bp_abs.append(abs( self.battery_power.value ))   # moving average
                             self.battery_full = (self.bms_battery_soc.value or 0)>=98 and bp_abs_avg != None and bp_abs_avg < 100
@@ -196,20 +181,25 @@ class Solis( grugbus.SlaveDevice ):
                         #     if (self.llc_bus_voltage.value or 0) < 50:        # fix: ignore current when DC/DC is off
                         #         self.battery_dcdc_current.value = 0
                         #     self.battery_dcdc_power.value = self.battery_dcdc_current.value * self.battery_voltage.value
-                        #     regs.append( self.battery_dcdc_power )
+                        #     regs.add( self.battery_dcdc_power )
                         
                         # Add useful metrics to avoid asof joins in database
                         if self.mppt1_voltage in regs:
                             self.mppt1_power.value = int( self.mppt1_current.value * self.mppt1_voltage.value )
                             self.mppt2_power.value = int( self.mppt2_current.value * self.mppt2_voltage.value )
-                            regs.append( self.mppt1_power )
-                            regs.append( self.mppt2_power )
+                            regs.add( self.mppt1_power )
+                            regs.add( self.mppt2_power )
 
                         if self.bms_battery_current in regs:
                             if self.battery_current_direction.value:    # positive current/power means charging, negative means discharging
                                 self.bms_battery_current.value *= -1
                             self.bms_battery_power.value = int( self.bms_battery_current.value * self.bms_battery_voltage.value )
-                            regs.append( self.bms_battery_power )
+                            regs.add( self.bms_battery_power )
+
+                        if self.fault_status_1_grid in regs:
+                            self.is_ongrid  = not self.fault_status_1_grid.value
+                            self.is_offgrid = not self.is_ongrid
+
 
                         # Prepare MQTT publish
                         for reg in regs:

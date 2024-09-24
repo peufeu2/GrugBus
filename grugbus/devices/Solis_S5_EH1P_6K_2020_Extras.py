@@ -35,6 +35,7 @@ def MakeRegisters():
             ( 8, False, "Load fault" ),
             ( 9, False, "Grid fault" ),
             (10, False, "Battery fault" ),
+            (11, False, "Reserved 11" ),
             (12, True , "Grid Surge warning" ),
             (13, True , "Fan fault warning" ),
         ))
@@ -60,8 +61,8 @@ def MakeRegisters():
 
     setup_bitfield( "fault_status_3_battery", (
             ( 0, True , "Battery not connected" ),
-            ( 1, True , "Battery overvoltage Check" ),
-            ( 2, True , "Battery undervoltage Check" ),
+            ( 1, True , "Battery overvoltage" ),
+            ( 2, True , "Battery undervoltage" ),
         ))
 
     setup_bitfield( "fault_status_4_inverter", (

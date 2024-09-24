@@ -111,32 +111,37 @@ async def start():
 async def run(mqtt ):
     last_line = None
     timeout = None
-    while True:
-        try:
-            await asyncio.sleep( sleep_delay )
-            for k,v in get():
-                if isinstance( v,float ):
-                    v = round( v, 2 )
-                if isinstance( v,bool ):
-                    v = int(v)
-                print(k,v)
-                mqtt.publish_value( "chauffage/"+k, v )
+    try:
+        while True:
+            try:
+                await asyncio.sleep( sleep_delay )
+                for k,v in get():
+                    if isinstance( v,float ):
+                        v = round( v, 2 )
+                    if isinstance( v,bool ):
+                        v = int(v)
+                    print(k,v)
+                    mqtt.publish_value( "chauffage/"+k, v )
 
-            lines = urllib.request.urlopen("http://192.168.0.16/log",timeout=2).read().decode("windows-1252").split("\n")
-            for line in lines:
-                line = line.strip()
-                if not line:
-                    continue
-                if line == last_line:
-                    continue
-                last_line = line
-                mqtt.mqtt.publish("chauffage/log", line)
-        except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
-            print("Terminated.")
-            return
-        except:
-            log.exception( "Exception" )
-            await asyncio.sleep(1)
+                lines = urllib.request.urlopen("http://192.168.0.16/log",timeout=2).read().decode("windows-1252").split("\n")
+                for line in lines:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    if line == last_line:
+                        continue
+                    last_line = line
+                    mqtt.mqtt.publish("chauffage/log", line)
+            except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
+                print("Terminated.")
+                return
+            except:
+                log.exception( "Exception" )
+                await asyncio.sleep(1)
+    finally:
+        with open("mqtt_stats/mqtt_chauffage.txt","w") as f:
+            mqtt.write_stats( f )
+
 
 
 with asyncio.Runner(loop_factory=uvloop.new_event_loop) as runner:

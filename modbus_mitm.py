@@ -301,8 +301,8 @@ class Router():
 
         export_avg_bat =  export_avg + steal_from_battery
         # mqtt.publish_value( "pv/router/excess_avg_nobat", export_avg )
-        mqtt.publish_value( "pv/router/battery_min_charge_power",  bp_min )
-        mqtt.publish_value( "pv/router/excess_avg", export_avg_bat )
+        mqtt.publish_value( "pv/router/battery_min_charge_power",  round(bp_min) )
+        mqtt.publish_value( "pv/router/excess_avg", round(export_avg_bat) )
 
         #   Note export_avg_nobat doesn't work that well. It tends to use too much from the battery
         #   because the inverter will lower battery charging power on its own to power the EVSE, but this is
@@ -877,6 +877,8 @@ class SolisManager():
             print("Terminated.")
         finally:
             await mqtt.mqtt.disconnect()
+            with open("mqtt_stats/modbus_mitm.txt","w") as f:
+                mqtt.write_stats( f )
 
     ########################################################################################
     #   Web server

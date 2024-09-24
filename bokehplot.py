@@ -159,6 +159,14 @@ DATA_STREAMS = [
     ( "chauffage/pac_rejet"          , "°C", "PAC rejet"                , "#008080"  , "solid",   1.0             , {"visible":False}, { }),
     ( "chauffage/rc_pf_che"          , "°C", "RC Chauffe-eau"           , "#FF8000"  , "solid",   1.0             , {"visible":False}, { }),
 
+    ( "$SYS/broker/load/messages/received/1min" , "msg/s", "MQTT received"    , "#00FF00"  , "solid",      1/60             , {}, { }),
+    ( "$SYS/broker/load/messages/sent/1min"     , "msg/s", "MQTT sent"        , "#FF0080"  , "solid",      1/60             , {}, { }),
+    ( "$SYS/broker/load/bytes/received/1min"    , "kB/s",  "MQTT received"       , "#00FF00"  , "solid",   1/(60*1024)      , {}, { }),
+    ( "$SYS/broker/load/bytes/sent/1min"        , "kB/s",  "MQTT sent"           , "#FF0080"  , "solid",   1/(60*1024)      , {}, { }),
+
+
+
+
 
 
 
@@ -330,6 +338,17 @@ PLOT_LAYOUTS = [
                 "pv/solis1/meter/active_power"                       ,
 
             ]        ]
+    ],
+    ["MQTT",
+        [
+            [
+                "$SYS/broker/load/messages/received/1min",
+                "$SYS/broker/load/messages/sent/1min",
+            ],[
+                "$SYS/broker/load/bytes/received/1min",
+                "$SYS/broker/load/bytes/sent/1min",
+            ]
+        ]
     ]
 ]
 
@@ -382,7 +401,7 @@ def get_latest_value( topic ):
 
 class DataStream( object ):
     def __init__( self, topic, unit, label, color, dash, scale, bokeh_attrs, attrs ):
-        if unit:    label += "(%s)" % unit
+        if unit:    label += " (%s)" % unit
         self.bokeh_attrs = dict(bokeh_attrs)
         self.bokeh_attrs["legend_label"] = self.label = label
         self.bokeh_attrs["line_color"]   = self.color = color

@@ -45,7 +45,7 @@ class Buffer( MQTTWrapper ):
         # MQTT -> thread deque
         self.queue_socket = collections.deque( maxlen=65536 )
         self.msgcount = 0
-        self.msgcount_tick = Metronome( 2 )
+        self.msgcount_tick = Metronome( 10 )
 
         # Logging to files
         self.basedir = Path( basedir )
@@ -85,6 +85,11 @@ class Buffer( MQTTWrapper ):
 
     def on_connect( self, client, flags, rc, properties ):
         self.mqtt.subscribe( "#" )
+        self.mqtt.subscribe( "$SYS/broker/load/messages/received/1min" )
+        self.mqtt.subscribe( "$SYS/broker/load/messages/sent/1min" )
+        self.mqtt.subscribe( "$SYS/broker/load/bytes/received/1min" )
+        self.mqtt.subscribe( "$SYS/broker/load/bytes/sent/1min" )
+
 
     async def on_message( self, client, topic, payload, qos, properties ):
         # Encode MQTT message into json
@@ -98,8 +103,8 @@ class Buffer( MQTTWrapper ):
             self.compressor.flush()
         if self.new_file_tick.ticked():
             self.file_new()
-        if self.msgcount_tick.ticked():
-            print("Queue %d ; %f messages/s" % (len(self.queue_socket), self.msgcount/self.msgcount_tick.tick))
+        if elapsed := self.msgcount_tick.ticked():
+            print("Queue %d ; %f messages/s" % (len(self.queue_socket), self.msgcount/elapsed))
             self.msgcount = 0
 
 

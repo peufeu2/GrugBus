@@ -45,7 +45,8 @@ class EVSE( grugbus.SlaveDevice ):
         MQTTSetting( self, "dead_band_W"                , int  , range( 0, 501 )             ,  0.5*240 , self.setting_updated )        # dead band for power routing
         MQTTSetting( self, "stability_threshold_W"      , int  , range( 50, 201 )            ,  150     , self.setting_updated )
         MQTTSetting( self, "small_current_step_A"       , int  , ( 1, 2 )                    ,  1       , self.setting_updated )
-        MQTTSetting( self, "control_gain"               , float, (lambda x: 0.1 <= x <= 0.99),  0.96    , self.setting_updated )
+        MQTTSetting( self, "control_gain_p"             , float, (lambda x: 0.1 <= x <= 0.99),  0.96    , self.setting_updated )
+        MQTTSetting( self, "control_gain_i"             , float, (lambda x: 0 <= x <= 0.1)   ,  0.05    , self.setting_updated )
 
         # Modbus polling
         self.tick      = Metronome( config.POLL_PERIOD_EVSE )   # how often we poll it over modbus
@@ -70,7 +71,8 @@ class EVSE( grugbus.SlaveDevice ):
 
         # incremented/decremented depending on excess power to start/stop charge
         self.start_counter = BoundedCounter( 0, 50, 60 )   # charge starts when this counter reaches maximum
-        self.stop_counter  = BoundedCounter( 0, -60, 60 )   # charge stops  when this counter reaches minimum
+        self.stop_counter  = BoundedCounter( 0, -60, 60 )  # charge stops  when this counter reaches minimum
+        self.integrator    = BoundedCounter( 0, -160, 160 )    # in Watts
 
         # current limit that will be sent to the EVSE, incremented and decremented depending on available power
         self.current_limit_counter = BoundedCounter( self.i_start, self.i_start, self.i_max, round )
@@ -87,9 +89,10 @@ class EVSE( grugbus.SlaveDevice ):
         self.settle_timeout            = Timeout( 2, expired=True ) # different intervals depending on size of current_limit adjustment (see below)
         self.command_interval_small    = Timeout( 10, expired=True ) # different intervals depending on size of current_limit adjustment (see below)
         self.resend_current_limit_tick = Metronome( 10 )    # sometimes the EVSE forgets the setting, got to send it once in a while
+        self.unplug_timeout            = Timeout( 3 )
 
         self._last_call     = Chrono()
-        self._prev_car_ready = self.car_ready = None    # if car is plugged in and ready
+        self.car_ready = None    # if car is plugged in and ready
         self._begin_charge_timestamp = 0                # set when car begins to draw current, for soft start
 
     # sanitize settings
@@ -117,28 +120,18 @@ class EVSE( grugbus.SlaveDevice ):
         if self.is_charge_unpaused():
             log.info("EVSE: Pause charge")
         self.local_meter.tick.set( config.POLL_PERIOD_EVSE_METER[0]* 10 )   # less MQTT traffic when not charging
-        self.target_power = None
-        self.previous_delta = 0
         self.start_counter.to_minimum() # reset counters 
         self.stop_counter.to_minimum()
-        self.publish_target_power()
         await self.set_current_limit( self.i_pause )
 
     async def resume_charge( self ):
         if self.is_charge_paused():
             log.info("EVSE: Resume charge")
         self.local_meter.tick.set( config.POLL_PERIOD_EVSE_METER[0] ) # poll meter more often
-        self.target_power = None
-        self.previous_delta = 0
         self.start_counter.to_maximum()
         self.stop_counter.to_maximum()
-        self.publish_target_power()
+        self.integrator.set(0)
         await self.set_current_limit( self.i_start )
-
-    def publish_target_power( self ):
-        t = self.target_power or (0,0)
-        self.mqtt.publish_value( self.mqtt_topic+"target_power_min",  round(t[0],2) )
-        self.mqtt.publish_value( self.mqtt_topic+"target_power_max",  round(t[1],2) )
 
     async def read_coroutine( self ):
         mqtt = self.mqtt
@@ -203,13 +196,15 @@ class EVSE( grugbus.SlaveDevice ):
 
         #   Plug/Unplug
         #
-        self._prev_car_ready, self.car_ready = self.car_ready, (self.socket_state.value == 0x111) # EV plugged and ready to charge
+        self.car_ready = (self.socket_state.value == 0x111)  # EV plugged and ready to charge
         if not self.car_ready:          # EV is not plugged in.
-            if self._prev_car_ready:    # it was just unplugged.
+            if self.unplug_timeout.expired_once():
                 log.info("EVSE: EV unplogged. Reset settings.")
                 self.force_charge_until_kWh.set( 0 ) # reset it after unplugging car
-                self.stop_charge_after_kWh .set( 0 )  
+                self.stop_charge_after_kWh .set( 0 )
             return await self.pause_charge( )
+
+        self.unplug_timeout.reset( 3 )  # sometimes the EVSE crashes or reports "not ready" for one second
 
         # now, EV is plugged in, but not necessarily authorized or willing to charge.
         # charge_state 500     : waiting for RFID authorization or other causes.
@@ -255,11 +250,13 @@ class EVSE( grugbus.SlaveDevice ):
         # Finally... adjust current.
         # Since the car imposes 1A steps, don't bother with changes smaller than this.
         if abs(excess) < self.dead_band_W.value:
+            self.integrator.value = 0.
             return
 
         # calculate new limit
         cur_limit = self.rwr_current_limit.value
-        new_limit = (power + excess) * self.control_gain.value / voltage
+        self.integrator.add( excess * self.control_gain_i.value * time_since_last_call )
+        new_limit = (power + excess + self.integrator.value) * self.control_gain_p.value / voltage
         self.stop_counter.addsub( new_limit >= self.i_start, time_since_last_call ) # stop charge if we're at minimum power and repeatedly try to go lower
         new_limit = self.current_limit_counter.clip( new_limit )                # clip it so we keep charging until stop_counter says we stop
         delta_i = new_limit - cur_limit
@@ -267,13 +264,17 @@ class EVSE( grugbus.SlaveDevice ):
         # self.mqtt.publish_value( self.mqtt_topic+"command_interval_small",  round(self.command_interval_small.remain(),1) )
         # self.mqtt.publish_value( self.mqtt_topic+"command_interval",        round(self.command_interval.remain(),1) )
 
-        print( "power %4d voltage %4d current %5.02f limit %d -> %d timeouts %.02f %.02f" % (power, voltage, power/voltage, cur_limit, new_limit, self.command_interval.remain(), self.command_interval_small.remain() ))
+        print( "power %4d voltage %4d current %5.02f integ %.02f limit %d -> %d timeouts %.02f %.02f" % (power, voltage, power/voltage, self.integrator.value, cur_limit, new_limit, self.command_interval.remain(), self.command_interval_small.remain() ))
 
         if not delta_i:
             return
         # do not constantly send small changes
-        if abs( delta_i ) <= self.small_current_step_A.value and not self.command_interval_small.expired():
-            return
+        if abs( delta_i ) <= self.small_current_step_A.value:
+            if not self.command_interval_small.expired():
+                return
+        else:
+            self.integrator.value = 0.
+            
         if not self.command_interval.expired():
             return
 

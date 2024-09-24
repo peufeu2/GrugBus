@@ -435,29 +435,29 @@ class RegFloat( Reg32 ):
 class BitfieldMixin():
     def init_bits_n( self, bits ):
         self.bits = { bit_name:(bit,bool(active_high)) for bit,active_high,bit_name in bits }
+        configured_bits = set( bit_bit for (bit_bit,active_high) in self.bits.values() )
+        for n in range(16):
+            if n not in configured_bits:
+                self.bits[ ("Reserved %d"%n) ] = (n,True)
 
     def get_bits( self ):
         self.bits = r = {}
         value = self.value
         for bit_name,(bit_bit,active_high) in self.bits.items():
-            bit = bool(value & (1<<bit_bit))
-            bit_name[k] = bit == active_high
+            r[bit_name] = bool(value & (1<<bit_bit)) == active_high
         return r
 
-    def get_on_bits( self ):
+    def get_active_bits( self ):
         r = set()
         value = self.value
         if value == None:
-            return ()
+            return r
         for bit_name,(bit_bit,active_high) in self.bits.items():
-            if value & (1<<bit_bit):
-                if active_high:
-                    r.add( bit_name )
-            elif not active_high:
+            if bool(value & (1<<bit_bit)) == active_high:
                 r.add( bit_name )
         return r
 
-    def get_bit_value( self, bit_name ):
+    def get_bit( self, bit_name ):
         bit_bit,active_high = self.bits[bit_name]
         return bool( self.value & (1<<bit_bit) )
 

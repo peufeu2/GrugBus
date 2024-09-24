@@ -11,7 +11,8 @@ class Metronome:
         try:    tick, base = tick
         except: base = 0
         self.tick = tick
-        self.next_tick = base
+        self.next_tick = base%tick
+        self.last_tick = 0
 
     def set( self, tick ):
         if self.tick != tick:
@@ -34,7 +35,10 @@ class Metronome:
         ct = time.monotonic()
         if self.next_tick < ct:
             self.next_tick += self.tick * math.ceil((ct-self.next_tick)/self.tick)
-            return True
+            lt = self.last_tick
+            self.last_tick = ct
+            return ct - lt
+        return 0
 
 class Chrono:
     def __init__( self ):

@@ -395,7 +395,7 @@ class SlaveDevice( DeviceBase ):
                             raise ModbusException( str( resp ))
                         self.is_online = True
                         break
-                    except (TimeoutError,ModbusException):
+                    except (TimeoutError,ModbusException) as e:
                         await asyncio.sleep(0)  # let other tasks use this serial port
                         if retry < retries-1:
                             # log.info( "Modbus write error: %s will retry %d/%d (%s) %s", self.key, retry+1, retries, e, msg )
