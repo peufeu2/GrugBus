@@ -149,8 +149,10 @@ class Solis( grugbus.SlaveDevice ):
 
         mqtt = self.mqtt
         topic = self.mqtt_topic
+        startup_done = False
         while True:
-            for reg_set in self.reg_sets:
+            # At startup, read all registers at once, do not wait.
+            for reg_set in self.reg_sets if startup_done else [ list(set(sum(self.reg_sets,[]))) ]:
                 try:
                     await self.tick.wait()
                     try:
@@ -173,16 +175,6 @@ class Solis( grugbus.SlaveDevice ):
                             bp_abs_avg = self.smooth_bp_abs.append(abs( self.battery_power.value ))   # moving average
                             self.battery_full = (self.bms_battery_soc.value or 0)>=98 and bp_abs_avg != None and bp_abs_avg < 100
 
-                        # # fast current setting using the DC/DC setpoint
-                        # if self.battery_dcdc_direction in regs:
-                        #     regs.remove( self.battery_dcdc_direction )
-                        #     if self.battery_dcdc_direction.value:    # positive current/power means charging, negative means discharging
-                        #         self.battery_dcdc_current.value *= -1
-                        #     if (self.llc_bus_voltage.value or 0) < 50:        # fix: ignore current when DC/DC is off
-                        #         self.battery_dcdc_current.value = 0
-                        #     self.battery_dcdc_power.value = self.battery_dcdc_current.value * self.battery_voltage.value
-                        #     regs.add( self.battery_dcdc_power )
-                        
                         # Add useful metrics to avoid asof joins in database
                         if self.mppt1_voltage in regs:
                             self.mppt1_power.value = int( self.mppt1_current.value * self.mppt1_voltage.value )
@@ -213,31 +205,23 @@ class Solis( grugbus.SlaveDevice ):
                         self.event_power.set()
                         self.event_power.clear()
 
-                # wake up other coroutines waiting for fresh values
 
                 except (TimeoutError, ModbusException):
-                #     # use defaults so the rest of the code still works if connection to the inverter is lost
-                #     # note self.is_online is set to False by grugbus.Device when communication fails, no need
-                #     # to set it again here
-                #     self.battery_current.value            = 0
-                #     self.bms_battery_current.value        = 0
-                #     self.battery_power.value              = 0
-                #     self.battery_max_charge_current.value = 0
-                #     self.battery_dcdc_active.value        = 1
-                #     self.pv_power.value                   = 0
-                #     self.input_power.value                = 0
+                    # note grugbus.Device logs the exception and sets self.is_online is set to False
+                    # when communication fails, no need to do it again here
+                    startup_done = False
                     await asyncio.sleep(1)
 
                 except Exception:
                     self.is_online = False
+                    startup_done = False
                     log.exception(self.key+":")
-                    # s = traceback.format_exc()
-                    # log.error(self.key+":"+s)
-                    # self.mqtt.mqtt.publish( "pv/exception", s )
                     await asyncio.sleep(1)
 
+            # wake up other coroutines waiting for fresh values
             self.event_all.set()
             self.event_all.clear()
+            startup_done = True
 
     def get_time_regs( self ):
         return ( self.rwr_real_time_clock_year, self.rwr_real_time_clock_month,  self.rwr_real_time_clock_day,

@@ -119,6 +119,7 @@ DATA_STREAMS = [
     ( "pv/disk_space_gb"                                 , "GB"  , "Pi Disk Space"               , "#0080FF"       , "solid",    1.0 , {}                 , {} ),
                 
     # ( "pv/solis1/llc_bus_voltage"                        , "V"  , "LLC BUS"               , "#FF80FF"       , "solid",    1.0 , {}                 , {} ),
+    ( "pv/solis%d/inverter_status"                       , "?"  , "S%d Status"                      , nextcolor()       , "solid",    1.0 , {}                 , {} ),
 
     # ( "pv/solis1/inverting_power_or_rectifying_power"       , "?", "inverting_power_or_rectifying_power"       , nextcolor(), "solid", 1.0, {}, {} ),
     # ( "pv/solis1/grid_port_power"                           , "?", "grid_port_power"                           , nextcolor(), "solid", 1.0, {}, {} ),
@@ -320,24 +321,24 @@ PLOT_LAYOUTS = [
         [
             [
 
-        "pv/solis1/meter/active_power",
+        "pv/solis%d/meter/active_power",
         # "pv/solis1/backup_load_power",
         # "pv/solis1/inverting_power_or_rectifying_power"       ,
         # "pv/solis1/grid_port_power"                           ,
         # "pv/solis1/b_limit_operation"                         ,
-        "pv/solis1/rwr_power_limit_setting"                   ,
+        # "pv/solis1/rwr_power_limit_setting"                   ,
         # "pv/solis1/rwr_power_limit_switch"                    ,
         # "pv/solis1/rwr_actual_power_limit_adjustment_value"   ,
         # "pv/solis1/limit_active_power_adjustment_rated_power" ,
-        "pv/solis1/actual_power_limit"                        ,
+        # "pv/solis1/actual_power_limit"                        ,
             ],
             [
-                "pv/solis1/pv_power"                              ,
-                "pv/meter/total_power"                           ,
-                "pv/solis1/input_power"                           ,
-                "pv/solis1/meter/active_power"                       ,
-
-            ]        ]
+                "pv/solis%d/inverter_status"                              ,
+            ],
+            [
+                "pv/solis%d/battery_voltage"                              ,
+            ]        
+        ]
     ],
     ["MQTT",
         [

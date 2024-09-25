@@ -199,7 +199,7 @@ class EVSE( grugbus.SlaveDevice ):
         self.car_ready = (self.socket_state.value == 0x111)  # EV plugged and ready to charge
         if not self.car_ready:          # EV is not plugged in.
             if self.unplug_timeout.expired_once():
-                log.info("EVSE: EV unplogged. Reset settings.")
+                log.info("EVSE: EV unplugged. Reset settings.")
                 self.force_charge_until_kWh.set( 0 ) # reset it after unplugging car
                 self.stop_charge_after_kWh .set( 0 )
             return await self.pause_charge( )

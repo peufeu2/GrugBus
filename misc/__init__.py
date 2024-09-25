@@ -5,7 +5,8 @@ import time, asyncio, math, collections
 
 class Metronome:
     """
-        Simple class to periodically trigger an event
+        Simple class to periodically trigger an event.
+        Missed trigger points are ignored.
     """
     def __init__( self, tick ):
         try:    tick, base = tick
@@ -14,22 +15,27 @@ class Metronome:
         self.next_tick = base%tick
         self.last_tick = 0
 
+    # set tick period
     def set( self, tick ):
         if self.tick != tick:
             # cancel previous tick and replace it with new one
             self.next_tick += tick - self.tick
             self.tick = tick
 
+    # realign ticks to current time
     def reset( self ):
         self.next_tick = time.monotonic()+self.tick
 
+    # Wait for next tick. First call never waits.
     async def wait( self ):
-        ct = time.monotonic()
-        if self.next_tick < ct:
-            self.next_tick += self.tick * math.ceil((ct-self.next_tick)/self.tick)
-        delay = self.next_tick - ct
-        if delay>0.01:
-            await asyncio.sleep(delay)
+        if self.last_tick:
+            ct = time.monotonic()
+            if self.next_tick < ct:
+                self.next_tick += self.tick * math.ceil((ct-self.next_tick)/self.tick)
+            delay = self.next_tick - ct
+            if delay>0.01:
+                await asyncio.sleep(delay)
+        self.last_tick = time.monotonic()
 
     def ticked( self ):
         ct = time.monotonic()

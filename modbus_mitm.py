@@ -526,6 +526,7 @@ class SolisManager():
     async def power_coroutine( self ):
         m = self.meter
         await m.event_all.wait()    # wait for all registers to be read
+        await asyncio.sleep(2)      # wait for Solis to read all its registers (or fail if it is offline)
 
         while True:
             try:
@@ -552,9 +553,16 @@ class SolisManager():
                 # TODO: degraded modes
 
                 for solis in self.inverters:
-                    # if inverter queried its fake meter, it is online
-                    # Special case if the Wifi dongle is inserted instead of the COM cable
-                    if ((solis.is_online and solis.inverter_status.value == 3) or (not solis.is_online)) and solis.fake_meter.last_inverter_query_time > time.monotonic()-5:
+                    #   For power sharing (in fakemeter below) we need to know if both inverters are ongrid and capable
+                    # of producing power, or just one. If one is marked as online when there are two, powersharing will cause oscillations.
+                    # if two are marked online when there is one, it will simply react slower, so it's not really a problem.
+                    # Note: solis.inverter_status.value == 3 means it is ongrid and producing, but
+                    # for some errors like CAN FAIL, it will still produce while this register is set to something else
+                    # like "turning off"... same for operating_status...
+                    if solis.is_online:
+                        if not (solis.fault_status_1_grid.bit_is_active( "No grid" ) or solis.rwr_power_on_off.value == solis.rwr_power_on_off.value_off):
+                            inverters_online.append( solis )
+                    elif solis.fake_meter.last_inverter_query_time > time.monotonic()-5:
                         inverters_online.append( solis )
 
                     lm = solis.local_meter
@@ -597,12 +605,12 @@ class SolisManager():
                         fake_power = meter_power_tweaked
                     else:
                         # balance power between inverters
-                        if len( inverters_with_battery ) == 2:
-                            fake_power = ( meter_power_tweaked * 0.5 
-                                            + 0.05*(solis.battery_power.value - total_battery_power*0.5)
-                                            - 0.01*(solis.pv_power.value - total_pv_power*0.5) )
-                        else:
-                            fake_power = meter_power_tweaked * 0.5 + 0.05*(solis.input_power.value - total_input_power*0.5)
+                        # if len( inverters_with_battery ) == 2:
+                        #     fake_power = ( meter_power_tweaked * 0.5 
+                        #                     + 0.05*(solis.battery_power.value - total_battery_power*0.5)
+                        #                     - 0.01*(solis.pv_power.value - total_pv_power*0.5) )
+                        # else:
+                        fake_power = meter_power_tweaked * 0.5 + 0.05*(solis.input_power.value - total_input_power*0.5)
 
                     fm = solis.fake_meter
                     fm.active_power           .value = fake_power
@@ -696,18 +704,20 @@ class SolisManager():
             if not solis.is_online:
                 continue
             try:
+                slave = solis.key == "solis2"
                 # Auto on/off: turn it off at night when the battery is below specified SOC
                 # so it doesn't keep draining it while doing nothing useful
                 inverter_is_on = power_reg.value == power_reg.value_on
                 mpptv = max( solis.mppt1_voltage.value, solis.mppt2_voltage.value )
                 if inverter_is_on:
-                    if mpptv < config.SOLIS_TURNOFF_MPPT_VOLTAGE and solis.bms_battery_soc.value <= config.SOLIS_TURNOFF_BATTERY_SOC:
-                        timeout_power_on.reset()
-                        if timeout_power_off.expired():
-                            log.info("Powering OFF %s"%solis.key)
-                            await power_reg.write_if_changed( power_reg.value_off )
-                        else:
-                            log.info( "Power off %s in %d s", solis.key, timeout_power_off.remain() )
+                    if mpptv < config.SOLIS_TURNOFF_MPPT_VOLTAGE:
+                        if slave or solis.bms_battery_soc.value <= config.SOLIS_TURNOFF_BATTERY_SOC:
+                            timeout_power_on.reset()
+                            if timeout_power_off.expired():
+                                log.info("Powering OFF %s"%solis.key)
+                                await power_reg.write_if_changed( power_reg.value_off )
+                            else:
+                                log.info( "Power off %s in %d s", solis.key, timeout_power_off.remain() )
                     else:
                         timeout_power_off.reset()
                 else:
