@@ -274,7 +274,7 @@ class EVSE( grugbus.SlaveDevice ):
                 return
         else:
             self.integrator.value = 0.
-            
+
         if not self.command_interval.expired():
             return
 

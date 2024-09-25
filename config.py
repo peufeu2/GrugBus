@@ -127,7 +127,7 @@ MQTT_RATE_LIMIT = {
     'pv/meter/total_power_factor'                 : (  10,      5.000, 'avg'   ), #          45/       3294
     'pv/meter/total_var'                          : (  10,    100.000, 'avg'   ), #          49/       3294
     'pv/meter/total_volt_amps'                    : (  10,    100.000, 'avg'   ), #          55/       3294
-    'pv/meter/average_line_current_thd'           : (  60,     10.000, 'avg'   ), #         540/       3293
+    'pv/meter/average_line_current_thd'           : (  60,    100.000, 'avg'   ), #         540/       3293
     'pv/meter/average_line_to_neutral_volts_thd'  : (  60,     10.000, 'avg'   ), #          45/       3293
     'pv/evse/charge_state'                        : (  60,      0.000, ''      ), #          46/       2635
     'pv/evse/current_limit'                       : (  60,      0.000, 'avg'   ), #          46/       2635

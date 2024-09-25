@@ -301,8 +301,8 @@ class Router():
 
         export_avg_bat =  export_avg + steal_from_battery
         # mqtt.publish_value( "pv/router/excess_avg_nobat", export_avg )
-        mqtt.publish_value( "pv/router/battery_min_charge_power",  round(bp_min) )
-        mqtt.publish_value( "pv/router/excess_avg", round(export_avg_bat) )
+        mqtt.publish_value( "pv/router/battery_min_charge_power",  bp_min, int )
+        mqtt.publish_value( "pv/router/excess_avg", export_avg_bat, int )
 
         #   Note export_avg_nobat doesn't work that well. It tends to use too much from the battery
         #   because the inverter will lower battery charging power on its own to power the EVSE, but this is
@@ -632,13 +632,13 @@ class SolisManager():
                 self.event_power.set()
                 self.event_power.clear()
 
-                mqtt.publish_value( "pv/meter/house_power",         round(self.house_power) )
-                mqtt.publish_value( "pv/total_pv_power",            round(self.total_pv_power) )
-                mqtt.publish_value( "pv/total_battery_power",       round(self.total_battery_power) )
-                mqtt.publish_value( "pv/total_input_power",         round(self.total_input_power) )
-                mqtt.publish_value( "pv/total_grid_port_power",     round(self.total_grid_port_power) )
-                mqtt.publish_value( "pv/battery_soc",               self.battery_soc )
-                mqtt.publish_value( "pv/battery_max_charge_power",  self.battery_max_charge_power )
+                mqtt.publish_value( "pv/meter/house_power",         self.house_power              , int )
+                mqtt.publish_value( "pv/total_pv_power",            self.total_pv_power           , int )
+                mqtt.publish_value( "pv/total_battery_power",       self.total_battery_power      , int )
+                mqtt.publish_value( "pv/total_input_power",         self.total_input_power        , int )
+                mqtt.publish_value( "pv/total_grid_port_power",     self.total_grid_port_power    , int )
+                mqtt.publish_value( "pv/battery_soc",               self.battery_soc              , int )
+                mqtt.publish_value( "pv/battery_max_charge_power",  self.battery_max_charge_power , int )
                 for solis in self.inverters:
                     mqtt.publish_reg( solis.mqtt_topic, solis.input_power )
                     mqtt.publish_reg( solis.mqtt_topic + "fakemeter/",     solis.fake_meter.active_power )
