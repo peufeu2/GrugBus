@@ -6,6 +6,7 @@ import pymodbus
 from pymodbus.pdu import ExceptionResponse
 from pymodbus.exceptions import ModbusException
 from asyncio.exceptions import TimeoutError
+import config
 from misc import *
 
 log = logging.getLogger(__name__)
@@ -179,6 +180,7 @@ class SlaveDevice( DeviceBase ):
             in the form (fcode, start_addr, end_addr) to use bulk commands
             Not a generator because result is cached
         """
+        reg_list = set(reg_list)
         ops = {}            # make a list of all addresses to hit, contains (start,end) of each register
         for reg in reg_list:
             ops.setdefault( reg.fcodes[0], [] ).append( (reg.addr, reg.addr+reg.word_length, reg) )
@@ -216,8 +218,20 @@ class SlaveDevice( DeviceBase ):
                 if remain:
                     result.append(( fcode, remain ))            # process last record
 
-        # print( self.key, [(fcode,chunk[0][0], chunk[-1][1]-chunk[0][0]) for fcode, chunk in result] )
+
+        if config.LOG_MODBUS_REGISTER_CHUNKS:
+            r = []
+            for fcode, chunk in result:
+                r.append( "    Chunk [%d,%d[:" % (chunk[0][0],chunk[-1][1]) )
+                for reg_start_addr, reg_end_addr, reg in chunk:
+                    r.append( "        %6d %2d: %s" % (reg_start_addr, reg_end_addr-reg_start_addr, reg.key))
+            log.info( "%s: register groups:%s", self.key, "\n".join(r) )
+
         return result
+
+    def reg_list_interleave( self, frequent_regs, all_regs ):
+        for fcode, chunk in self.reg_list_to_chunks( all_regs , None ):
+            yield [ reg for reg_start_addr, reg_end_addr, reg in chunk] + frequent_regs
 
     async def read_regs( self, read_list, retries=None, max_hole_size=None ):
         """

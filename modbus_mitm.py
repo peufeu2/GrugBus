@@ -563,6 +563,7 @@ class SolisManager():
                         if not (solis.fault_status_1_grid.bit_is_active( "No grid" ) or solis.rwr_power_on_off.value == solis.rwr_power_on_off.value_off):
                             inverters_online.append( solis )
                     elif solis.fake_meter.last_inverter_query_time > time.monotonic()-5:
+                        # if COM port is disconnected, use the smartmeter connection to check if the inverter is on
                         inverters_online.append( solis )
 
                     lm = solis.local_meter
@@ -575,7 +576,7 @@ class SolisManager():
                     pv_power = 0
                     solis.input_power.value = 0
                     if solis.is_online:                        
-                        if solis.bms_battery_voltage.value:
+                        if solis.bms_battery_soc.value:
                             inverters_with_battery.append( solis )
                             battery_soc = soc = solis.bms_battery_soc.value or 0  # Get SOC from inverter connected to battery, whichever that is
                             # When SOC is 99-100%, Solis will not charge even if the battery requests current, so don't reserve any power
@@ -697,27 +698,26 @@ class SolisManager():
     ########################################################################################
     async def inverter_powersave_coroutine( self, solis ):
         timeout_power_on  = Timeout( 60, expired=True )
-        timeout_power_off = Timeout( 600 )
+        timeout_power_off = Timeout( 300 )
         power_reg = solis.rwr_power_on_off
         while True:
             await solis.event_all.wait()
             if not solis.is_online:
                 continue
             try:
-                slave = solis.key == "solis2"
+                slave = solis.key == "solis1"
                 # Auto on/off: turn it off at night when the battery is below specified SOC
                 # so it doesn't keep draining it while doing nothing useful
                 inverter_is_on = power_reg.value == power_reg.value_on
                 mpptv = max( solis.mppt1_voltage.value, solis.mppt2_voltage.value )
                 if inverter_is_on:
-                    if mpptv < config.SOLIS_TURNOFF_MPPT_VOLTAGE:
-                        if slave or solis.bms_battery_soc.value <= config.SOLIS_TURNOFF_BATTERY_SOC:
-                            timeout_power_on.reset()
-                            if timeout_power_off.expired():
-                                log.info("Powering OFF %s"%solis.key)
-                                await power_reg.write_if_changed( power_reg.value_off )
-                            else:
-                                log.info( "Power off %s in %d s", solis.key, timeout_power_off.remain() )
+                    if mpptv < config.SOLIS_TURNOFF_MPPT_VOLTAGE and (slave or solis.bms_battery_soc.value <= config.SOLIS_TURNOFF_BATTERY_SOC):
+                        timeout_power_on.reset()
+                        if timeout_power_off.expired():
+                            log.info("Powering OFF %s"%solis.key)
+                            await power_reg.write_if_changed( power_reg.value_off )
+                        else:
+                            log.info( "Power off %s in %d s", solis.key, timeout_power_off.remain() )
                     else:
                         timeout_power_off.reset()
                 else:
@@ -748,7 +748,7 @@ class SolisManager():
             await self.solis1.event_all.wait()
             try:
                 if self.solis1.is_online:
-                    avg = bat_power_avg.append( abs(self.solis1.battery_power.value) ) or 0
+                    avg = bat_power_avg.append( abs(self.solis1.battery_power.value or 0) ) or 0
                     if self.solis1.temperature.value > 40 or avg > 2000:
                         timeout_fan_off.reset()
                         mqtt.publish_value( "cmnd/plugs/tasmota_t3/Power", 1 )
@@ -825,7 +825,7 @@ class SolisManager():
                 modbus_addr=3, key="ms1", name="SDM120 Smartmeter on Solis 1", mqtt=mqtt, mqtt_topic="pv/solis1/meter/" 
             ),
             fake_meter = pv.meters.FakeSmartmeter( 
-                port=config.COM_PORT_FAKE_METER1, key="fake_meter_1", name="Fake meter for Solis 1", modbus_address=1, meter_type=Acrel_1_Phase 
+                port=config.COM_PORT_FAKE_METER1, baudrate=9600, key="fake_meter_1", name="Fake meter for Solis 1", modbus_address=1, meter_type=Acrel_1_Phase 
             ),
             mqtt = mqtt, mqtt_topic = "pv/solis1/"
         )

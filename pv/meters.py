@@ -44,8 +44,8 @@ class SDM630( grugbus.SlaveDevice ):
         # ALL registers every time. Instead, gather the unimportant ones in little groups
         # and frequently read THE important register (total_power) + one group.
         # Unimportant registers will be updated less often, who cares.
-        self.reg_sets = ((
-            self.total_power                      ,    # required for fakemeter
+        frequent_regs = [ self.total_power ]
+        all_regs = [
             self.total_volt_amps                  ,    # required for fakemeter
             self.total_var                        ,    # required for fakemeter
             self.total_power_factor               ,    # required for fakemeter
@@ -55,8 +55,6 @@ class SDM630( grugbus.SlaveDevice ):
             self.total_export_kwh                 ,    # required for fakemeter
             self.total_import_kvarh               ,    # required for fakemeter
             self.total_export_kvarh               ,    # required for fakemeter
-        ),(
-            self.total_power                      ,    # required for fakemeter
             self.phase_1_line_to_neutral_volts    ,    # required for fakemeter
             self.phase_2_line_to_neutral_volts    ,
             self.phase_3_line_to_neutral_volts    ,
@@ -66,37 +64,13 @@ class SDM630( grugbus.SlaveDevice ):
             self.phase_1_power                    ,
             self.phase_2_power                    ,
             self.phase_3_power                    ,
-        ),(
-            self.total_power                      ,    # required for fakemeter
             self.total_kwh                        ,    # required for fakemeter
             self.total_kvarh                      ,    # required for fakemeter
-        ),(
-            self.total_power                      ,    # required for fakemeter
             self.average_line_to_neutral_volts_thd,
             self.average_line_current_thd         ,
-        ))
+        ]
 
-        # publish these to MQTT
-        self.regs_to_publish = set((
-            self.phase_1_line_to_neutral_volts    ,
-            self.phase_2_line_to_neutral_volts    ,
-            self.phase_3_line_to_neutral_volts    ,
-            self.phase_1_current                  ,
-            self.phase_2_current                  ,
-            self.phase_3_current                  ,
-            self.phase_1_power                    ,
-            self.phase_2_power                    ,
-            self.phase_3_power                    ,
-            self.total_power                      ,
-            self.total_import_kwh                 ,
-            self.total_export_kwh                 ,
-            self.total_volt_amps                  ,
-            self.total_var                        ,
-            self.total_power_factor               ,
-            # self.total_phase_angle                ,
-            self.average_line_to_neutral_volts_thd,
-            self.average_line_current_thd         ,
-                ))
+        self.reg_sets = list( self.reg_list_interleave( frequent_regs, all_regs ) )
 
     async def read_coroutine( self ):
         mqtt  = self.mqtt
@@ -113,12 +87,12 @@ class SDM630( grugbus.SlaveDevice ):
                         self.event_power.set()
                         self.event_power.clear()
 
-                    for reg in self.regs_to_publish.intersection(regs):
+                    for reg in regs:
                          mqtt.publish_reg( topic, reg )
 
                     mqtt.publish_value( topic+"is_online", int( self.is_online ))   # set by read_regs(), True if it succeeded, False otherwise
 
-                    if config.LOG_MODBUS_REQUEST_TIME:
+                    if config.LOG_MODBUS_REQUEST_TIME_SDM630:
                         self.publish_modbus_timings()
 
                 except (TimeoutError, ModbusException):
@@ -185,7 +159,7 @@ class SDM120( grugbus.SlaveDevice ):
                     for reg in regs:
                         mqtt.publish_reg( topic, reg )
 
-                    if config.LOG_MODBUS_REQUEST_TIME:
+                    if config.LOG_MODBUS_REQUEST_TIME_SDM120:
                         self.publish_modbus_timings()
 
                 except (TimeoutError, ModbusException):
@@ -245,7 +219,7 @@ class FakeSmartmeter( grugbus.LocalServer ):
     #   key     machine readable name for logging, like "fake_meter_1", 
     #   name    human readable name like "Fake SDM120 for Inverter 1"
     #
-    def __init__( self, port, key, name, modbus_address, meter_type, meter_placement="grid", mqtt=None ):
+    def __init__( self, port, key, name, modbus_address, meter_type, meter_placement="grid", baudrate=9600, mqtt=None ):
         # Create datastore corresponding to registers available in Eastron SDM120 smartmeter
         data_store = ModbusSequentialDataBlock( 0, [0]*750 )   
         slave_ctx = HookModbusSlaveContext(
@@ -268,6 +242,7 @@ class FakeSmartmeter( grugbus.LocalServer ):
         self.server_ctx = ModbusServerContext( { modbus_address : slave_ctx }, single=False )
 
         self.port = port
+        self.baudrate = baudrate
         self.meter_type = meter_type
         self.meter_placement = meter_placement
 
@@ -279,6 +254,8 @@ class FakeSmartmeter( grugbus.LocalServer ):
         self.data_timestamp = 0
         self._error_count = 0
         self._error_tick = Metronome( 10 )
+        self._stat_tick  = Metronome( 10 )
+        self._count = 0
 
     # This is called when the inverter sends a request to this server
     def _on_getValues( self, fc_as_hex, address, count, ctx ):
@@ -312,7 +289,7 @@ class FakeSmartmeter( grugbus.LocalServer ):
             auto_reconnect = True,
             port            = self.port,
             timeout         = 0.3,      # parameters used by Solis inverter on meter port
-            baudrate        = 9600,
+            baudrate        = self.baudrate,
             bytesize        = 8,
             parity          = "N",
             stopbits        = 1,

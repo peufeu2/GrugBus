@@ -172,6 +172,7 @@ def run( regfile ):
         print("Can't continue with duplicate ids!")
         sys.exit(1)
 
+    print("-- end list")
     print( "Duplicate addresses:" )
     dupes = 0
     regs_by_func_addr = {}
@@ -187,6 +188,7 @@ def run( regfile ):
     if( dupes ):
         input("Duplicate addresses are allowed (for example date available as timestamp and Y,M,D registers, but it's not supported. Continue?" )
         sys.exit(1)
+    print("-- end list")
 
     def key(x):
         if type(x["function"]) == tuple:
@@ -222,7 +224,7 @@ def run( regfile ):
 
     lines = []
     for reg in all_regs:
-        print( repr(reg["function"]),repr(reg["addr"]) )
+        # print( repr(reg["function"]),repr(reg["addr"]) )
         c = []
         header = "    Reg%s( "%reg["type"]
         for col,justification in cols:
@@ -260,8 +262,9 @@ if __name__ == "__main__":
 """ )
 
 
+for regfile in "Solis_S5_EH1P_6K_2020",:
 # for regfile in "Eastron_SDM120", "Acrel_ACR10RH", "Eastron_SDM630", "Solis_S5_EH1P_6K_2020", "Acrel_ACR10R", "Acrel_1_Phase":
-for regfile in "Fronius_TS100A",: #Solis_S5_EH1P_6K_2020",:
+# for regfile in "Fronius_TS100A",: #Solis_S5_EH1P_6K_2020",:
 # for regfile in "Acrel_ACR10RD16TE4",:
     run(regfile)
 

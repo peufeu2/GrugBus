@@ -8,7 +8,14 @@ from config_secret import *
 ##################################################################
 
 LOG_MODBUS_REQUEST_TIME = False
-LOG_MODBUS_WRITE_REQUEST_TIME = False
+LOG_MODBUS_REQUEST_TIME_SDM630 = False
+LOG_MODBUS_REQUEST_TIME_SDM120 = False
+LOG_MODBUS_REQUEST_TIME_ABB    = False
+LOG_MODBUS_WRITE_REQUEST_TIME  = False
+
+LOG_MODBUS_REQUEST_TIME_SOLIS  = False
+
+LOG_MODBUS_REGISTER_CHUNKS     = False
 
 ##################################################################
 # mqtt
@@ -77,7 +84,7 @@ POLL_PERIOD_EVSE        = (1, 0.5)
 
 # Inverter auto turn on/off settings
 SOLIS_TURNOFF_BATTERY_SOC  = 8
-SOLIS_TURNOFF_MPPT_VOLTAGE = 30
+SOLIS_TURNOFF_MPPT_VOLTAGE = 50
 SOLIS_TURNON_MPPT_VOLTAGE  = 80
 
 # This overwrites some of the above parameters, like passwords.
@@ -112,7 +119,7 @@ MQTT_RATE_LIMIT = {
     'pv/solis1/battery_power'                     : (  1,      25.000, 'avg'   ), #          59/       6771
     'pv/solis1/battery_voltage'                   : (  10,      0.200, 'avg'   ), #          46/       6771
     'pv/solis1/battery_current'                   : (  10,      0.500, 'avg'   ), #          58/       6771
-    'pv/solis1/pv_power'                          : (  60,    110.000, 'avg'   ), #          49/       6771
+    'pv/solis1/pv_power'                          : (  10,     50.000, 'avg'   ), #          49/       6771
     'pv/meter/phase_1_power'                      : (   1,     50.000, 'avg'   ), #        1323/       3294
     'pv/meter/phase_2_power'                      : (   1,     50.000, 'avg'   ), #        1322/       3294
     'pv/meter/phase_3_power'                      : (   1,     50.000, 'avg'   ), #        1324/       3294

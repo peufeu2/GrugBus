@@ -66,42 +66,46 @@ class Solis( grugbus.SlaveDevice ):
         self.event_all   = asyncio.Event()  # Fires when all registers are read, for slower processes
         self.tick = Metronome( config.POLL_PERIOD_SOLIS )
 
+        #   TODO: add +1.5A offset to solis2 new battery current register, 0A offset on solis1
+        #   TODO: new battery current register returns 0 when inverter is off, check if it also does when battery is full
+        #   TODO: new battery current register behavior when fully charged
+
         frequent_regs = [
+                #33049 - 33057
+                self.mppt1_voltage              ,
+                self.mppt1_current              ,
+                self.mppt2_voltage              ,
+                self.mppt2_current              ,
                 self.pv_power                   ,
 
-                self.battery_voltage            ,
                 self.battery_current            ,
                 self.battery_current_direction  ,
 
-                # self.battery_dcdc_direction,
+                self.battery_dcdc_direction,
+                self.reserved_33217,
+                # self.battery_dcdc_enable,
                 # self.battery_dcdc_current,
+
             ]
-        self.reg_sets = [ frequent_regs + regs for regs in [[
-            ],[
+
+        all_regs = [
                 self.energy_generated_today               ,  
                 self.energy_generated_yesterday           ,      
-            ],[
-                self.mppt1_voltage                        ,
-                self.mppt1_current                        ,
-                self.mppt2_voltage                        ,
-                self.mppt2_current                        ,
-            ],[
-                # self.dc_bus_voltage                       ,
-                # self.dc_bus_half_voltage                  ,
+
                 self.phase_a_voltage                      ,
-            ],[
+
                 self.temperature                          ,
                 self.inverter_status                      ,
-            ],[
+
                 self.fault_status_1_grid                  ,
                 self.fault_status_2_backup                ,
                 self.fault_status_3_battery               ,
                 self.fault_status_4_inverter              ,
                 self.fault_status_5_inverter              ,
                 self.operating_status                     ,
-            ],[
+
                 self.backup_voltage                       ,
-            ],[
+                self.battery_voltage                      ,
                 self.bms_battery_soc                      ,
                 self.bms_battery_health_soh               ,
                 self.bms_battery_voltage                  ,
@@ -111,18 +115,48 @@ class Solis( grugbus.SlaveDevice ):
                 self.bms_battery_fault_information_01     ,
                 self.bms_battery_fault_information_02     ,
                 self.backup_load_power                    ,
-            ],[
+
                 self.battery_charge_energy_today          ,
                 self.battery_discharge_energy_today       ,
-            ],[
+
                 self.battery_max_charge_current           ,
                 self.battery_max_discharge_current        ,
-            ],[
+
                 self.rwr_power_on_off                     ,              
-            ],[
+
                 self.rwr_energy_storage_mode              ,
                 self.rwr_backup_output_enabled            ,
-            ]]]
+
+                self.reserved_33181,
+                self.reserved_33182,
+                self.reserved_33183,
+                self.reserved_33184,
+                self.reserved_33185,
+                self.reserved_33186,
+                self.reserved_33187,
+                self.reserved_33188,
+                self.reserved_33189,
+                self.reserved_33190,
+                self.reserved_33191,
+                # self.reserved_33192,
+                self.reserved_33193,
+                self.reserved_33194,
+                self.reserved_33195,
+                self.reserved_33196,
+                self.reserved_33197,
+                self.reserved_33198,
+                self.reserved_33199,
+                self.reserved_33215,
+                self.reserved_33216,
+                self.reserved_33217,
+                self.reserved_33218,
+                self.reserved_33219,
+                self.reserved_33220,
+            ]
+
+        # Build modbus requests: read frequent_regs on every request, plus one chunk out of all_regs
+        self.reg_sets = list( self.reg_list_interleave( frequent_regs, all_regs ) )
+
 
     async def read_coroutine( self ):
         # set meter type remotely to make it easy to emulate different fakemeters
@@ -152,7 +186,7 @@ class Solis( grugbus.SlaveDevice ):
         startup_done = False
         while True:
             # At startup, read all registers at once, do not wait.
-            for reg_set in self.reg_sets if startup_done else [ list(set(sum(self.reg_sets,[]))) ]:
+            for n, reg_set in enumerate( self.reg_sets if startup_done else [ list(set(sum(self.reg_sets,[]))) ] ):
                 try:
                     await self.tick.wait()
                     try:
@@ -166,12 +200,18 @@ class Solis( grugbus.SlaveDevice ):
                         # Add polarity to battery parameters
                         # slow measured battery current
                         if self.battery_current_direction in regs:
-                            regs.remove( self.battery_current_direction )
+                            # regs.remove( self.battery_current_direction )
                             if self.battery_current_direction.value:    # positive current/power means charging, negative means discharging
-                                self.battery_current.value     *= -1
+                                # self.battery_current.value     *= -1
+                                for reg in self.battery_current, self.battery_dcdc_current, self.reserved_33217, self.reserved_33192:
+                                    if reg in regs:
+                                        reg.value *= -1
+
+                            self.battery_current.value = self.reserved_33217.value
                             self.battery_power.value       = self.battery_current.value * self.battery_voltage.value
                             regs.add( self.battery_power )
 
+                            # TODO
                             bp_abs_avg = self.smooth_bp_abs.append(abs( self.battery_power.value ))   # moving average
                             self.battery_full = (self.bms_battery_soc.value or 0)>=98 and bp_abs_avg != None and bp_abs_avg < 100
 
@@ -197,7 +237,7 @@ class Solis( grugbus.SlaveDevice ):
                         for reg in regs:
                             mqtt.publish_reg( topic, reg )
 
-                        if config.LOG_MODBUS_REQUEST_TIME:
+                        if config.LOG_MODBUS_REQUEST_TIME_SOLIS:
                             self.publish_modbus_timings()
 
                     finally:
@@ -209,12 +249,10 @@ class Solis( grugbus.SlaveDevice ):
                 except (TimeoutError, ModbusException):
                     # note grugbus.Device logs the exception and sets self.is_online is set to False
                     # when communication fails, no need to do it again here
-                    startup_done = False
                     await asyncio.sleep(1)
 
                 except Exception:
                     self.is_online = False
-                    startup_done = False
                     log.exception(self.key+":")
                     await asyncio.sleep(1)
 
@@ -268,7 +306,8 @@ class Solis( grugbus.SlaveDevice ):
                 print( "Reg:", reg.key, "read", reg.value )
             else:
                 resp = await self.modbus.read_holding_registers( addr, 1, self.bus_address )
-                print( "Reg:", addr, "read", resp.registers[0] )
+                print( resp )
+                print( "Reg:", addr, "read", resp.registers )
 
     @MQTTWrapper.decorate_callback( "write_regs", orjson.loads )
     async def cb_write_regs( self, topic, payload, qos, properties ):

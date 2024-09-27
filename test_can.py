@@ -4,6 +4,8 @@ import asyncio, struct, uvloop, time, threading, logging, collections
 import can
 from typing import Any, Callable
 from misc import *
+from pv.mqtt_wrapper import MQTTWrapper
+import config
 
 log = logging.getLogger(__name__)
 
@@ -136,9 +138,14 @@ class PylonMeasurementsMessage( PylonMessage ):
     can_id = 0x356
     _members = "voltage","current","temperature"
     def decode( self, data ):
-        self.voltage     = struct.unpack("<h", data[:2])[0]  * 0.01
-        self.current     = struct.unpack("<h", data[2:4])[0] * 0.1
-        self.temperature = struct.unpack("<h", data[4:6])[0] * 0.1
+        r = struct.unpack( "<hhh", data )
+        self.voltage     = r[0] * 0.01
+        self.current     = r[1] * 0.1
+        self.temperature = r[2] * 0.1
+
+    def encode( self ):
+        return bytearray( struct.pack( "<hhh", int(100 * self.voltage), int(10 * self.current), int(10 * self.temperature) ))
+
 
 class PylonActionMessage( PylonMessage ):
     can_id = 0x35C
@@ -187,52 +194,6 @@ PylonMessage._subclasses = { cls.can_id: cls for cls in [ PylonErrorsMessage, Py
 #           
 #
 ##########################################################################
-
-
-# arbitration_id
-# bitrate_switch
-# channel
-# data
-# dlc
-# equals
-# error_state_indicator
-# is_error_frame
-# is_extended_id
-# is_fd
-# is_remote_frame
-# is_rx
-# timestamp
-
-# def bat_callback(msg: can.Message) -> None:
-#     print("bat_callback", threading.get_ident())
-#     print( "bat   :  ", msg )
-#     if msg.arbitration_id == PylonLimitsMessage.can_id:
-#         pm = PylonMessage.load(msg)
-#         pm.print()
-#         pm.charge_current_limit *= 0.5
-#         pm.discharge_current_limit *= 0.5
-#         pm.print()
-
-#         msg2 = can.Message( arbitration_id=msg.arbitration_id, data=pm.encode(), is_extended_id=msg.is_extended_id )
-#         solis1_bus.send( msg2 )
-#     else:
-#         msg2 = can.Message( arbitration_id=msg.arbitration_id, data=msg.data, is_extended_id=msg.is_extended_id )
-#         solis1_bus.send( msg2 )
-
-
-# def can_solis1_callback(msg: can.Message) -> None:
-#     print("can_solis1_callback", threading.get_ident())
-#     print( "can_solis1:", msg )
-#     bat_bus.send( msg )
-
-#     # pm = PylonMessage.load(msg)
-#     # if isinstance( pm, InverterReplyMessage ):
-#     # PylonMessage.load(msg).print()
-
-# def can_solis2_callback(msg: can.Message) -> None:
-#     print( "can_solis2:", msg )
-#     PylonMessage.load(msg).print()
-
 
 #   Add error handling to Notifier
 #
@@ -325,7 +286,7 @@ class PylonCAN( AsyncCAN ):
             setattr( self, cls.__name__, None )
 
     async def handle( self, msg ):
-        print( msg )
+        # print( msg )
         # send battery messages to inverter
 
         # parse it and store it
@@ -333,20 +294,29 @@ class PylonCAN( AsyncCAN ):
         setattr( self, pm.__class__.__name__, pm )
 
         # process it
+        msg2 = None
         if isinstance( pm, PylonLimitsMessage ):
             pm.print()
             pm.charge_current_limit *= 0.5
             pm.discharge_current_limit *= 0.5
+            # pm.discharge_current_limit = 20
             pm.print()
-
             msg2 = can.Message( arbitration_id=msg.arbitration_id, data=pm.encode(), is_extended_id=msg.is_extended_id )
+        elif isinstance( pm, PylonMeasurementsMessage ):
+            pm.print()
+            mqtt.publish_value( "pv/bms_battery_power", pm.current*pm.voltage )
+        #     pm.current     *= 2
+        #     pm.print()
+            # msg2 = can.Message( arbitration_id=msg.arbitration_id, data=pm.encode(), is_extended_id=msg.is_extended_id )
+
         else:
             msg2 = can.Message( arbitration_id=msg.arbitration_id, data=msg.data, is_extended_id=msg.is_extended_id )
         
         # do not handle errors on send here, instead ignore them as triggering an exception would reconnect our bus
         # which si the wrong one! Reconnection for inverter CAN bus is handled in the SolisCAN coroutine
-        for inverter in self.can_inverters:
-            inverter.trysend( msg2 )
+        if msg2:
+            for inverter in self.can_inverters:
+                inverter.trysend( msg2 )
 
         # send inverter messages back to battery, eliminate duplicates, preserve order
         if self.echo_tick.ticked():
@@ -370,8 +340,14 @@ class PylonCAN( AsyncCAN ):
 #
 ##########################################################################
 
-async def astart():
+class MQTT( MQTTWrapper ):
+    def __init__( self ):
+        super().__init__( "pvcan" )
 
+mqtt = MQTT()
+
+async def astart():
+    await mqtt.mqtt.connect( config.MQTT_BROKER_LOCAL )
     can_bat    = PylonCAN( 'can_bat' )
     can_solis1 = SolisCAN( 'can_1' )
     can_solis1.can_bat = can_bat

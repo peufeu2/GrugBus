@@ -142,11 +142,9 @@ class EVSE( grugbus.SlaveDevice ):
                 await self.read_regs( self.regs_to_read )
                 for reg in self.regs_to_read:
                     mqtt.publish_reg( topic, reg )
-                if config.LOG_MODBUS_REQUEST_TIME:
-                    mqtt.publish_value( topic+"req_time", round( self.last_transaction_duration,2 ) )
 
                 # publish force charge info                
-                if config.LOG_MODBUS_REQUEST_TIME:
+                if config.LOG_MODBUS_REQUEST_TIME_ABB:
                     self.publish_modbus_timings()
 
             except (TimeoutError, ModbusException):

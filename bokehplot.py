@@ -66,11 +66,12 @@ DATA_STREAMS = [
 
     ( "pv/total_battery_power"                           , "W"   , "Battery"                     , "battery"       , "solid",    1.0 , {}                 , {} ),
     ( "pv/solis%d/battery_power"                         , "W"   , "S%d Battery"                 , "battery"       , "solid",    1.0 , {"visible":False}  , {} ),
+    ( "pv/bms_battery_power"                             , "W"   , "Battery BMS"                 , "battery"       , "solid",    1.0 , {"visible":False}  , {} ),
     # ( "pv/solis%d/battery_dcdc_power"                    , "W"   , "S%d Battery DC/DC"           , "battery"       , "dotted",    1.0 , {"visible":False}  , {} ),
     ( "pv/solis%d/battery_current"                       , "A"   , "S%d Bat current"             , "battery"       , "solid",    1.0 , {"visible":False}  , {} ),
     ( "pv/solis%d/battery_max_charge_current"            , "A"   , "S%d Bat max charge"          , "battery"       , "dashed",   1.0 , {"visible":False}  , {} ),
     ( "pv/solis%d/battery_max_discharge_current"         , "A"   , "S%d Bat max discharge"       , "battery"       , "dotted",   1.0 , {"visible":False}  , {} ),
-    ( "pv/solis%d/bms_battery_current"                   , "A"   , "S%d Battery current"         , "battery"       , "solid",    1.0 , {"visible":False}  , {} ),
+    ( "pv/solis%d/bms_battery_current"                   , "A"   , "S%d BMS Battery current"     , "battery"       , "solid",    1.0 , {"visible":False}  , {} ),
     ( "pv/solis%d/bms_battery_charge_current_limit"      , "A"   , "S%d BMS max charge"          , "battery"       , "dashed",   1.0 , {}                 , {} ),
     ( "pv/solis%d/bms_battery_discharge_current_limit"   , "A"   , "S%d BMS max discharge"       , "battery"       , "dotted",   1.0 , {}                 , {} ),
     ( "pv/solis%d/bms_battery_soc"                       , "%"   , "S%d Battery SOC"             , "soc"           , "solid",    1.0 , {"visible":False}  , {} ),
@@ -119,23 +120,70 @@ DATA_STREAMS = [
     ( "pv/disk_space_gb"                                 , "GB"  , "Pi Disk Space"               , "#0080FF"       , "solid",    1.0 , {}                 , {} ),
                 
     # ( "pv/solis1/llc_bus_voltage"                        , "V"  , "LLC BUS"               , "#FF80FF"       , "solid",    1.0 , {}                 , {} ),
-    ( "pv/solis%d/inverter_status"                       , "?"  , "S%d Status"                      , nextcolor()       , "solid",    1.0 , {}                 , {} ),
+    # ( "pv/solis%d/inverter_status"                       , "?"  , "S%d Status"                      , nextcolor()       , "solid",    1.0 , {}                 , {} ),
 
-    # ( "pv/solis1/inverting_power_or_rectifying_power"       , "?", "inverting_power_or_rectifying_power"       , nextcolor(), "solid", 1.0, {}, {} ),
-    # ( "pv/solis1/grid_port_power"                           , "?", "grid_port_power"                           , nextcolor(), "solid", 1.0, {}, {} ),
-    # ( "pv/solis1/b_limit_operation"                         , "?", "b_limit_operation"                         , nextcolor(), "solid", 1.0, {}, {} ),
-    ( "pv/solis1/rwr_power_limit_setting"                   , "?", "43052 rwr_power_limit_setting"                   , nextcolor(), "solid", -60, {}, {} ),
-    # ( "pv/solis1/rwr_power_limit_switch"                    , "?", "rwr_power_limit_switch"                    , nextcolor(), "solid", 1.0, {}, {} ),
-    # ( "pv/solis1/rwr_actual_power_limit_adjustment_value"   , "?", "rwr_actual_power_limit_adjustment_value"   , nextcolor(), "solid", 1.0, {}, {} ),
-    # ( "pv/solis1/limit_active_power_adjustment_rated_power" , "?", "limit_active_power_adjustment_rated_power" , nextcolor(), "solid", 1.0, {}, {} ),
-    ( "pv/solis1/actual_power_limit"                        , "?", "33104 actual_power_limit"                        , nextcolor(), "solid", -0.6, {}, {} ),
-    # ( "pv/solis1/backup_load_power"                          , "?", "backup_load_power"                        , nextcolor(), "solid", 1.0, {}, {} ),
+    # ( "pv/solis1/inverting_power_or_rectifying_power"       , "?", "inverting_power_or_rectifying_power"       , nextcolor, "solid", 1.0, {}, {} ),
+    # ( "pv/solis1/grid_port_power"                           , "?", "grid_port_power"                           , nextcolor, "solid", 1.0, {}, {} ),
+    # ( "pv/solis1/b_limit_operation"                         , "?", "b_limit_operation"                         , nextcolor, "solid", 1.0, {}, {} ),
+    # ( "pv/solis1/rwr_power_limit_setting"                   , "?", "43052 rwr_power_limit_setting"                   , nextcolor, "solid", -60, {}, {} ),
+    # ( "pv/solis1/rwr_power_limit_switch"                    , "?", "rwr_power_limit_switch"                    , nextcolor, "solid", 1.0, {}, {} ),
+    # ( "pv/solis1/rwr_actual_power_limit_adjustment_value"   , "?", "rwr_actual_power_limit_adjustment_value"   , nextcolor, "solid", 1.0, {}, {} ),
+    # ( "pv/solis1/limit_active_power_adjustment_rated_power" , "?", "limit_active_power_adjustment_rated_power" , nextcolor, "solid", 1.0, {}, {} ),
+    # ( "pv/solis1/actual_power_limit"                        , "?", "33104 actual_power_limit"                        , nextcolor, "solid", -0.6, {}, {} ),
+    # ( "pv/solis1/backup_load_power"                          , "?", "backup_load_power"                        , nextcolor, "solid", 1.0, {}, {} ),
      # ( "pv/solis1/operating_status"                       , "Bool"  , "Limit"               , "#FFFFFF"       , "solid",    1.0 , {}                 , {"func":lambda x:3000*(x.astype(np.int64)&64).astype(bool)} ),
                 
     # ( "pv/solis1/battery_dcdc_enable"                    , "V"  , "battery_dcdc_enable"    , "#FFFF00"       , "solid",    1.0 , {}                 , {} ),
     # ( "pv/solis1/b_battery_status"                       , "V"  , "b_battery_status"                   , "#00FF00"       , "solid",    1.0 , {}                 , {} ),
     # ( "pv/solis1/b_limit_operation"                      , "V"  , "b_limit_operation"                  , "#FF00FF"       , "solid",    1.0 , {}                 , {} ),
     # ( "pv/solis1/battery_dcdc_current"                   , "V"  , "battery_dcdc_current"   , "#FF80FF"       , "solid",    1.0 , {}                 , {} ),
+
+    ( "pv/solis%d/reserved_33192", "?", "S%dR33192", nextcolor, "solid", 1.0, {}, {} ),
+    ( "pv/solis%d/reserved_33217", "?", "S%dR33217", nextcolor, "solid", 1.0, {}, {} ),
+    # ( "pv/solis%d/reserved_43592", "?", "S%dR43592", nextcolor, "solid", 1.0, {}, {} ),
+    # ( "pv/solis%d/reserved_43596", "?", "S%dR43596", nextcolor, "solid", 1.0, {}, {} ),
+    # ( "pv/solis%d/reserved_43646", "?", "S%dR43646", nextcolor, "solid", 1.0, {}, {} ),
+    # ( "pv/solis%d/reserved_43654", "?", "S%dR43654", nextcolor, "solid", 1.0, {}, {} ),
+    # ( "pv/solis%d/reserved_43659", "?", "S%dR43659", nextcolor, "solid", 1.0, {}, {} ),
+    # ( "pv/solis%d/reserved_43662", "?", "S%dR43662", nextcolor, "solid", 1.0, {}, {} ),
+    # ( "pv/solis%d/reserved_43664", "?", "S%dR43664", nextcolor, "solid", 1.0, {}, {} ),
+    # ( "pv/solis%d/reserved_43669", "?", "S%dR43669", nextcolor, "solid", 1.0, {}, {} ),
+    # ( "pv/solis%d/reserved_43717", "?", "S%dR43717", nextcolor, "solid", 1.0, {}, {} ),
+
+
+( "pv/solis%d/reserved_33181"         , "?", "S%d 33181" , nextcolor, "solid", 1.0, {}, {} ),
+( "pv/solis%d/reserved_33182"         , "?", "S%d 33182" , nextcolor, "solid", 1.0, {}, {} ),
+( "pv/solis%d/reserved_33183"         , "?", "S%d 33183" , nextcolor, "solid", 1.0, {}, {} ),
+( "pv/solis%d/reserved_33184"         , "?", "S%d 33184" , nextcolor, "solid", 1.0, {}, {} ),
+( "pv/solis%d/reserved_33185"         , "?", "S%d 33185" , nextcolor, "solid", 1.0, {}, {} ),
+( "pv/solis%d/reserved_33186"         , "?", "S%d 33186" , nextcolor, "solid", 1.0, {}, {} ),
+( "pv/solis%d/reserved_33187"         , "?", "S%d 33187" , nextcolor, "solid", 1.0, {}, {} ),
+( "pv/solis%d/reserved_33188"         , "?", "S%d 33188" , nextcolor, "solid", 1.0, {}, {} ),
+( "pv/solis%d/reserved_33189"         , "?", "S%d 33189" , nextcolor, "solid", 1.0, {}, {} ),
+( "pv/solis%d/reserved_33190"         , "?", "S%d 33190" , nextcolor, "solid", 1.0, {}, {} ),
+( "pv/solis%d/reserved_33191"         , "?", "S%d 33191" , nextcolor, "solid", 1.0, {}, {} ),
+( "pv/solis%d/reserved_33192"         , "?", "S%d 33192" , nextcolor, "solid", 1.0, {}, {} ),
+( "pv/solis%d/reserved_33193"         , "?", "S%d 33193" , nextcolor, "solid", 1.0, {}, {} ),
+( "pv/solis%d/reserved_33194"         , "?", "S%d 33194" , nextcolor, "solid", 1.0, {}, {} ),
+( "pv/solis%d/reserved_33195"         , "?", "S%d 33195" , nextcolor, "solid", 1.0, {}, {} ),
+( "pv/solis%d/reserved_33196"         , "?", "S%d 33196" , nextcolor, "solid", 1.0, {}, {} ),
+( "pv/solis%d/reserved_33197"         , "?", "S%d 33197" , nextcolor, "solid", 1.0, {}, {} ),
+( "pv/solis%d/reserved_33198"         , "?", "S%d 33198" , nextcolor, "solid", 1.0, {}, {} ),
+( "pv/solis%d/reserved_33199"         , "?", "S%d 33199" , nextcolor, "solid", 1.0, {}, {} ),
+( "pv/solis%d/battery_dcdc_enable"    , "?", "S%d dcdc_enable" , nextcolor, "solid", 1.0, {}, {} ),
+( "pv/solis%d/battery_dcdc_direction" , "?", "S%d dcdc_direction" , nextcolor, "solid", 1.0, {}, {} ),
+( "pv/solis%d/battery_current_direction" , "?", "S%d current_direction" , nextcolor, "solid", 1.0, {}, {} ),
+( "pv/solis%d/battery_dcdc_current"   , "?", "S%d dcdc_current" , nextcolor, "solid", 1.0, {}, {} ),
+( "pv/solis%d/reserved_33215"         , "?", "S%d 33215" , nextcolor, "solid", 1.0, {}, {} ),
+( "pv/solis%d/reserved_33216"         , "?", "S%d 33216" , nextcolor, "solid", 1.0, {}, {} ),
+( "pv/solis%d/reserved_33217"         , "?", "S%d 33217" , nextcolor, "solid", 1.0, {}, {} ),
+( "pv/solis%d/reserved_33218"         , "?", "S%d 33218" , nextcolor, "solid", 1.0, {}, {} ),
+( "pv/solis%d/reserved_33219"         , "?", "S%d 33219" , nextcolor, "solid", 1.0, {}, {} ),
+( "pv/solis%d/reserved_33220"         , "?", "S%d 33220" , nextcolor, "solid", 1.0, {}, {} ),
+
+
+
+
 
     ( "chauffage/depart"             , "°C", "Départ"                   , "#FF0000"  , "solid",   1.0             , {"visible":False}, { }),
     ( "chauffage/retour"             , "°C", "Retour"                   , "#FF0000"  , "solid",   1.0             , {"visible":False}, { }),
@@ -166,12 +214,6 @@ DATA_STREAMS = [
     ( "$SYS/broker/load/bytes/sent/1min"        , "kB/s",  "MQTT sent"           , "#FF0080"  , "solid",   1/(60*1024)      , {}, { }),
 
 
-
-
-
-
-
-
 ]
 
 #
@@ -185,6 +227,7 @@ PLOT_LAYOUTS = [
                 "pv/meter/house_power"                           ,
                 "pv/meter/total_power"                           ,
                 "pv/total_battery_power"                         ,
+                "pv/bms_battery_power" ,
                 "pv/total_input_power"                           ,
                 "pv/total_grid_port_power"                       ,
                 "pv/evse/meter/active_power"                     ,
@@ -319,24 +362,47 @@ PLOT_LAYOUTS = [
     ],
     ["TEST", 
         [
+            # [
+# "pv/solis1/reserved_33181"         ,        # constant 0, maybe flag
+# "pv/solis1/reserved_33182"         ,        # constant 0, maybe flag
+# # "pv/solis1/reserved_33183"         ,    #   constant 
+# "pv/solis1/reserved_33184"         ,        # constant 0, maybe flag
+# # "pv/solis1/reserved_33185"         ,    #   constant 
+# "pv/solis1/reserved_33186"         ,
+# "pv/solis1/reserved_33187"         ,        # constant 0, maybe flag
+# "pv/solis1/reserved_33188"         ,        # constant 0, maybe flag
+# "pv/solis1/reserved_33189"         ,        # constant 0, maybe flag
+# # "pv/solis1/reserved_33190"         ,
+# "pv/solis1/reserved_33191"         ,        # constant 1, maybe flag
+# "pv/solis1/reserved_33199"         ,        # constant 0, maybe flag
+# ],[
+# "pv/solis1/reserved_33193"         ,        # constant
+# "pv/solis1/reserved_33194"         ,        # constant
+# "pv/solis1/reserved_33195"         ,        # constant
+# "pv/solis1/reserved_33196"         ,        # constant
+# "pv/solis1/reserved_33197"         ,
+# "pv/solis1/reserved_33198"         ,
+# ],
+[
+"pv/solis1/battery_dcdc_enable"    ,
+"pv/solis1/battery_dcdc_direction" ,
+"pv/solis1/battery_current_direction"   ,
+],[
+"pv/solis1/battery_dcdc_current"   ,
+"pv/solis1/reserved_33192"         ,   
+# "pv/solis1/reserved_33215"         ,        # constant 0, maybe flag
+# "pv/solis1/reserved_33216"         ,
+"pv/solis1/reserved_33217"         ,
+# "pv/solis1/reserved_33218"         ,        # constant 0, maybe flag
+# "pv/solis1/reserved_33219"         ,        # constant 0, maybe flag
+# "pv/solis1/reserved_33220"         ,        # constant 0, maybe flag
+],
+            # [
+            #     "pv/solis%d/battery_current",
+            #     "pv/solis%d/bms_battery_current",
+            # ],
             [
-
-        "pv/solis%d/meter/active_power",
-        # "pv/solis1/backup_load_power",
-        # "pv/solis1/inverting_power_or_rectifying_power"       ,
-        # "pv/solis1/grid_port_power"                           ,
-        # "pv/solis1/b_limit_operation"                         ,
-        # "pv/solis1/rwr_power_limit_setting"                   ,
-        # "pv/solis1/rwr_power_limit_switch"                    ,
-        # "pv/solis1/rwr_actual_power_limit_adjustment_value"   ,
-        # "pv/solis1/limit_active_power_adjustment_rated_power" ,
-        # "pv/solis1/actual_power_limit"                        ,
-            ],
-            [
-                "pv/solis%d/inverter_status"                              ,
-            ],
-            [
-                "pv/solis%d/battery_voltage"                              ,
+                "pv/solis%d/input_power"                              ,
             ]        
         ]
     ],
@@ -359,6 +425,8 @@ def insert_inverters_data_streams( l ):
             for solis, _ in (1,"dashed"),(2,"dotted"):
                 if c:=colors.get(color):
                     c = c[solis]
+                elif callable(color):
+                    c=color()
                 else:
                     c = color
                 yield topic%solis, unit, label%solis, c, dash, scale, bokeh_attrs, attrs
