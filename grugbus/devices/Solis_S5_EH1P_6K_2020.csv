@@ -390,7 +390,9 @@ BIT07: Reserved",,,,
 4,33148,,"U16 ","1W","Backup load power",,"float",,,,,,
 4,33149,33150,"S32 ","1W","Battery power ",,"float",,"TODO : looks like it’s always positive even if discharging
 Seems to use current info from BMS",,,,
-4,33151,33152,"S32 ","-1W","Grid Port Power ",,"float",,"+ to grid, - From grid",,,,
+4,33151,33152,"S32 ","-1W","Grid Port Power ",,"float",,"Register contents : + to grid, - From grid
+GrugBus register.value : + consuming from grid, - exporting to grid
+Notice ‘-1W’ in unit column which inverts the sign on the GrugBus side",,,,
 4,33153,,"U16","0,1V","Backup voltage Phase B",,"float",,,,,,
 4,33154,,"U16","0,1A","Backup current Phase B",,"float",,,,,,
 4,33155,,"U16","0,1V","Backup voltage Phase C",,"float",,,,,,
@@ -465,7 +467,8 @@ Not usable !",,,,
 4,33214,,"U16","1,00 %","Battery Force charge SOC",,"float",,,,,,
 4,33215,,"U16",,"Reserved ",,"float",,"always zero",,,,
 4,33216,,"U16",,"Reserved ",,"float",,"always zero",,,,
-4,33217,,"U16","0.1A","Battery Current",,"float",,"Battery current measured by inverter.
+4,33217,,"U16","0.1A","Battery Current",,"float",,"New register from 2024 firmware
+Battery current measured by inverter.
 Fast update (<1s)
 Has a bit of offset, but reads zero when battery DC/DC is off",,,,
 4,33218,,"U16",,"Reserved ",,"float",,"always zero",,,,
