@@ -139,7 +139,7 @@ DATA_STREAMS = [
     # ( "pv/solis1/battery_dcdc_current"                   , "V"  , "battery_dcdc_current"   , "#FF80FF"       , "solid",    1.0 , {}                 , {} ),
 
     ( "pv/solis%d/reserved_33192", "?", "S%dR33192", nextcolor, "solid", 1.0, {}, {} ),
-    ( "pv/solis%d/reserved_33217", "?", "S%dR33217", nextcolor, "solid", 1.0, {}, {} ),
+    # ( "pv/solis%d/reserved_33217", "?", "S%dR33217", nextcolor, "solid", 1.0, {}, {} ),
     # ( "pv/solis%d/reserved_43592", "?", "S%dR43592", nextcolor, "solid", 1.0, {}, {} ),
     # ( "pv/solis%d/reserved_43596", "?", "S%dR43596", nextcolor, "solid", 1.0, {}, {} ),
     # ( "pv/solis%d/reserved_43646", "?", "S%dR43646", nextcolor, "solid", 1.0, {}, {} ),
@@ -151,35 +151,35 @@ DATA_STREAMS = [
     # ( "pv/solis%d/reserved_43717", "?", "S%dR43717", nextcolor, "solid", 1.0, {}, {} ),
 
 
-( "pv/solis%d/reserved_33181"         , "?", "S%d 33181" , nextcolor, "solid", 1.0, {}, {} ),
-( "pv/solis%d/reserved_33182"         , "?", "S%d 33182" , nextcolor, "solid", 1.0, {}, {} ),
-( "pv/solis%d/reserved_33183"         , "?", "S%d 33183" , nextcolor, "solid", 1.0, {}, {} ),
-( "pv/solis%d/reserved_33184"         , "?", "S%d 33184" , nextcolor, "solid", 1.0, {}, {} ),
-( "pv/solis%d/reserved_33185"         , "?", "S%d 33185" , nextcolor, "solid", 1.0, {}, {} ),
-( "pv/solis%d/reserved_33186"         , "?", "S%d 33186" , nextcolor, "solid", 1.0, {}, {} ),
-( "pv/solis%d/reserved_33187"         , "?", "S%d 33187" , nextcolor, "solid", 1.0, {}, {} ),
-( "pv/solis%d/reserved_33188"         , "?", "S%d 33188" , nextcolor, "solid", 1.0, {}, {} ),
-( "pv/solis%d/reserved_33189"         , "?", "S%d 33189" , nextcolor, "solid", 1.0, {}, {} ),
-( "pv/solis%d/reserved_33190"         , "?", "S%d 33190" , nextcolor, "solid", 1.0, {}, {} ),
+# ( "pv/solis%d/reserved_33181"         , "?", "S%d 33181" , nextcolor, "solid", 1.0, {}, {} ),
+# ( "pv/solis%d/reserved_33182"         , "?", "S%d 33182" , nextcolor, "solid", 1.0, {}, {} ),
+# ( "pv/solis%d/reserved_33183"         , "?", "S%d 33183" , nextcolor, "solid", 1.0, {}, {} ),
+# ( "pv/solis%d/reserved_33184"         , "?", "S%d 33184" , nextcolor, "solid", 1.0, {}, {} ),
+# ( "pv/solis%d/reserved_33185"         , "?", "S%d 33185" , nextcolor, "solid", 1.0, {}, {} ),
+# ( "pv/solis%d/reserved_33186"         , "?", "S%d 33186" , nextcolor, "solid", 1.0, {}, {} ),
+# ( "pv/solis%d/reserved_33187"         , "?", "S%d 33187" , nextcolor, "solid", 1.0, {}, {} ),
+# ( "pv/solis%d/reserved_33188"         , "?", "S%d 33188" , nextcolor, "solid", 1.0, {}, {} ),
+# ( "pv/solis%d/reserved_33189"         , "?", "S%d 33189" , nextcolor, "solid", 1.0, {}, {} ),
+# ( "pv/solis%d/reserved_33190"         , "?", "S%d 33190" , nextcolor, "solid", 1.0, {}, {} ),
 ( "pv/solis%d/reserved_33191"         , "?", "S%d 33191" , nextcolor, "solid", 1.0, {}, {} ),
-( "pv/solis%d/reserved_33192"         , "?", "S%d 33192" , nextcolor, "solid", 1.0, {}, {} ),
-( "pv/solis%d/reserved_33193"         , "?", "S%d 33193" , nextcolor, "solid", 1.0, {}, {} ),
-( "pv/solis%d/reserved_33194"         , "?", "S%d 33194" , nextcolor, "solid", 1.0, {}, {} ),
-( "pv/solis%d/reserved_33195"         , "?", "S%d 33195" , nextcolor, "solid", 1.0, {}, {} ),
-( "pv/solis%d/reserved_33196"         , "?", "S%d 33196" , nextcolor, "solid", 1.0, {}, {} ),
-( "pv/solis%d/reserved_33197"         , "?", "S%d 33197" , nextcolor, "solid", 1.0, {}, {} ),
-( "pv/solis%d/reserved_33198"         , "?", "S%d 33198" , nextcolor, "solid", 1.0, {}, {} ),
-( "pv/solis%d/reserved_33199"         , "?", "S%d 33199" , nextcolor, "solid", 1.0, {}, {} ),
+# ( "pv/solis%d/reserved_33192"         , "?", "S%d 33192" , nextcolor, "solid", 1.0, {}, {} ),
+# ( "pv/solis%d/reserved_33193"         , "?", "S%d 33193" , nextcolor, "solid", 1.0, {}, {} ),
+# ( "pv/solis%d/reserved_33194"         , "?", "S%d 33194" , nextcolor, "solid", 1.0, {}, {} ),
+# ( "pv/solis%d/reserved_33195"         , "?", "S%d 33195" , nextcolor, "solid", 1.0, {}, {} ),
+# ( "pv/solis%d/reserved_33196"         , "?", "S%d 33196" , nextcolor, "solid", 1.0, {}, {} ),
+# ( "pv/solis%d/reserved_33197"         , "?", "S%d 33197" , nextcolor, "solid", 1.0, {}, {} ),
+# ( "pv/solis%d/reserved_33198"         , "?", "S%d 33198" , nextcolor, "solid", 1.0, {}, {} ),
+# ( "pv/solis%d/reserved_33199"         , "?", "S%d 33199" , nextcolor, "solid", 1.0, {}, {} ),
 ( "pv/solis%d/battery_dcdc_enable"    , "?", "S%d dcdc_enable" , nextcolor, "solid", 1.0, {}, {} ),
 ( "pv/solis%d/battery_dcdc_direction" , "?", "S%d dcdc_direction" , nextcolor, "solid", 1.0, {}, {} ),
 ( "pv/solis%d/battery_current_direction" , "?", "S%d current_direction" , nextcolor, "solid", 1.0, {}, {} ),
 ( "pv/solis%d/battery_dcdc_current"   , "?", "S%d dcdc_current" , nextcolor, "solid", 1.0, {}, {} ),
-( "pv/solis%d/reserved_33215"         , "?", "S%d 33215" , nextcolor, "solid", 1.0, {}, {} ),
-( "pv/solis%d/reserved_33216"         , "?", "S%d 33216" , nextcolor, "solid", 1.0, {}, {} ),
-( "pv/solis%d/reserved_33217"         , "?", "S%d 33217" , nextcolor, "solid", 1.0, {}, {} ),
-( "pv/solis%d/reserved_33218"         , "?", "S%d 33218" , nextcolor, "solid", 1.0, {}, {} ),
-( "pv/solis%d/reserved_33219"         , "?", "S%d 33219" , nextcolor, "solid", 1.0, {}, {} ),
-( "pv/solis%d/reserved_33220"         , "?", "S%d 33220" , nextcolor, "solid", 1.0, {}, {} ),
+# ( "pv/solis%d/reserved_33215"         , "?", "S%d 33215" , nextcolor, "solid", 1.0, {}, {} ),
+# ( "pv/solis%d/reserved_33216"         , "?", "S%d 33216" , nextcolor, "solid", 1.0, {}, {} ),
+# ( "pv/solis%d/reserved_33217"         , "?", "S%d 33217" , nextcolor, "solid", 1.0, {}, {} ),
+# ( "pv/solis%d/reserved_33218"         , "?", "S%d 33218" , nextcolor, "solid", 1.0, {}, {} ),
+# ( "pv/solis%d/reserved_33219"         , "?", "S%d 33219" , nextcolor, "solid", 1.0, {}, {} ),
+# ( "pv/solis%d/reserved_33220"         , "?", "S%d 33220" , nextcolor, "solid", 1.0, {}, {} ),
 
 
 
@@ -362,46 +362,20 @@ PLOT_LAYOUTS = [
     ],
     ["TEST", 
         [
-            # [
-# "pv/solis1/reserved_33181"         ,        # constant 0, maybe flag
-# "pv/solis1/reserved_33182"         ,        # constant 0, maybe flag
-# # "pv/solis1/reserved_33183"         ,    #   constant 
-# "pv/solis1/reserved_33184"         ,        # constant 0, maybe flag
-# # "pv/solis1/reserved_33185"         ,    #   constant 
-# "pv/solis1/reserved_33186"         ,
-# "pv/solis1/reserved_33187"         ,        # constant 0, maybe flag
-# "pv/solis1/reserved_33188"         ,        # constant 0, maybe flag
-# "pv/solis1/reserved_33189"         ,        # constant 0, maybe flag
-# # "pv/solis1/reserved_33190"         ,
-# "pv/solis1/reserved_33191"         ,        # constant 1, maybe flag
-# "pv/solis1/reserved_33199"         ,        # constant 0, maybe flag
-# ],[
-# "pv/solis1/reserved_33193"         ,        # constant
-# "pv/solis1/reserved_33194"         ,        # constant
-# "pv/solis1/reserved_33195"         ,        # constant
-# "pv/solis1/reserved_33196"         ,        # constant
-# "pv/solis1/reserved_33197"         ,
-# "pv/solis1/reserved_33198"         ,
-# ],
-[
-"pv/solis1/battery_dcdc_enable"    ,
-"pv/solis1/battery_dcdc_direction" ,
+            [
+"pv/solis1/reserved_33191"         ,        # constant 1, maybe flag
 "pv/solis1/battery_current_direction"   ,
-],[
-"pv/solis1/battery_dcdc_current"   ,
-"pv/solis1/reserved_33192"         ,   
-# "pv/solis1/reserved_33215"         ,        # constant 0, maybe flag
-# "pv/solis1/reserved_33216"         ,
-"pv/solis1/reserved_33217"         ,
-# "pv/solis1/reserved_33218"         ,        # constant 0, maybe flag
-# "pv/solis1/reserved_33219"         ,        # constant 0, maybe flag
-# "pv/solis1/reserved_33220"         ,        # constant 0, maybe flag
+"pv/solis2/battery_current_direction"   ,
 ],
+# [
+# "pv/solis%d/battery_current"         ,
+# ],
             # [
             #     "pv/solis%d/battery_current",
             #     "pv/solis%d/bms_battery_current",
             # ],
             [
+                "pv/solis%d/battery_power"                              ,
                 "pv/solis%d/input_power"                              ,
             ]        
         ]

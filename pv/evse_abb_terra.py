@@ -119,7 +119,7 @@ class EVSE( grugbus.SlaveDevice ):
     async def pause_charge( self, print_log=True ):
         if self.is_charge_unpaused():
             log.info("EVSE: Pause charge")
-        self.local_meter.tick.set( config.POLL_PERIOD_EVSE_METER[0]* 10 )   # less MQTT traffic when not charging
+        self.local_meter.tick.set( config.POLL_PERIOD_EVSE_METER* 10 )   # less MQTT traffic when not charging
         self.start_counter.to_minimum() # reset counters 
         self.stop_counter.to_minimum()
         await self.set_current_limit( self.i_pause )
@@ -127,7 +127,7 @@ class EVSE( grugbus.SlaveDevice ):
     async def resume_charge( self ):
         if self.is_charge_paused():
             log.info("EVSE: Resume charge")
-        self.local_meter.tick.set( config.POLL_PERIOD_EVSE_METER[0] ) # poll meter more often
+        self.local_meter.tick.set( config.POLL_PERIOD_EVSE_METER ) # poll meter more often
         self.start_counter.to_maximum()
         self.stop_counter.to_maximum()
         self.integrator.set(0)

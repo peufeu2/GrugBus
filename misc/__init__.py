@@ -9,10 +9,8 @@ class Metronome:
         Missed trigger points are ignored.
     """
     def __init__( self, tick ):
-        try:    tick, base = tick
-        except: base = 0
         self.tick = tick
-        self.next_tick = base%tick
+        self.next_tick = 0
         self.last_tick = 0
 
     # set tick period

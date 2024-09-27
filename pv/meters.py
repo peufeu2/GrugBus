@@ -107,6 +107,9 @@ class SDM630( grugbus.SlaveDevice ):
             self.event_all.set()
             self.event_all.clear()
 
+            # reload config if changed
+            self.tick.set(config.POLL_PERIOD_METER)
+
 
 ########################################################################################
 #
@@ -176,6 +179,9 @@ class SDM120( grugbus.SlaveDevice ):
             # wake up other coroutines waiting for fresh values
             self.event_all.set()
             self.event_all.clear()
+            
+            # reload config if changed
+            self.tick.set(config.POLL_PERIOD_METER)
 
 
 ###########################################################################################

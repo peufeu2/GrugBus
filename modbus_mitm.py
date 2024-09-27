@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-import os, pprint, time, sys, serial, socket, traceback, struct, datetime, logging, logging.handlers, math, traceback, shutil, collections
+import os, pprint, time, sys, serial, socket, traceback, struct, datetime, logging, logging.handlers, math, traceback, shutil, collections, importlib
 from path import Path
 
 # This program is supposed to run on a potato (Allwinner H3 SoC) and uses async/await,
@@ -489,7 +489,8 @@ class Router():
                 else:
                     d.off()
 
-
+#   Write log when a coroutine enters/exits
+#
 async def log_coroutine( title, fut ):
     log.info("Start:"+title )
     try:
@@ -497,7 +498,27 @@ async def log_coroutine( title, fut ):
     finally:
         log.info("Exit: "+title )
 
+########################################################################################
+#
+#       Reload code when changed
+#
+########################################################################################
+async def reload_coroutine():
+    mtimes = {}
 
+    while True:
+        for module in config,:
+            await asyncio.sleep(1)
+            try:
+                fname = Path( module.__file__ )
+                mtime = fname.mtime
+                if (old_mtime := mtimes.get( fname )) and old_mtime < mtime:
+                    log.info( "Reloading: %s", fname )
+                    importlib.reload( module )
+
+                mtimes[ fname ] = mtime
+            except Exception:
+                log.exception("Reload coroutine:")
 
 ########################################################################################
 #
@@ -560,7 +581,7 @@ class SolisManager():
                     # for some errors like CAN FAIL, it will still produce while this register is set to something else
                     # like "turning off"... same for operating_status...
                     if solis.is_online:
-                        if not (solis.fault_status_1_grid.bit_is_active( "No grid" ) or solis.rwr_power_on_off.value == solis.rwr_power_on_off.value_off):
+                        if not (solis.is_offgrid or solis.rwr_power_on_off.value == solis.rwr_power_on_off.value_off):
                             inverters_online.append( solis )
                     elif solis.fake_meter.last_inverter_query_time > time.monotonic()-5:
                         # if COM port is disconnected, use the smartmeter connection to check if the inverter is on
@@ -591,7 +612,7 @@ class SolisManager():
                         if lm.is_online:
                             solis.input_power.value = pv_power + lm_power
 
-                    battery_full += solis.battery_full
+                    battery_full += bool(solis.battery_full.value)
                 
                 #   Fake Meter
                 # shift slightly to avoid import when we can afford it
@@ -671,7 +692,7 @@ class SolisManager():
             await solis.event_all.wait()
             try:
                 # Blackout logic: enable backup output in case of blackout
-                blackout = solis.fault_status_1_grid.bit_is_active( "No grid" ) and solis.phase_a_voltage.value < 100
+                blackout = solis.is_offgrid and solis.phase_a_voltage.value < 100
                 if blackout:
                     log.info( "Blackout" )
                     await solis.rwr_backup_output_enabled.write_if_changed( 1 )      # enable backup output
@@ -883,6 +904,7 @@ class SolisManager():
                 tg.create_task( log_coroutine( "logic: powersave 1",        self.inverter_powersave_coroutine( self.solis1 ) ))
                 tg.create_task( log_coroutine( "logic: powersave 2",        self.inverter_powersave_coroutine( self.solis2 ) ))
                 tg.create_task( log_coroutine( "sysinfo",                   self.sysinfo_coroutine() ))
+                tg.create_task( log_coroutine( "Reload python modules",     reload_coroutine() ))
         except (KeyboardInterrupt, CancelledError):
             print("Terminated.")
         finally:

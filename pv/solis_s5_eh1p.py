@@ -37,17 +37,21 @@ class Solis( grugbus.SlaveDevice ):
         # self.battery_dcdc_active = grugbus.registers.FakeRegister( "battery_dcdc_active", True, "int", 0 )
 
         # For power routing we need to know battery power, in order to steal some of it when we want to.
-        # The inverter's report of battery_power is slow (2 seconds lag) and does not account for energy stored
+        # The inverter's report of battery_power is slow and does not account for energy stored
         # into the DC bus capacitors. However, for quick routing, we don't need it. What we need is the amount of power
         # going into the inverter: input_power = pv_power + grid_port_power
         # This has no lag, as pv_power is reported in real time.
         # TODO: this also includes backup output power, so we should substract it
+        # TODO: new battery current register reacts much faster
         self.input_power = grugbus.registers.FakeRegister( "input_power", 0, "int", 0 )
         # self.battery_dcdc_power = grugbus.registers.FakeRegister( "battery_dcdc_power", 0, "int", 0 )
 
         self.mppt1_power       = grugbus.registers.FakeRegister( "mppt1_power", 0, "int", 0 )
         self.mppt2_power       = grugbus.registers.FakeRegister( "mppt2_power", 0, "int", 0 )
-        self.bms_battery_power = grugbus.registers.FakeRegister( "bms_battery_power", 0, "int", 0 )
+
+        # This is updated if battery current remains at zero for a while
+        self.battery_dcdc_active = grugbus.registers.FakeRegister( "battery_dcdc_active", 1, "int", 0 )
+        self.battery_dcdc_active_timeout = Timeout( 5 )
 
         #   Detect when the inverter won't charge the battery. This information is needed for diverting,
         #   because we want to reserve some power (ie, not divert it) so the inverter can charge its battery.
@@ -57,8 +61,7 @@ class Solis( grugbus.SlaveDevice ):
         #   Otherwise, when SOC is in the 99-100% range, sometimes it won't wharge, sometimes it will.
         #   So instead, we check if it is using the battery or not.
         #
-        self.smooth_bp_abs = MovingAverage( 20 )    # smooth absolute value of battery power
-        self.battery_full  = False
+        self.battery_full  = grugbus.registers.FakeRegister( "battery_full", 0, "int", 0 )
 
         #   Other coroutines that need inverter register values can wait on these events to 
         #   grab the values when they are read
@@ -79,10 +82,9 @@ class Solis( grugbus.SlaveDevice ):
                 self.pv_power                   ,
 
                 self.battery_current            ,
-                self.battery_current_direction  ,
 
-                self.battery_dcdc_direction,
-                self.reserved_33217,
+                self.battery_current_direction  ,
+                # self.battery_dcdc_direction,
                 # self.battery_dcdc_enable,
                 # self.battery_dcdc_current,
 
@@ -127,31 +129,30 @@ class Solis( grugbus.SlaveDevice ):
                 self.rwr_energy_storage_mode              ,
                 self.rwr_backup_output_enabled            ,
 
-                self.reserved_33181,
-                self.reserved_33182,
-                self.reserved_33183,
-                self.reserved_33184,
-                self.reserved_33185,
-                self.reserved_33186,
-                self.reserved_33187,
-                self.reserved_33188,
-                self.reserved_33189,
-                self.reserved_33190,
+                # self.reserved_33181,
+                # self.reserved_33182,
+                # self.reserved_33183,
+                # self.reserved_33184,
+                # self.reserved_33185,
+                # self.reserved_33186,
+                # self.reserved_33187,
+                # self.reserved_33188,
+                # self.reserved_33189,
+                # self.reserved_33190,
                 self.reserved_33191,
                 # self.reserved_33192,
-                self.reserved_33193,
-                self.reserved_33194,
-                self.reserved_33195,
-                self.reserved_33196,
-                self.reserved_33197,
-                self.reserved_33198,
-                self.reserved_33199,
-                self.reserved_33215,
-                self.reserved_33216,
-                self.reserved_33217,
-                self.reserved_33218,
-                self.reserved_33219,
-                self.reserved_33220,
+                # self.reserved_33193,
+                # self.reserved_33194,
+                # self.reserved_33195,
+                # self.reserved_33196,
+                # self.reserved_33197,
+                # self.reserved_33198,
+                # self.reserved_33199,
+                # self.reserved_33215,
+                # self.reserved_33216,
+                # self.reserved_33218,
+                # self.reserved_33219,
+                # self.reserved_33220,
             ]
 
         # Build modbus requests: read frequent_regs on every request, plus one chunk out of all_regs
@@ -190,7 +191,7 @@ class Solis( grugbus.SlaveDevice ):
                 try:
                     await self.tick.wait()
                     try:
-                        regs = set( await self.read_regs( reg_set, max_hole_size=4 ) )
+                        regs = set( await self.read_regs( reg_set, max_hole_size=8 ) )
 
                         #
                         #   Process values. Do not await until it is done, to prevent other tasks from seeing partial results
@@ -199,21 +200,34 @@ class Solis( grugbus.SlaveDevice ):
 
                         # Add polarity to battery parameters
                         # slow measured battery current
+                        # if self.battery_current_direction in regs:
+                        #     # regs.remove( self.battery_current_direction )
+                        #     if self.battery_current_direction.value:    # positive current/power means charging, negative means discharging
+
                         if self.battery_current_direction in regs:
                             # regs.remove( self.battery_current_direction )
                             if self.battery_current_direction.value:    # positive current/power means charging, negative means discharging
-                                # self.battery_current.value     *= -1
-                                for reg in self.battery_current, self.battery_dcdc_current, self.reserved_33217, self.reserved_33192:
-                                    if reg in regs:
-                                        reg.value *= -1
+                                self.battery_current.value     *= -1
 
-                            self.battery_current.value = self.reserved_33217.value
+                            # decide if battery is active (used to determine if the inverter wants to charge it or not)
+                            # it sets current to zero when inactive, regardless of offset, so put it before offset cal
+                            if self.battery_current.value:
+                                self.battery_dcdc_active.value = 1
+                                self.battery_dcdc_active_timeout.reset( config.SOLIS_BATTERY_DCDC_DETECTION_TIME )
+                            elif self.battery_dcdc_active_timeout.expired():
+                                self.battery_dcdc_active.value = 0
+                            regs.add( self.battery_dcdc_active )    # publish it
+
+                            # does the inverter want to charge the battery?
+                            self.battery_full.value = (self.bms_battery_soc.value or 0)>=config.SOLIS_BATTERY_FULL_SOC and not self.battery_dcdc_active.value
+                            regs.add( self.battery_full )    # publish it
+
+                            # offset calibration
+                            if f := config.CALIBRATION.get( self.mqtt_topic + "battery_current"):
+                                self.battery_current.value = f( self.battery_current.value )
+
                             self.battery_power.value       = self.battery_current.value * self.battery_voltage.value
                             regs.add( self.battery_power )
-
-                            # TODO
-                            bp_abs_avg = self.smooth_bp_abs.append(abs( self.battery_power.value ))   # moving average
-                            self.battery_full = (self.bms_battery_soc.value or 0)>=98 and bp_abs_avg != None and bp_abs_avg < 100
 
                         # Add useful metrics to avoid asof joins in database
                         if self.mppt1_voltage in regs:
@@ -225,13 +239,12 @@ class Solis( grugbus.SlaveDevice ):
                         if self.bms_battery_current in regs:
                             if self.battery_current_direction.value:    # positive current/power means charging, negative means discharging
                                 self.bms_battery_current.value *= -1
-                            self.bms_battery_power.value = int( self.bms_battery_current.value * self.bms_battery_voltage.value )
-                            regs.add( self.bms_battery_power )
+                            # self.bms_battery_power.value = int( self.bms_battery_current.value * self.bms_battery_voltage.value )
+                            # regs.add( self.bms_battery_power )
 
                         if self.fault_status_1_grid in regs:
-                            self.is_ongrid  = not self.fault_status_1_grid.value
+                            self.is_ongrid  = not self.fault_status_1_grid.bit_is_active( "No grid" )
                             self.is_offgrid = not self.is_ongrid
-
 
                         # Prepare MQTT publish
                         for reg in regs:
@@ -260,6 +273,9 @@ class Solis( grugbus.SlaveDevice ):
             self.event_all.set()
             self.event_all.clear()
             startup_done = True
+
+            # reload config if changed
+            self.tick.set( config.POLL_PERIOD_SOLIS )
 
     def get_time_regs( self ):
         return ( self.rwr_real_time_clock_year, self.rwr_real_time_clock_month,  self.rwr_real_time_clock_day,

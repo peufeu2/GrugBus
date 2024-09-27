@@ -346,8 +346,8 @@ BIT02 OFF-grid mode 0—OFF 1—ON
 BIT03 Battery wakeup switch (1—wakeup enable 0—wakeup disable)
 BIT04 Reserve battery mode 0—OFF 1—ON
 BIT05 Allow grid to charge the battery 0—Allow 1—Not allow",,,,
-4,33133,,"U16 ","0,1V","Battery voltage ",,"float",,,,,,
-4,33134,,"S16 ","0,1A","Battery current ",,"float",,"10 ↔ 1A
+4,33133,,"U16 ","0,1V","Battery voltage ",,"float",,"Voltage measured by inverter",,,,
+4,33134,,"S16 ","0,1A","Battery current BMS",,"float",,"10 ↔ 1A
 Current from BMS or maybe other sources if there’s no BMS (should check)
 Smoothed over several seconds. 
 For real time value measured by inverter, see 33217 and following registers.
@@ -465,7 +465,7 @@ Not usable !",,,,
 4,33214,,"U16","1,00 %","Battery Force charge SOC",,"float",,,,,,
 4,33215,,"U16",,"Reserved ",,"float",,"always zero",,,,
 4,33216,,"U16",,"Reserved ",,"float",,"always zero",,,,
-4,33217,,"U16","0.1A","Inverter Battery Current",,"float",,"Battery current measured by inverter.
+4,33217,,"U16","0.1A","Battery Current",,"float",,"Battery current measured by inverter.
 Fast update (<1s)
 Has a bit of offset, but reads zero when battery DC/DC is off",,,,
 4,33218,,"U16",,"Reserved ",,"float",,"always zero",,,,

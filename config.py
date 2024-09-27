@@ -44,7 +44,6 @@ MQTT_BUFFER_PORT = 15555
 MQTT_BUFFER_RETENTION = 24*3600*365 # how long to keep log files
 MQTT_BUFFER_FILE_DURATION = 3600	# number of seconds before new log file is created
 
-
 # path on solarpi for storage of mqtt compressed log
 MQTT_BUFFER_PATH = "/home/peufeu/mqtt_buffer"
 # temporary path on computer with clickhouse to copy logs and insert into database
@@ -76,20 +75,44 @@ COM_PORT_METER       = "/dev/serial/by-id/usb-FTDI_USB_RS485_3-if01-port0"   # M
 # How often we modbus these devices
 #   Tuples: (period, starting point in period)
 #
-POLL_PERIOD_METER       = (0.2, 0.0)
-POLL_PERIOD_SOLIS_METER = (0.2, 0.0)
-POLL_PERIOD_EVSE_METER  = (0.2, 0.0)
-POLL_PERIOD_SOLIS       = (0.2, 0.0)
-POLL_PERIOD_EVSE        = (1, 0.5)
+POLL_PERIOD_METER       = 0.2
+POLL_PERIOD_SOLIS_METER = 0.2
+POLL_PERIOD_EVSE_METER  = 0.2
+POLL_PERIOD_SOLIS       = 0.2
+POLL_PERIOD_EVSE        = 1
+
+# This overwrites some of the above parameters, like passwords.
+# You have to create this file yourself.
+from config_secret import *
+
+##################################################################
+# Measurement offset correction
+##################################################################
+CALIBRATION = {
+    # Inverter internal current measurement offset
+    # If measured value is exactly zero, keep it, otherwise add offset
+    # "pv/solis2/battery_current" : (lambda x: x and (x+1.5))    ,
+}
+
+##################################################################
+# Various config
+##################################################################
+
+# Along with other conditions on SOC, if battery current is zero during this time,
+# we decide the inverter has finished charging it.
+SOLIS_BATTERY_DCDC_DETECTION_TIME = 10
+
+# Battery Full detection
+SOLIS_BATTERY_FULL_SOC = 98
 
 # Inverter auto turn on/off settings
 SOLIS_TURNOFF_BATTERY_SOC  = 8
 SOLIS_TURNOFF_MPPT_VOLTAGE = 50
 SOLIS_TURNON_MPPT_VOLTAGE  = 80
 
-# This overwrites some of the above parameters, like passwords.
-# You have to create this file yourself.
-from config_secret import *
+
+
+
 
 ############################################################################
 # MQTT Rate Limit
