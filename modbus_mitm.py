@@ -17,7 +17,7 @@ from asyncio.exceptions import TimeoutError, CancelledError
 # Device wrappers and misc local libraries
 import config
 from misc import *
-from pv.mqtt_wrapper import MQTTWrapper
+from pv.mqtt_wrapper import MQTTWrapper, MQTTSetting
 import grugbus
 from grugbus.devices import Eastron_SDM120, Eastron_SDM630, Acrel_1_Phase, Acrel_ACR10RD16TE4
 import pv.solis_s5_eh1p, pv.meters, pv.evse_abb_terra
@@ -134,8 +134,11 @@ class RoutableTasmota( Routable ):
         if value:   self.on()
         else:       self.off()
 
-class Router():
-    def __init__( self ):
+class Router( ):
+    def __init__( self, mqtt, mqtt_topic ):
+        self.mqtt        = mqtt
+        self.mqtt_topic  = mqtt_topic
+
         self.devices = [ 
                          RoutableTasmota("Tasmota T4 Sèche serviette", 1050, "plugs/tasmota_t4"),
                          RoutableTasmota("Tasmota T2 Radiateur PF", 800, "plugs/tasmota_t2"),
@@ -152,27 +155,28 @@ class Router():
         #   Note: when inverter is hot or soc>90%, battery charging is reduced to 85A and sometimes 
         #   this does not show up in battery_max_charge_current, so adjust below parameters to avoid
         #   wasting power
-        self.battery_min_soc = 85               # Do not steal power from battery charging if SOC is below this
-        self.battery_min_soc_scale = 0.98
-        self.battery_max_soc = 90
-        self.battery_max_soc_scale = 0.10
+
+        MQTTSetting( self, "battery_min_soc"        , int   , lambda x: (0<=x<=100), 85 )   # 
+        MQTTSetting( self, "battery_max_soc"        , int   , lambda x: (0<=x<=100), 90 )   # 
+        MQTTSetting( self, "battery_min_soc_scale"  , float , lambda x: (0<=x<=100), 0.98 ) #
+        MQTTSetting( self, "battery_max_soc_scale"  , float , lambda x: (0<=x<=100), 0.20 ) #
+
+        # Export target: center export power on this value
+        # (multiply by battery SOC)
+        MQTTSetting( self, "p_export_target_base_W"      , float , lambda x: (-200<=x<=200), 100 ) #
+        MQTTSetting( self, "p_export_target_soc_factor"  , float , lambda x: (0<=x<=2), 1.0 ) #
 
         # when the inverter is maxed out, we can't redirect battery charging power to the AC output
         # so special case above this output power
         self.solis1_max_output_power = 5700
 
-        # Export target: center export power on this value
-        # (multiply by battery SOC)
-        self.p_export_target_base       = 100
-        self.p_export_target_soc_factor = 1
-
         self.initialized = False
-        self.timeout_export = Timeout( 4, expired=True )    # expires if we've been exporting for some time
-        self.timeout_import = Timeout( 3, expired=True )    # expires if we've been importing for some time
-        self.resend_tick = Metronome( 10 )
-        self.counter = 0
+        # self.timeout_export = Timeout( 4, expired=True )    # expires if we've been exporting for some time
+        # self.timeout_import = Timeout( 3, expired=True )    # expires if we've been importing for some time
+        # self.resend_tick = Metronome( 10 )
+        # self.counter = 0
 
-        self.start_timeout = Timeout( 5, expired=False )
+        # self.start_timeout = Timeout( 5, expired=False )
 
     async def stop( self ):
         await mgr.evse.pause_charge()
@@ -265,7 +269,7 @@ class Router():
             return
 
         # tweak it a bit to keep a little bit of extra power
-        export_avg -= self.p_export_target_base + self.p_export_target_soc_factor * soc
+        export_avg -= self.p_export_target_base_W.value + self.p_export_target_soc_factor.value * soc
     
         ######## Battery Management ########
 
@@ -282,7 +286,7 @@ class Router():
         # if EV charging has begun, pretend we have more SOC than we have to avoid start/stop cycles
         if mgr.evse.is_charge_unpaused():
             soc += 5
-        bp_min = bp_max * interpolate( self.battery_min_soc, self.battery_min_soc_scale, self.battery_max_soc, self.battery_max_soc_scale, soc )
+        bp_min = bp_max * interpolate( self.battery_min_soc.value, self.battery_min_soc_scale.value, self.battery_max_soc.value, self.battery_max_soc_scale.value, soc )
 
         # # If the inverter's grid port is maxed out, we can't steal power from the battery, correct for this.
         # steal_max = max( 0, self.solis1_max_output_power - solis1_output )
@@ -726,31 +730,36 @@ class SolisManager():
             if not solis.is_online:
                 continue
             try:
-                slave = solis.key == "solis1"
                 # Auto on/off: turn it off at night when the battery is below specified SOC
                 # so it doesn't keep draining it while doing nothing useful
-                inverter_is_on = power_reg.value == power_reg.value_on
-                mpptv = max( solis.mppt1_voltage.value, solis.mppt2_voltage.value )
-                if inverter_is_on:
-                    if mpptv < config.SOLIS_TURNOFF_MPPT_VOLTAGE and (slave or solis.bms_battery_soc.value <= config.SOLIS_TURNOFF_BATTERY_SOC):
-                        timeout_power_on.reset()
-                        if timeout_power_off.expired():
-                            log.info("Powering OFF %s"%solis.key)
-                            await power_reg.write_if_changed( power_reg.value_off )
-                        else:
-                            log.info( "Power off %s in %d s", solis.key, timeout_power_off.remain() )
-                    else:
-                        timeout_power_off.reset()
+                cfg = config.SOLIS_POWERSAVE_CONFIG[ solis.mqtt_topic ]
+
+                if not cfg["ENABLE_INVERTER"]:
+                    await power_reg.write_if_changed( power_reg.value_off )
+                elif not cfg["ENABLE_POWERSAVE"]:
+                    await power_reg.write_if_changed( power_reg.value_on )
                 else:
-                    if mpptv > config.SOLIS_TURNON_MPPT_VOLTAGE:                        
-                        timeout_power_off.reset()
-                        if timeout_power_on.expired():
-                            log.info("Powering ON %s"%solis.key)
-                            await power_reg.write_if_changed( power_reg.value_on )
+                    mpptv = max( solis.mppt1_voltage.value, solis.mppt2_voltage.value )
+                    if power_reg.value == power_reg.value_on:
+                        if mpptv < cfg["TURNOFF_MPPT_VOLTAGE"] and (slave or solis.bms_battery_soc.value <= cfg["TURNOFF_BATTERY_SOC"]):
+                            timeout_power_on.reset()
+                            if timeout_power_off.expired():
+                                log.info("Powering OFF %s"%solis.key)
+                                await power_reg.write_if_changed( power_reg.value_off )
+                            else:
+                                log.info( "Power off %s in %d s", solis.key, timeout_power_off.remain() )
                         else:
-                            log.info( "Power on %s in %d s", solis.key, timeout_power_on.remain() )
+                            timeout_power_off.reset()
                     else:
-                        timeout_power_on.reset()
+                        if mpptv > cfg["TURNON_MPPT_VOLTAGE"]:
+                            timeout_power_off.reset()
+                            if timeout_power_on.expired():
+                                log.info("Powering ON %s"%solis.key)
+                                await power_reg.write_if_changed( power_reg.value_on )
+                            else:
+                                log.info( "Power on %s in %d s", solis.key, timeout_power_on.remain() )
+                        else:
+                            timeout_power_on.reset()
                         
             except (TimeoutError, ModbusException): pass
             except Exception:
@@ -825,7 +834,7 @@ class SolisManager():
 
         # add voltage to EVSE meter register poll list
         self.evse.local_meter.reg_sets[0].append( self.evse.local_meter.voltage )
-        self.router = Router()
+        self.router = Router( mqtt = mqtt, mqtt_topic = "pv/router/" )
 
         #
         #   Solis inverter 1 and local meter

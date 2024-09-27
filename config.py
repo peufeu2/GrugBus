@@ -106,9 +106,22 @@ SOLIS_BATTERY_DCDC_DETECTION_TIME = 10
 SOLIS_BATTERY_FULL_SOC = 98
 
 # Inverter auto turn on/off settings
-SOLIS_TURNOFF_BATTERY_SOC  = 8
-SOLIS_TURNOFF_MPPT_VOLTAGE = 50
-SOLIS_TURNON_MPPT_VOLTAGE  = 80
+SOLIS_POWERSAVE_CONFIG = {
+    "pv/solis1/": {
+        "ENABLE_INVERTER"      : True,       # If False, turn inverter off
+        "ENABLE_POWERSAVE"     : True,       # If True, enable following logic:
+        "TURNOFF_BATTERY_SOC"  : 8 ,         # turn it off when SOC < value
+        "TURNOFF_MPPT_VOLTAGE" : 50,         # ...and MPPT voltage < value
+        "TURNON_MPPT_VOLTAGE"  : 80,         # turn it back on when MPPT voltage > value
+    },
+    "pv/solis2/": {
+        "ENABLE_INVERTER"      : True,
+        "ENABLE_POWERSAVE"     : False,
+        "TURNOFF_BATTERY_SOC"  : 8 ,  
+        "TURNOFF_MPPT_VOLTAGE" : 50,  
+        "TURNON_MPPT_VOLTAGE"  : 80,  
+    }    
+}
 
 
 
