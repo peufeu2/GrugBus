@@ -98,10 +98,6 @@ class MQTT( MQTTWrapper ):
 
 mqtt = MQTT()
 
-
-
-
-
 class Routable():
     def __init__( self, name, power ):
         self.name = name
@@ -741,7 +737,7 @@ class SolisManager():
                 else:
                     mpptv = max( solis.mppt1_voltage.value, solis.mppt2_voltage.value )
                     if power_reg.value == power_reg.value_on:
-                        if mpptv < cfg["TURNOFF_MPPT_VOLTAGE"] and (slave or solis.bms_battery_soc.value <= cfg["TURNOFF_BATTERY_SOC"]):
+                        if mpptv < cfg["TURNOFF_MPPT_VOLTAGE"] and solis.bms_battery_soc.value <= cfg["TURNOFF_BATTERY_SOC"]:
                             timeout_power_on.reset()
                             if timeout_power_off.expired():
                                 log.info("Powering OFF %s"%solis.key)
@@ -773,17 +769,25 @@ class SolisManager():
     ########################################################################################
     async def inverter_fan_coroutine( self, solis ):
         timeout_fan_off = Timeout( 60 )
-        bat_power_avg = MovingAverage(10)
+        bat_power_avg_1 = MovingAverage(10)
+        bat_power_avg_2 = MovingAverage(10)
         while True:
             await self.solis1.event_all.wait()
             try:
+                fan_on = False
                 if self.solis1.is_online:
-                    avg = bat_power_avg.append( abs(self.solis1.battery_power.value or 0) ) or 0
+                    avg = bat_power_avg_1.append( abs(self.solis1.battery_power.value or 0) ) or 0
                     if self.solis1.temperature.value > 40 or avg > 2000:
-                        timeout_fan_off.reset()
-                        mqtt.publish_value( "cmnd/plugs/tasmota_t3/Power", 1 )
-                    elif self.solis1.temperature.value < 35 and timeout_fan_off.expired():
-                        mqtt.publish_value( "cmnd/plugs/tasmota_t3/Power", 0 )
+                        fan_on = True
+                if self.solis2.is_online:
+                    avg = bat_power_avg_2.append( abs(self.solis2.battery_power.value or 0) ) or 0
+                    if self.solis2.temperature.value > 40 or avg > 2000:
+                        fan_on = True
+                if fan_on:
+                    timeout_fan_off.reset()
+                    mqtt.publish_value( "cmnd/plugs/tasmota_t3/Power", 1 )
+                elif self.solis1.temperature.value < 35 and self.solis2.temperature.value < 35 and timeout_fan_off.expired():
+                    mqtt.publish_value( "cmnd/plugs/tasmota_t3/Power", 0 )
 
             except (TimeoutError, ModbusException): pass
             except:
@@ -855,7 +859,8 @@ class SolisManager():
                 modbus_addr=3, key="ms1", name="SDM120 Smartmeter on Solis 1", mqtt=mqtt, mqtt_topic="pv/solis1/meter/" 
             ),
             fake_meter = pv.meters.FakeSmartmeter( 
-                port=config.COM_PORT_FAKE_METER1, baudrate=9600, key="fake_meter_1", name="Fake meter for Solis 1", modbus_address=1, meter_type=Acrel_1_Phase 
+                port=config.COM_PORT_FAKE_METER1, baudrate=9600, key="fake_meter_1", name="Fake meter for Solis 1", modbus_address=1, meter_type=Acrel_1_Phase,
+                mqtt=mqtt, mqtt_topic = "pv/solis1/fakemeter/"
             ),
             mqtt = mqtt, mqtt_topic = "pv/solis1/"
         )
@@ -879,7 +884,8 @@ class SolisManager():
                 modbus_addr=1, key="ms2", name="SDM120 Smartmeter on Solis 2", mqtt=mqtt, mqtt_topic="pv/solis2/meter/" 
             ),
             fake_meter = pv.meters.FakeSmartmeter( 
-                port=config.COM_PORT_FAKE_METER2, key="fake_meter_2", name="Fake meter for Solis 2", modbus_address=1, meter_type=Acrel_1_Phase 
+                port=config.COM_PORT_FAKE_METER2, key="fake_meter_2", name="Fake meter for Solis 2", modbus_address=1, meter_type=Acrel_1_Phase ,
+                mqtt=mqtt, mqtt_topic = "pv/solis2/fakemeter/"
             ),
             mqtt = mqtt, mqtt_topic = "pv/solis2/"
         )

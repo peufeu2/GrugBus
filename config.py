@@ -68,6 +68,9 @@ COM_PORT_LOCALMETER2 = "/dev/serial/by-id/usb-FTDI_USB_RS485_4-if01-port0"   # M
 COM_PORT_EVSE        = "/dev/serial/by-id/usb-FTDI_USB_RS485_3-if00-port0"   # Main meter
 COM_PORT_METER       = "/dev/serial/by-id/usb-FTDI_USB_RS485_3-if01-port0"   # Main meter
 
+CAN_PORT_BATTERY  = 'can_bat'
+CAN_PORT_SOLIS1   = 'can_1'
+CAN_PORT_SOLIS2   = 'can_2'
 
 # not used
 # COM_PORT_METER       = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_54D2042261-if00"
@@ -110,13 +113,13 @@ SOLIS_POWERSAVE_CONFIG = {
     "pv/solis1/": {
         "ENABLE_INVERTER"      : True,       # If False, turn inverter off
         "ENABLE_POWERSAVE"     : True,       # If True, enable following logic:
-        "TURNOFF_BATTERY_SOC"  : 8 ,         # turn it off when SOC < value
+        "TURNOFF_BATTERY_SOC"  : 95,         # turn it off when SOC < value
         "TURNOFF_MPPT_VOLTAGE" : 50,         # ...and MPPT voltage < value
         "TURNON_MPPT_VOLTAGE"  : 80,         # turn it back on when MPPT voltage > value
     },
     "pv/solis2/": {
         "ENABLE_INVERTER"      : True,
-        "ENABLE_POWERSAVE"     : False,
+        "ENABLE_POWERSAVE"     : True,
         "TURNOFF_BATTERY_SOC"  : 8 ,  
         "TURNOFF_MPPT_VOLTAGE" : 50,  
         "TURNON_MPPT_VOLTAGE"  : 80,  
@@ -247,6 +250,27 @@ MQTT_RATE_LIMIT = {
     'pv/evse/req_time'                            : (  60,      0.010, 'avg'   ), #           0/          0
     'pv/evse/req_period'                          : (  60,      0.010, 'avg'   ), #           0/          0
     'pv/evse/meter/current'                       : (  60,      0.100, 'avg'   ), #           0/          0
+
+    #   CANBUS BMS INFORMATION
+    'pv/battery/protection'                       : (  60,      0.000, ''      ),
+    'pv/battery/alarm'                            : (  60,      0.000, ''      ),
+    'pv/battery/max_charge_current'               : (  60,      0.000, ''      ),
+    'pv/battery/max_charge_voltage'               : (  60,      0.000, ''      ),
+    'pv/battery/max_discharge_current'            : (  60,      0.000, ''      ),
+    'pv/battery/soc'                              : (  60,      0.000, ''      ),
+    'pv/battery/soh'                              : (  60,      0.000, ''      ),
+    'pv/battery/power'                            : (  60,      0.000, ''      ),
+    'pv/battery/voltage'                          : (  60,      0.000, ''      ),
+    'pv/battery/current'                          : (  60,      0.000, ''      ),
+    'pv/battery/temperature'                      : (  60,      0.000, ''      ),
+    'pv/battery/max_charge_power'                 : (  60,      0.000, ''      ),
+    'pv/battery/max_discharge_power'              : (  60,      0.000, ''      ),
+    'pv/battery/request_full_charge'              : (  60,      0.000, ''      ),
+    'pv/battery/request_force_charge_2'           : (  60,      0.000, ''      ),
+    'pv/battery/request_force_charge_1'           : (  60,      0.000, ''      ),
+    'pv/battery/discharge_enable'                 : (  60,      0.000, ''      ),
+    'pv/battery/charge_enable'                    : (  60,      0.000, ''      ),
+
 }
 
 for k,v in tuple(MQTT_RATE_LIMIT.items()):

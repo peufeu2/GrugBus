@@ -66,7 +66,8 @@ DATA_STREAMS = [
 
     ( "pv/total_battery_power"                           , "W"   , "Battery"                     , "battery"       , "solid",    1.0 , {}                 , {} ),
     ( "pv/solis%d/battery_power"                         , "W"   , "S%d Battery"                 , "battery"       , "solid",    1.0 , {"visible":False}  , {} ),
-    ( "pv/bms_battery_power"                             , "W"   , "Battery BMS"                 , "battery"       , "solid",    1.0 , {"visible":False}  , {} ),
+    ( "pv/battery/power"                                 , "W"   , "Battery BMS"                 , "battery"       , "solid",    1.0 , {"visible":False}  , {} ),
+    ( "pv/battery/current"                               , "A"   , "Battery BMS"                 , "battery"       , "solid",    1.0 , {"visible":False}  , {} ),
     # ( "pv/solis%d/battery_dcdc_power"                    , "W"   , "S%d Battery DC/DC"           , "battery"       , "dotted",    1.0 , {"visible":False}  , {} ),
     ( "pv/solis%d/battery_current"                       , "A"   , "S%d Bat current"             , "battery"       , "solid",    1.0 , {"visible":False}  , {} ),
     ( "pv/solis%d/battery_max_charge_current"            , "A"   , "S%d Bat max charge"          , "battery"       , "dashed",   1.0 , {"visible":False}  , {} ),
@@ -138,50 +139,14 @@ DATA_STREAMS = [
     # ( "pv/solis1/b_limit_operation"                      , "V"  , "b_limit_operation"                  , "#FF00FF"       , "solid",    1.0 , {}                 , {} ),
     # ( "pv/solis1/battery_dcdc_current"                   , "V"  , "battery_dcdc_current"   , "#FF80FF"       , "solid",    1.0 , {}                 , {} ),
 
-    ( "pv/solis%d/reserved_33192", "?", "S%dR33192", nextcolor, "solid", 1.0, {}, {} ),
-    # ( "pv/solis%d/reserved_33217", "?", "S%dR33217", nextcolor, "solid", 1.0, {}, {} ),
-    # ( "pv/solis%d/reserved_43592", "?", "S%dR43592", nextcolor, "solid", 1.0, {}, {} ),
-    # ( "pv/solis%d/reserved_43596", "?", "S%dR43596", nextcolor, "solid", 1.0, {}, {} ),
-    # ( "pv/solis%d/reserved_43646", "?", "S%dR43646", nextcolor, "solid", 1.0, {}, {} ),
-    # ( "pv/solis%d/reserved_43654", "?", "S%dR43654", nextcolor, "solid", 1.0, {}, {} ),
-    # ( "pv/solis%d/reserved_43659", "?", "S%dR43659", nextcolor, "solid", 1.0, {}, {} ),
-    # ( "pv/solis%d/reserved_43662", "?", "S%dR43662", nextcolor, "solid", 1.0, {}, {} ),
-    # ( "pv/solis%d/reserved_43664", "?", "S%dR43664", nextcolor, "solid", 1.0, {}, {} ),
-    # ( "pv/solis%d/reserved_43669", "?", "S%dR43669", nextcolor, "solid", 1.0, {}, {} ),
-    # ( "pv/solis%d/reserved_43717", "?", "S%dR43717", nextcolor, "solid", 1.0, {}, {} ),
+( "pv/solis%d/reserved_33192"               , "?", "S%dR33192"              , nextcolor, "solid", 1.0, {}, {} ),
+( "pv/solis%d/reserved_33191"               , "?", "S%d 33191"              , nextcolor, "solid", 1.0, {}, {} ),
+( "pv/solis%d/battery_current_direction"    , "?", "S%d current_direction"  , nextcolor, "solid", 1.0, {}, {} ),
 
 
-# ( "pv/solis%d/reserved_33181"         , "?", "S%d 33181" , nextcolor, "solid", 1.0, {}, {} ),
-# ( "pv/solis%d/reserved_33182"         , "?", "S%d 33182" , nextcolor, "solid", 1.0, {}, {} ),
-# ( "pv/solis%d/reserved_33183"         , "?", "S%d 33183" , nextcolor, "solid", 1.0, {}, {} ),
-# ( "pv/solis%d/reserved_33184"         , "?", "S%d 33184" , nextcolor, "solid", 1.0, {}, {} ),
-# ( "pv/solis%d/reserved_33185"         , "?", "S%d 33185" , nextcolor, "solid", 1.0, {}, {} ),
-# ( "pv/solis%d/reserved_33186"         , "?", "S%d 33186" , nextcolor, "solid", 1.0, {}, {} ),
-# ( "pv/solis%d/reserved_33187"         , "?", "S%d 33187" , nextcolor, "solid", 1.0, {}, {} ),
-# ( "pv/solis%d/reserved_33188"         , "?", "S%d 33188" , nextcolor, "solid", 1.0, {}, {} ),
-# ( "pv/solis%d/reserved_33189"         , "?", "S%d 33189" , nextcolor, "solid", 1.0, {}, {} ),
-# ( "pv/solis%d/reserved_33190"         , "?", "S%d 33190" , nextcolor, "solid", 1.0, {}, {} ),
-( "pv/solis%d/reserved_33191"         , "?", "S%d 33191" , nextcolor, "solid", 1.0, {}, {} ),
-# ( "pv/solis%d/reserved_33192"         , "?", "S%d 33192" , nextcolor, "solid", 1.0, {}, {} ),
-# ( "pv/solis%d/reserved_33193"         , "?", "S%d 33193" , nextcolor, "solid", 1.0, {}, {} ),
-# ( "pv/solis%d/reserved_33194"         , "?", "S%d 33194" , nextcolor, "solid", 1.0, {}, {} ),
-# ( "pv/solis%d/reserved_33195"         , "?", "S%d 33195" , nextcolor, "solid", 1.0, {}, {} ),
-# ( "pv/solis%d/reserved_33196"         , "?", "S%d 33196" , nextcolor, "solid", 1.0, {}, {} ),
-# ( "pv/solis%d/reserved_33197"         , "?", "S%d 33197" , nextcolor, "solid", 1.0, {}, {} ),
-# ( "pv/solis%d/reserved_33198"         , "?", "S%d 33198" , nextcolor, "solid", 1.0, {}, {} ),
-# ( "pv/solis%d/reserved_33199"         , "?", "S%d 33199" , nextcolor, "solid", 1.0, {}, {} ),
-( "pv/solis%d/battery_dcdc_enable"    , "?", "S%d dcdc_enable" , nextcolor, "solid", 1.0, {}, {} ),
-( "pv/solis%d/battery_dcdc_direction" , "?", "S%d dcdc_direction" , nextcolor, "solid", 1.0, {}, {} ),
-( "pv/solis%d/battery_current_direction" , "?", "S%d current_direction" , nextcolor, "solid", 1.0, {}, {} ),
-( "pv/solis%d/battery_dcdc_current"   , "?", "S%d dcdc_current" , nextcolor, "solid", 1.0, {}, {} ),
-# ( "pv/solis%d/reserved_33215"         , "?", "S%d 33215" , nextcolor, "solid", 1.0, {}, {} ),
-# ( "pv/solis%d/reserved_33216"         , "?", "S%d 33216" , nextcolor, "solid", 1.0, {}, {} ),
-# ( "pv/solis%d/reserved_33217"         , "?", "S%d 33217" , nextcolor, "solid", 1.0, {}, {} ),
-# ( "pv/solis%d/reserved_33218"         , "?", "S%d 33218" , nextcolor, "solid", 1.0, {}, {} ),
-# ( "pv/solis%d/reserved_33219"         , "?", "S%d 33219" , nextcolor, "solid", 1.0, {}, {} ),
-# ( "pv/solis%d/reserved_33220"         , "?", "S%d 33220" , nextcolor, "solid", 1.0, {}, {} ),
-
-
+( "pv/battery/max_charge_voltage"  , "V", "Bat max_charge_voltage", nextcolor, "solid", 1.0, {}, {} ),
+( "pv/battery/protection"          , "?", "Bat protection",         nextcolor, "solid", 1.0, {}, {} ),
+( "pv/battery/alarm"               , "?", "Bat alarm",              nextcolor, "solid", 1.0, {}, {} ),
 
 
 
@@ -227,7 +192,7 @@ PLOT_LAYOUTS = [
                 "pv/meter/house_power"                           ,
                 "pv/meter/total_power"                           ,
                 "pv/total_battery_power"                         ,
-                "pv/bms_battery_power" ,
+                "pv/battery/power" ,
                 "pv/total_input_power"                           ,
                 "pv/total_grid_port_power"                       ,
                 "pv/evse/meter/active_power"                     ,
@@ -363,21 +328,16 @@ PLOT_LAYOUTS = [
     ["TEST", 
         [
             [
-"pv/solis1/reserved_33191"         ,        # constant 1, maybe flag
-"pv/solis1/battery_current_direction"   ,
-"pv/solis2/battery_current_direction"   ,
-],
-# [
-# "pv/solis%d/battery_current"         ,
-# ],
-            # [
-            #     "pv/solis%d/battery_current",
-            #     "pv/solis%d/bms_battery_current",
-            # ],
-            [
-                "pv/solis%d/battery_power"                              ,
-                "pv/solis%d/input_power"                              ,
-            ]        
+                "pv/solis%d/battery_current",
+                "pv/battery/current",
+                "pv/solis%d/reserved_33191",
+            ],[
+                "pv/solis%d/battery_voltage",
+                "pv/battery/max_charge_voltage",
+
+                "pv/battery/protection",
+                "pv/battery/alarm",
+            ],
         ]
     ],
     ["MQTT",
@@ -406,8 +366,12 @@ def insert_inverters_data_streams( l ):
                 yield topic%solis, unit, label%solis, c, dash, scale, bokeh_attrs, attrs
         else:
             if c:=colors.get(color):
-                color = c[0]
-            yield topic, unit, label, color, dash, scale, bokeh_attrs, attrs
+                c = c[0]
+            elif callable(color):
+                c=color()
+            else:
+                c = color
+            yield topic, unit, label, c, dash, scale, bokeh_attrs, attrs
 
 def insert_inverters_plot_layout( l ):
     if isinstance( l, list ):

@@ -179,7 +179,7 @@ class SDM120( grugbus.SlaveDevice ):
             # wake up other coroutines waiting for fresh values
             self.event_all.set()
             self.event_all.clear()
-            
+
             # reload config if changed
             self.tick.set(config.POLL_PERIOD_METER)
 
@@ -225,7 +225,7 @@ class FakeSmartmeter( grugbus.LocalServer ):
     #   key     machine readable name for logging, like "fake_meter_1", 
     #   name    human readable name like "Fake SDM120 for Inverter 1"
     #
-    def __init__( self, port, key, name, modbus_address, meter_type, meter_placement="grid", baudrate=9600, mqtt=None ):
+    def __init__( self, port, key, name, modbus_address, meter_type, meter_placement="grid", baudrate=9600, mqtt=None, mqtt_topic=None ):
         # Create datastore corresponding to registers available in Eastron SDM120 smartmeter
         data_store = ModbusSequentialDataBlock( 0, [0]*750 )   
         slave_ctx = HookModbusSlaveContext(
@@ -255,6 +255,7 @@ class FakeSmartmeter( grugbus.LocalServer ):
         # This event is set when the real smartmeter is read 
         self.is_online = False
         self.mqtt = mqtt
+        self.mqtt_topic = mqtt_topic
 
         self.last_inverter_query_time = 0
         self.data_timestamp = 0
@@ -267,6 +268,7 @@ class FakeSmartmeter( grugbus.LocalServer ):
     def _on_getValues( self, fc_as_hex, address, count, ctx ):
         #   The main meter is read in another coroutine, which also sets registers in this object. Check this was done.
         t = time.monotonic()
+        self._count += 1
 
         if self.last_inverter_query_time < t-10:
             log.info("FakeMeter %s: receiving requests", self.key )
@@ -278,6 +280,10 @@ class FakeSmartmeter( grugbus.LocalServer ):
             if self._error_tick.ticked():
                 log.error( "FakeMeter %s: data is too old (%f seconds) [%d errors]", self.key, t-self.data_timestamp, self._error_count )
             self.is_online = False
+
+        if (elapsed := self._stat_tick.ticked()) and self.mqtt_topic:
+            self.mqtt.publish_value( self.mqtt_topic + "req_per_s", self._count/max(elapsed,1) )
+            self._count = 0
 
         return self.is_online
         # If return value is False, pymodbus server will abort the request, which the inverter

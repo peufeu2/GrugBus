@@ -1,12 +1,20 @@
 #!/usr/bin/env python3
 
-import asyncio, struct, uvloop, time, threading, logging, collections
+import asyncio, struct, uvloop, time, threading, logging, collections, copy, sys
 import can
-from typing import Any, Callable
+from path import Path
 from misc import *
 from pv.mqtt_wrapper import MQTTWrapper
 import config
 
+logging.basicConfig( encoding='utf-8', 
+                     level=logging.INFO,
+                     format='[%(asctime)s] %(levelname)s:%(message)s',
+                     handlers=[
+                            # logging.handlers.RotatingFileHandler(Path(__file__).stem+'.log', mode='a', maxBytes=5*1024*1024, backupCount=2, encoding=None, delay=False),
+                            logging.FileHandler(filename=Path(__file__).stem+'.log'), 
+                            logging.StreamHandler(stream=sys.stdout)
+                    ])
 log = logging.getLogger(__name__)
 
 #
@@ -105,7 +113,7 @@ class PylonErrorsMessage( PylonMessage ):
             if (b:=bool(data[offset] & bit)):
                 r[offset>>1].append(label)
             setattr( self, label, b )
-        self.protection, self.alarm = r
+        self.protection, self.alarm = struct.unpack( "<HH", data[0:4] )
         self.module_number = data[4]
         self.P = data[5]
         self.N = data[6]
@@ -265,7 +273,7 @@ class AsyncCAN:
                         await self.handle(msg)
 
             except Exception as e:
-                log.error( "CAN: %s %s", self.channel, e )
+                log.exception( "CAN: %s %s", self.channel, e )
                 try:
                     await self.disconnect()
                 except Exception as e:
@@ -282,8 +290,55 @@ class PylonCAN( AsyncCAN ):
         super().__init__( channel )
         self.inverter_queue = collections.deque( maxlen=4 )
         self.echo_tick = Metronome( 1 )
+        self.dispatch = {}
         for cls in PylonMessage._subclasses.values():
             setattr( self, cls.__name__, None )
+            self.dispatch[ cls ] = getattr(self, "handle_"+cls.__name__, None )
+
+    def handle_PylonLimitsMessage( self, msg, pm ):
+        pm.print()
+        mqtt.publish_value( "pv/battery/max_charge_voltage",    round( pm.battery_charge_voltage, 1 ))
+        mqtt.publish_value( "pv/battery/max_charge_current",    round( pm.charge_current_limit, 1 ))
+        mqtt.publish_value( "pv/battery/max_discharge_current", round( pm.discharge_current_limit, 1 ))
+
+        ret = PylonMessage.load( msg )
+        ret.charge_current_limit *= 0.5
+        ret.discharge_current_limit *= 0.5
+        # pm.print()
+        return can.Message( arbitration_id=msg.arbitration_id, data=ret.encode(), is_extended_id=msg.is_extended_id )
+
+    def handle_PylonSOCMessage( self, msg, pm ):
+        pm.print()
+        mqtt.publish_value( "pv/battery/soc",    pm.soc )
+        mqtt.publish_value( "pv/battery/soh",    pm.soh )
+        return msg
+
+    def handle_PylonMeasurementsMessage( self, msg, pm ):
+        pm.print()
+        mqtt.publish_value( "pv/battery/power",       pm.current*pm.voltage, int )
+        mqtt.publish_value( "pv/battery/voltage",     round( pm.voltage, 2 ))
+        mqtt.publish_value( "pv/battery/current",     round( pm.current, 1 ))
+        mqtt.publish_value( "pv/battery/temperature", round( pm.temperature, 1 ))
+
+        if self.PylonLimitsMessage:
+            mqtt.publish_value( "pv/battery/max_charge_power",    pm.voltage * self.PylonLimitsMessage.charge_current_limit, int )
+            mqtt.publish_value( "pv/battery/max_discharge_power", pm.voltage * self.PylonLimitsMessage.discharge_current_limit, int )
+
+    def handle_PylonActionMessage( self, msg, pm ):
+        for name in [
+            "request_full_charge",
+            "request_force_charge_2",
+            "request_force_charge_1",
+            "discharge_enable",
+            "charge_enable",
+            ]:
+            mqtt.publish_value( "pv/battery/"+name, getattr( pm, name ), int )
+        return msg
+
+    def handle_PylonErrorsMessage( self, msg, pm ):
+        mqtt.publish_value( "pv/battery/protection", pm.protection )
+        mqtt.publish_value( "pv/battery/alarm"     , pm.alarm )
+        return msg
 
     async def handle( self, msg ):
         # print( msg )
@@ -293,22 +348,10 @@ class PylonCAN( AsyncCAN ):
         pm = PylonMessage.load(msg)
         setattr( self, pm.__class__.__name__, pm )
 
-        # process it
-        msg2 = None
-        if isinstance( pm, PylonLimitsMessage ):
-            pm.print()
-            pm.charge_current_limit *= 0.5
-            pm.discharge_current_limit *= 0.5
-            # pm.discharge_current_limit = 20
-            pm.print()
-            msg2 = can.Message( arbitration_id=msg.arbitration_id, data=pm.encode(), is_extended_id=msg.is_extended_id )
-        elif isinstance( pm, PylonMeasurementsMessage ):
-            pm.print()
-            mqtt.publish_value( "pv/bms_battery_power", pm.current*pm.voltage )
-        #     pm.current     *= 2
-        #     pm.print()
-            # msg2 = can.Message( arbitration_id=msg.arbitration_id, data=pm.encode(), is_extended_id=msg.is_extended_id )
-
+        # process it (code below is in order of message publication)
+        f = self.dispatch.get( pm.__class__ )
+        if f:
+            msg2 = f( msg, pm )
         else:
             msg2 = can.Message( arbitration_id=msg.arbitration_id, data=msg.data, is_extended_id=msg.is_extended_id )
         
@@ -348,10 +391,10 @@ mqtt = MQTT()
 
 async def astart():
     await mqtt.mqtt.connect( config.MQTT_BROKER_LOCAL )
-    can_bat    = PylonCAN( 'can_bat' )
-    can_solis1 = SolisCAN( 'can_1' )
+    can_bat    = PylonCAN( config.CAN_PORT_BATTERY )
+    can_solis1 = SolisCAN( config.CAN_PORT_SOLIS1 )
     can_solis1.can_bat = can_bat
-    can_solis2 = SolisCAN( 'can_2' )
+    can_solis2 = SolisCAN( config.CAN_PORT_SOLIS2 )
     can_solis1.can_bat = can_bat
     can_solis2.can_bat = can_bat
     can_bat.can_inverters = (can_solis1, can_solis2)
@@ -380,9 +423,9 @@ def start():
 try:
     print("Main thread", threading.get_ident())
     start()
-
 finally:
-    pass
+    with open("mqtt_stats/test_can.txt","w") as f:
+        mqtt.write_stats( f )
 
 
 

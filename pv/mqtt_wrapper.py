@@ -69,7 +69,7 @@ class MQTTWrapper:
         maxlen = 1+max( len(topic) for topic in self._published_data.keys() )
         duration = time.monotonic() - self._startup_time
         for topic, p in sorted( self._published_data.items(), key=lambda kv: kv[1].total_count, reverse=True ):
-            file.write( f"{topic!r:<{maxlen}}: ({p.period:4d}, {p.margin:>10.03f}, {p.mode!r:8s}) # {p.published_count/duration:6.03f}/{p.total_count/duration:6.03f},\n" )
+            file.write( f"{topic!r:<{maxlen}}: ({p.period:4d}, {p.margin:>10.03f}, {p.mode!r:8s}), # {p.published_count/duration:6.03f}/{p.total_count/duration:6.03f},\n" )
 
     def publish_reg( self, topic, reg ):
         self.publish_value( topic+reg.key, reg.value, reg._format_value )
