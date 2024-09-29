@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 
 import struct, datetime, math
-from pymodbus.pdu import ExceptionResponse
 
 class RegBase( ):
     """

@@ -1,14 +1,9 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-import time, asyncio, datetime, logging, collections, traceback, pymodbus
+import time, asyncio, logging, collections
 from pymodbus.exceptions import ModbusException
 from asyncio.exceptions import TimeoutError
-
-from pymodbus.client import AsyncModbusSerialClient, AsyncModbusTcpClient
-from pymodbus.datastore import ModbusServerContext, ModbusSlaveContext, ModbusSequentialDataBlock
-from pymodbus.server import StartAsyncSerialServer
-from pymodbus.transaction import ModbusRtuFramer
 
 # Device wrappers and misc local libraries
 import grugbus
@@ -171,9 +166,6 @@ class SDM120( grugbus.SlaveDevice ):
                 except Exception:
                     self.is_online = False
                     log.exception(self.key+":")
-                    # s = traceback.format_exc()
-                    # log.error(self.key+":"+s)
-                    # self.mqtt.mqtt.publish( "pv/exception", s )
                     await asyncio.sleep(1)
 
             # wake up other coroutines waiting for fresh values

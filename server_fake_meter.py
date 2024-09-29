@@ -42,7 +42,7 @@ logging.basicConfig( encoding='utf-8',
                      format='[%(asctime)s] %(levelname)s:%(message)s',
                      handlers=[
                             # logging.handlers.RotatingFileHandler(Path(__file__).stem+'.log', mode='a', maxBytes=5*1024*1024, backupCount=2, encoding=None, delay=False),
-                            # logging.FileHandler(filename=Path(__file__).stem+'.log'), 
+                            logging.FileHandler(filename=Path(__file__).stem+'.log'), 
                             logging.StreamHandler(stream=sys.stdout)
                     ])
 log = logging.getLogger(__name__)

@@ -1,12 +1,21 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-import os, pprint, time, sys, serial, socket, traceback, struct, datetime, logging, logging.handlers, math, traceback, shutil, collections, importlib
+import sys, time
+start_time = time.monotonic()
+class FirstFinder:
+    def find_spec(self, modulename, path=None, target=None):
+        print( time.monotonic()-start_time, modulename )
+sys.meta_path.insert(0, FirstFinder())
+
+
+import os, time, sys, serial, socket, logging, logging.handlers, shutil, importlib
 from path import Path
 
 # This program is supposed to run on a potato (Allwinner H3 SoC) and uses async/await,
 # so import the fast async library uvloop
-import uvloop, asyncio, signal, aiohttp, aiohttp.web
+import uvloop, asyncio
+#aiohttp, aiohttp.web
 
 # Modbus
 import pymodbus
@@ -21,6 +30,8 @@ from pv.mqtt_wrapper import MQTTWrapper, MQTTSetting
 import grugbus
 from grugbus.devices import Eastron_SDM120, Eastron_SDM630, Acrel_1_Phase, Acrel_ACR10RD16TE4
 import pv.solis_s5_eh1p, pv.meters, pv.evse_abb_terra
+
+stop
 
 #
 #       TODO: test is_online
@@ -195,9 +206,6 @@ class Router( ):
 
                 except Exception:
                     log.exception("Router:")
-                    # s = traceback.format_exc()
-                    # log.error(self.key+":"+s)
-                    # self.mqtt.mqtt.publish( "pv/exception", s )
                     await asyncio.sleep(1)
         finally:
             await self.stop()
@@ -676,10 +684,6 @@ class SolisManager():
 
             except Exception:
                 log.exception("PowerManager coroutine:")
-                # s = traceback.format_exc()
-                # log.error(self.key+":"+s)
-                # self.mqtt.mqtt.publish( "pv/exception", s )
-                # await asyncio.sleep(1)
 
     ########################################################################################
     #
@@ -890,12 +894,12 @@ class SolisManager():
         self.inverters = (self.solis1, self.solis2)
 
         #   Web server
-        app = aiohttp.web.Application()
-        app.add_routes([aiohttp.web.get('/', self.webresponse), aiohttp.web.get('/solar_api/v1/GetInverterRealtimeData.cgi', self.webresponse)])
-        runner = aiohttp.web.AppRunner(app, access_log=False)
-        await runner.setup()
-        site = aiohttp.web.TCPSite(runner,host=config.SOLARPI_IP,port=8080)
-        await site.start()
+        # app = aiohttp.web.Application()
+        # app.add_routes([aiohttp.web.get('/', self.webresponse), aiohttp.web.get('/solar_api/v1/GetInverterRealtimeData.cgi', self.webresponse)])
+        # runner = aiohttp.web.AppRunner(app, access_log=False)
+        # await runner.setup()
+        # site = aiohttp.web.TCPSite(runner,host=config.SOLARPI_IP,port=8080)
+        # await site.start()
 
 
         try:
@@ -927,15 +931,15 @@ class SolisManager():
     #   Web server
     ########################################################################################
 
-    async def webresponse( self, request ):
-        p = (self.solis1.pv_power.value or 0) 
-            # - (self.fronius.grid_port_power.value or 0)
-        p *= (self.solis1.bms_battery_soc.value or 0)*0.01
-        p += min(0, -self.meter.total_power.value)    # if export
+    # async def webresponse( self, request ):
+    #     p = (self.solis1.pv_power.value or 0) 
+    #         # - (self.fronius.grid_port_power.value or 0)
+    #     p *= (self.solis1.bms_battery_soc.value or 0)*0.01
+    #     p += min(0, -self.meter.total_power.value)    # if export
 
-        p = (self.solis1.battery_power.value or 0) - (self.meter.total_power.value or 0)
-        # print("HTTP Power:%d" % p)
-        return aiohttp.web.Response( text='{"Power" : %d}' % p )
+    #     p = (self.solis1.battery_power.value or 0) - (self.meter.total_power.value or 0)
+    #     # print("HTTP Power:%d" % p)
+    #     return aiohttp.web.Response( text='{"Power" : %d}' % p )
 
     ########################################################################################
     #   System info
@@ -963,7 +967,7 @@ class SolisManager():
 
                 await asyncio.sleep(10)
             except Exception:
-                log.error(traceback.format_exc())
+                log.exception( "Sysinfo" )
 
 
 if 1:

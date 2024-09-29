@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-import time, asyncio, datetime, logging, collections, traceback, pymodbus, sys
+import time, asyncio, logging, collections, sys
 from pymodbus.exceptions import ModbusException
 from asyncio.exceptions import TimeoutError
 
@@ -152,9 +152,6 @@ class EVSE( grugbus.SlaveDevice ):
 
             except Exception:
                 log.exception(self.key+":")
-                # s = traceback.format_exc()
-                # log.error(self.key+":"+s)
-                # self.mqtt.mqtt.publish( "pv/exception", s )
                 await asyncio.sleep(1)
 
             self.event_all.set()

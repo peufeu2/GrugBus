@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 
 import logging, functools, asyncio, time
-import pymodbus
 from pymodbus.pdu import ExceptionResponse
 from pymodbus.exceptions import ModbusException
 from asyncio.exceptions import TimeoutError

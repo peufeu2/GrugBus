@@ -12,16 +12,10 @@ cd /home/peufeu/solaire
 sleep 5
 
 # run solar management
-screen -d -m -t pv python3.11 modbus_mitm.py
-
-# log MQTT to compressed files
-screen -d -m -t buf python3.11 mqtt_buffer.py
-
-screen -d -m -t chauffage python3.11 chauffage_mqtt.py
-
-screen -d -m -t can python3.11 test_can.py
-
-screen -d -m -t fakemeter1 python3.11 fake_meter_server.py 1
-screen -d -m -t fakemeter2 python3.11 fake_meter_server.py 2
+screen -dmS pv        bach -c 'python3.11 modbus_mitm.py'
+screen -dmS buf       bach -c 'python3.11 mqtt_buffer.py'
+screen -dmS chauffage bach -c 'python3.11 chauffage_mqtt.py'
+screen -dmS can       bach -c 'python3.11 server_can.py'
+screen -dmS fakemeter bach -c 'python3.11 server_fake_meter.py'
 
 # screen -d -m -t ventilation python3.11 ventilation.py
