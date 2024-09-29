@@ -65,6 +65,8 @@ COM_PORT_SOLIS2      = "/dev/serial/by-id/usb-FTDI_USB_RS485_2-if01-port0"   # S
 COM_PORT_FAKE_METER2 = "/dev/serial/by-id/usb-FTDI_USB_RS485_2-if00-port0"   # Solis1 fakemeter
 COM_PORT_LOCALMETER2 = "/dev/serial/by-id/usb-FTDI_USB_RS485_4-if01-port0"   # Main meter
 
+SOCKET_FAKE_METER    = "/tmp/fake_meter_socket"   # fake meter server socket
+
 COM_PORT_EVSE        = "/dev/serial/by-id/usb-FTDI_USB_RS485_3-if00-port0"   # Main meter
 COM_PORT_METER       = "/dev/serial/by-id/usb-FTDI_USB_RS485_3-if01-port0"   # Main meter
 
@@ -271,6 +273,7 @@ MQTT_RATE_LIMIT = {
     'pv/battery/discharge_enable'                 : (  60,      0.000, ''      ),
     'pv/battery/charge_enable'                    : (  60,      0.000, ''      ),
 
+    'pv/solis1/fakemeter/lag'                     : (  60,      1.000, 'avg'      ),
 }
 
 for k,v in tuple(MQTT_RATE_LIMIT.items()):

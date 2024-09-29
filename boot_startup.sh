@@ -21,4 +21,7 @@ screen -d -m -t chauffage python3.11 chauffage_mqtt.py
 
 screen -d -m -t can python3.11 test_can.py
 
+screen -d -m -t fakemeter1 python3.11 fake_meter_server.py 1
+screen -d -m -t fakemeter2 python3.11 fake_meter_server.py 2
+
 # screen -d -m -t ventilation python3.11 ventilation.py

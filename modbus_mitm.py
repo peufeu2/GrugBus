@@ -6,7 +6,7 @@ from path import Path
 
 # This program is supposed to run on a potato (Allwinner H3 SoC) and uses async/await,
 # so import the fast async library uvloop
-import uvloop, asyncio, signal, aiohttp
+import uvloop, asyncio, signal, aiohttp, aiohttp.web
 
 # Modbus
 import pymodbus
@@ -634,19 +634,20 @@ class SolisManager():
                         # else:
                         fake_power = meter_power_tweaked * 0.5 + 0.05*(solis.input_power.value - total_input_power*0.5)
 
-                    fm = solis.fake_meter
-                    fm.active_power           .value = fake_power
-                    fm.voltage                .value = m.phase_1_line_to_neutral_volts .value
-                    fm.current                .value = m.phase_1_current               .value
-                    fm.apparent_power         .value = m.total_volt_amps               .value
-                    fm.reactive_power         .value = m.total_var                     .value
-                    fm.power_factor           .value =(m.total_power_factor            .value % 1.0)
-                    fm.frequency              .value = m.frequency                     .value
-                    fm.import_active_energy   .value = m.total_import_kwh              .value
-                    fm.export_active_energy   .value = m.total_export_kwh              .value
-                    fm.data_timestamp   = m.last_transaction_timestamp
-                    fm.is_online        = m.is_online
-                    fm.write_regs_to_context()
+                    await solis.send_fake_meter_data( {
+                        "active_power"         : fake_power                                     ,
+                        "voltage"              : m.phase_1_line_to_neutral_volts .value         ,
+                        "current"              : m.phase_1_current               .value         ,
+                        "apparent_power"       : m.total_volt_amps               .value         ,
+                        "reactive_power"       : m.total_var                     .value         ,
+                        "power_factor"         : (m.total_power_factor            .value % 1.0) ,
+                        "frequency"            : m.frequency                     .value         ,
+                        "import_active_energy" : m.total_import_kwh              .value         ,
+                        "export_active_energy" : m.total_export_kwh              .value         ,
+                        "data_timestamp"       : m.last_transaction_timestamp                   ,
+                        "is_online"            : m.is_online                                    ,
+                    } )
+
                 await asyncio.sleep(0)      # yield to fakemeter server in case it is waiting for the values we just wrote
 
                 # atomic update
@@ -671,7 +672,6 @@ class SolisManager():
                 mqtt.publish_value( "pv/battery_max_charge_power",  self.battery_max_charge_power , int )
                 for solis in self.inverters:
                     mqtt.publish_reg( solis.mqtt_topic, solis.input_power )
-                    mqtt.publish_reg( solis.mqtt_topic + "fakemeter/",     solis.fake_meter.active_power )
 
 
             except Exception:
@@ -679,7 +679,7 @@ class SolisManager():
                 # s = traceback.format_exc()
                 # log.error(self.key+":"+s)
                 # self.mqtt.mqtt.publish( "pv/exception", s )
-                await asyncio.sleep(1)
+                # await asyncio.sleep(1)
 
     ########################################################################################
     #
@@ -858,11 +858,10 @@ class SolisManager():
                 ), 
                 modbus_addr=3, key="ms1", name="SDM120 Smartmeter on Solis 1", mqtt=mqtt, mqtt_topic="pv/solis1/meter/" 
             ),
-            fake_meter = pv.meters.FakeSmartmeter( 
-                port=config.COM_PORT_FAKE_METER1, baudrate=9600, key="fake_meter_1", name="Fake meter for Solis 1", modbus_address=1, meter_type=Acrel_1_Phase,
-                mqtt=mqtt, mqtt_topic = "pv/solis1/fakemeter/"
-            ),
-            mqtt = mqtt, mqtt_topic = "pv/solis1/"
+            fake_meter_type = Acrel_1_Phase,
+            fake_meter_placement = "grid", 
+            mqtt = mqtt,
+            mqtt_topic = "pv/solis1/"
         )
  
         #
@@ -883,11 +882,10 @@ class SolisManager():
                 ), 
                 modbus_addr=1, key="ms2", name="SDM120 Smartmeter on Solis 2", mqtt=mqtt, mqtt_topic="pv/solis2/meter/" 
             ),
-            fake_meter = pv.meters.FakeSmartmeter( 
-                port=config.COM_PORT_FAKE_METER2, key="fake_meter_2", name="Fake meter for Solis 2", modbus_address=1, meter_type=Acrel_1_Phase ,
-                mqtt=mqtt, mqtt_topic = "pv/solis2/fakemeter/"
-            ),
-            mqtt = mqtt, mqtt_topic = "pv/solis2/"
+            fake_meter_type = Acrel_1_Phase,
+            fake_meter_placement = "grid", 
+            mqtt = mqtt, 
+            mqtt_topic = "pv/solis2/"
         )
         self.inverters = (self.solis1, self.solis2)
 
@@ -902,8 +900,6 @@ class SolisManager():
 
         try:
             async with asyncio.TaskGroup() as tg:
-                tg.create_task( log_coroutine( "server: solis1 fakemeter",  self.solis1.fake_meter.start_server() ))
-                tg.create_task( log_coroutine( "server: solis2 fakemeter",  self.solis2.fake_meter.start_server() ))
                 tg.create_task( log_coroutine( "read: main meter",          self.meter.read_coroutine() ))
                 tg.create_task( log_coroutine( "read: solis1",              self.solis1.read_coroutine() ))
                 tg.create_task( log_coroutine( "read: solis1 local meter",  self.solis1.local_meter.read_coroutine() ))

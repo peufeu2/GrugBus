@@ -22,11 +22,13 @@ log = logging.getLogger(__name__)
 #
 ########################################################################################
 class Solis( grugbus.SlaveDevice ):
-    def __init__( self, modbus, modbus_addr, key, name, local_meter, fake_meter, mqtt, mqtt_topic ):
+    def __init__( self, modbus, modbus_addr, key, name, local_meter, fake_meter_type, fake_meter_placement, mqtt, mqtt_topic ):
         super().__init__( modbus, modbus_addr, key, name, Solis_S5_EH1P_6K_2020_Extras.MakeRegisters() )
 
         self.local_meter = local_meter        # on AC grid port
-        self.fake_meter  = fake_meter    # meter emulation on meter port
+        self.fake_meter_type  = fake_meter_type    # meter emulation on meter port
+        self.fake_meter_socket = None
+        self.fake_meter_placement = fake_meter_placement
         self.mqtt        = mqtt
         self.mqtt_topic  = mqtt_topic
         self.mqtt_written_regs = {}
@@ -158,13 +160,26 @@ class Solis( grugbus.SlaveDevice ):
         # Build modbus requests: read frequent_regs on every request, plus one chunk out of all_regs
         self.reg_sets = list( self.reg_list_interleave( frequent_regs, all_regs ) )
 
+    async def send_fake_meter_data( self, data ):
+        if not self.fake_meter_socket:
+            reader, writer = await asyncio.open_unix_connection( config.SOCKET_FAKE_METER )
+            self.fake_meter_socket = writer
+
+        try:
+            self.fake_meter_socket.write( orjson.dumps( {self.key:data}, option=orjson.OPT_APPEND_NEWLINE ))
+            # await writer.drain()
+
+        except:
+            self.fake_meter_socket = None
+            raise
+
 
     async def read_coroutine( self ):
         # set meter type remotely to make it easy to emulate different fakemeters
-        if   self.fake_meter.meter_type == Acrel_1_Phase:      mt = 1
-        elif self.fake_meter.meter_type == Acrel_ACR10RD16TE4: mt = 2
-        elif self.fake_meter.meter_type == Eastron_SDM120:     mt = 4
-        mt |= {"grid":0x100, "load":0x200}[self.fake_meter.meter_placement]
+        if   self.fake_meter_type == Acrel_1_Phase:      mt = 1
+        elif self.fake_meter_type == Acrel_ACR10RD16TE4: mt = 2
+        elif self.fake_meter_type == Eastron_SDM120:     mt = 4
+        mt |= {"grid":0x100, "load":0x200}[self.fake_meter_placement]
 
         try:
             await self.adjust_time()
