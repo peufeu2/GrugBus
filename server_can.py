@@ -4,7 +4,7 @@ import asyncio, struct, uvloop, time, logging, collections, copy, sys
 import can
 from path import Path
 from misc import *
-from pv.mqtt_wrapper import MQTTWrapper
+from pv.mqtt_wrapper import MQTTWrapper, MQTTSetting
 import config
 
 logging.basicConfig( encoding='utf-8', 
@@ -34,7 +34,9 @@ class PylonMessage:
 
     @classmethod
     def load( cls, msg ):
-        return cls._subclasses[msg.arbitration_id]( msg.data )
+        pm = cls._subclasses[msg.arbitration_id]( msg.data )
+        pm.can_msg = msg
+        return pm
 
     def __init__( self, data=None ):
         self.decode( data or bytearray(self._data_length) )
@@ -286,8 +288,11 @@ class SolisCAN( AsyncCAN ):
         self.can_bat.inverter_queue.append( msg )
 
 class PylonCAN( AsyncCAN ):
-    def __init__( self, channel ):
+    def __init__( self, channel, mqtt ):
         super().__init__( channel )
+        self.mqtt = mqtt
+        self.mqtt_topic = "pv/bms/"
+
         self.inverter_queue = collections.deque( maxlen=4 )
         self.echo_tick = Metronome( 1 )
         self.dispatch = {}
@@ -295,40 +300,50 @@ class PylonCAN( AsyncCAN ):
             setattr( self, cls.__name__, None )
             self.dispatch[ cls ] = getattr(self, "handle_"+cls.__name__, None )
 
-    def handle_PylonLimitsMessage( self, msg, pm ):
+        MQTTSetting( self, "charge_current_limit"        , float, lambda x: (0.0<=x<=300), 300, self.setting_updated )
+        MQTTSetting( self, "discharge_current_limit"     , float, lambda x: (0.0<=x<=300), 300, self.setting_updated )
+
+    async def setting_updated( self, setting ):
+        print( setting.mqtt_topic, setting.prev_value, setting.value )
+        self.handle_PylonLimitsMessage( self.PylonLimitsMessage )
+
+    def handle_PylonLimitsMessage( self, pm ):
+        # apply limits
+        pm.max_charge_current    = min( pm.max_charge_current,    self.charge_current_limit   .value )
+        pm.max_discharge_current = min( pm.max_discharge_current, self.discharge_current_limit.value )
+
+        mqtt.publish_value( "pv/bms/max_charge_voltage",    round( pm.charge_voltage, 1 ))
+        mqtt.publish_value( "pv/bms/max_charge_current",    round( pm.max_charge_current, 1 ))
+        mqtt.publish_value( "pv/bms/max_discharge_current", round( pm.max_discharge_current, 1 ))
+
+        if self.PylonMeasurementsMessage:
+            mqtt.publish_value( "pv/bms/max_charge_power",    self.PylonMeasurementsMessage.voltage * pm.max_charge_current, int )
+            mqtt.publish_value( "pv/bms/max_discharge_power", self.PylonMeasurementsMessage.voltage * pm.max_discharge_current, int )
+
+        pm.max_charge_current *= 0.5
+        pm.max_discharge_current *= 0.5
         pm.print()
-        mqtt.publish_value( "pv/battery/max_charge_voltage",    round( pm.charge_voltage, 1 ))
-        mqtt.publish_value( "pv/battery/max_charge_current",    round( pm.max_charge_current, 1 ))
-        mqtt.publish_value( "pv/battery/max_discharge_current", round( pm.max_discharge_current, 1 ))
 
-        ret = PylonMessage.load( msg )
-        ret.max_charge_current *= 0.5
-        ret.max_discharge_current *= 0.5
-
-        msg2 = can.Message( arbitration_id=msg.arbitration_id, data=ret.encode(), is_extended_id=msg.is_extended_id )
+        msg2 = can.Message( arbitration_id=pm.can_msg.arbitration_id, data=pm.encode(), is_extended_id=pm.can_msg.is_extended_id )
         for inverter in self.can_inverters:
             inverter.trysend( msg2 )
 
-    def handle_PylonSOCMessage( self, msg, pm ):
+    def handle_PylonSOCMessage( self, pm ):
         pm.print()
-        mqtt.publish_value( "pv/battery/soc",    pm.soc )
-        mqtt.publish_value( "pv/battery/soh",    pm.soh )
+        mqtt.publish_value( "pv/bms/soc",    pm.soc )
+        mqtt.publish_value( "pv/bms/soh",    pm.soh )
 
         for inverter in self.can_inverters:
-            inverter.trysend( msg )
+            inverter.trysend( pm.can_msg )
 
-    def handle_PylonMeasurementsMessage( self, msg, pm ):
+    def handle_PylonMeasurementsMessage( self, pm ):
         pm.print()
-        mqtt.publish_value( "pv/battery/power",       pm.current*pm.voltage, int )
-        mqtt.publish_value( "pv/battery/voltage",     round( pm.voltage, 2 ))
-        mqtt.publish_value( "pv/battery/current",     round( pm.current, 1 ))
-        mqtt.publish_value( "pv/battery/temperature", round( pm.temperature, 1 ))
+        mqtt.publish_value( "pv/bms/power",       pm.current*pm.voltage, int )
+        mqtt.publish_value( "pv/bms/voltage",     round( pm.voltage, 2 ))
+        mqtt.publish_value( "pv/bms/current",     round( pm.current, 1 ))
+        mqtt.publish_value( "pv/bms/temperature", round( pm.temperature, 1 ))
 
-        if self.PylonLimitsMessage:
-            mqtt.publish_value( "pv/battery/max_charge_power",    pm.voltage * self.PylonLimitsMessage.max_charge_current, int )
-            mqtt.publish_value( "pv/battery/max_discharge_power", pm.voltage * self.PylonLimitsMessage.max_discharge_current, int )
-
-    def handle_PylonActionMessage( self, msg, pm ):
+    def handle_PylonActionMessage( self, pm ):
         for name in [
             "request_full_charge",
             "request_force_charge_2",
@@ -336,17 +351,17 @@ class PylonCAN( AsyncCAN ):
             "discharge_enable",
             "charge_enable",
             ]:
-            mqtt.publish_value( "pv/battery/"+name, getattr( pm, name ), int )
+            mqtt.publish_value( "pv/bms/"+name, getattr( pm, name ), int )
 
         for inverter in self.can_inverters:
-            inverter.trysend( msg )
+            inverter.trysend( pm.can_msg )
 
-    def handle_PylonErrorsMessage( self, msg, pm ):
-        mqtt.publish_value( "pv/battery/protection", pm.protection )
-        mqtt.publish_value( "pv/battery/alarm"     , pm.alarm )
+    def handle_PylonErrorsMessage( self, pm ):
+        mqtt.publish_value( "pv/bms/protection", pm.protection )
+        mqtt.publish_value( "pv/bms/alarm"     , pm.alarm )
 
         for inverter in self.can_inverters:
-            inverter.trysend( msg )
+            inverter.trysend( pm.can_msg )
 
     async def handle( self, msg ):
         # print( msg )
@@ -359,7 +374,8 @@ class PylonCAN( AsyncCAN ):
         # process it (code below is in order of message publication)
         f = self.dispatch.get( pm.__class__ )
         if f:
-            f( msg, pm )
+            print( pm.__class__ )
+            f( pm )
         else:
             for inverter in self.can_inverters:
                 inverter.trysend( msg )
@@ -371,11 +387,12 @@ class PylonCAN( AsyncCAN ):
                 m = self.inverter_queue.popleft()
                 key = (m.arbitration_id, bytes(m.data))
                 if key not in sent_msgs:
-                    print( "echo  ", m )
+                    # print( "echo  ", m )
                     sent_msgs.add( key )
                     self.bus.send( m )
                 else:
-                    print( "ignore", m )
+                    pass
+                    # print( "ignore", m )
     
     # redirect all incoming messages to other bus
         # self.notifier.add_listener( can.RedirectReader( bus ))
@@ -394,7 +411,7 @@ mqtt = MQTT()
 
 async def astart():
     await mqtt.mqtt.connect( config.MQTT_BROKER_LOCAL )
-    can_bat    = PylonCAN( config.CAN_PORT_BATTERY )
+    can_bat    = PylonCAN( config.CAN_PORT_BATTERY, mqtt )
     can_solis1 = SolisCAN( config.CAN_PORT_SOLIS1 )
     can_solis1.can_bat = can_bat
     can_solis2 = SolisCAN( config.CAN_PORT_SOLIS2 )

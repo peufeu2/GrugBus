@@ -439,7 +439,7 @@ HV hybrid：
 4,33188,,"U16",,"Reserved ",,"float",,,,,,
 4,33189,,"U16",,"Reserved ",,"float",,,,,,
 4,33190,,"U16",,"Reserved ",,"float",,,,,,
-4,33191,,"U16",,"Reserved ",,"float",,,,,,
+4,33191,,"U16",,"Reserved ",,"float",,"Looks like battery current direction",,,,
 4,33192,,"U16","0.1A","Reserved ",,"float",,,,,,
 4,33193,,"U16",,"Reserved ",,"float",,,,,,
 4,33194,,"U16",,"Reserved ",,"float",,,,,,

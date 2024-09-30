@@ -37,20 +37,21 @@ colors = {
     "mppt1"         : [None     , "#00FFC0", "#00C080"],
     "mppt2"         : [None     , "#C0FF00", "#80C000"],
     "battery"       : ["#FFC080", "#C0A060", "#807040"],
+    "bms"           : ["#FF80C0", "#C060A0", "#804070"],
     "fakemeter"     : ["#FFFFFF", "#C0C0C0", "#808080"],
     "grid_port"     : ["cyan"   , "#00C0C0", "#008080"],
     "input"         : ["#FFFF00", "#C0C000", "#808000"],
     "soc"           : ["#00FF00", "#00C000", "#008000"],
-    "temperature"   : ["#FF0000", "#FF00A0", "#FFA000"],
+    "temperature"   : ["cyan"   , "#00C0C0", "#008080"],
 }
 
 
 # For window title
-TITLE_DATA = { k:None for k in (
-    "pv/solis1/bms_battery_soc",
-    "pv/meter/total_export_kwh",
-    "pv/meter/total_import_kwh",
-    )}
+# TITLE_DATA = { k:None for k in (
+#     "pv/solis1/bms_battery_soc",
+#     "pv/meter/total_export_kwh",
+#     "pv/meter/total_import_kwh",
+#     )}
 
 #   ( topic, unit, label, color, dash, scale, attrs ) < must be tuples
 #
@@ -66,23 +67,27 @@ DATA_STREAMS = [
 
     ( "pv/total_battery_power"                           , "W"   , "Battery"                     , "battery"       , "solid",    1.0 , {}                 , {} ),
     ( "pv/solis%d/battery_power"                         , "W"   , "S%d Battery"                 , "battery"       , "solid",    1.0 , {"visible":False}  , {} ),
-    ( "pv/battery/power"                                 , "W"   , "Battery BMS"                 , "battery"       , "solid",    1.0 , {"visible":False}  , {} ),
-    ( "pv/battery/current"                               , "A"   , "Battery BMS"                 , "battery"       , "solid",    1.0 , {"visible":False}  , {} ),
+    ( "pv/bms/power"                                     , "W"   , "BMS"                         , "bms"       , "solid",    1.0 , {"visible":False}  , {} ),
+    ( "pv/bms/current"                                   , "A"   , "BMS"                         , "bms"       , "solid",    1.0 , {"visible":False}  , {} ),
+    ( "pv/bms/voltage"                                   , "V"   , "BMS"                         , "bms"       , "solid",    1.0 , {"visible":False}  , {} ),
     # ( "pv/solis%d/battery_dcdc_power"                    , "W"   , "S%d Battery DC/DC"           , "battery"       , "dotted",    1.0 , {"visible":False}  , {} ),
     ( "pv/solis%d/battery_current"                       , "A"   , "S%d Bat current"             , "battery"       , "solid",    1.0 , {"visible":False}  , {} ),
     ( "pv/solis%d/battery_max_charge_current"            , "A"   , "S%d Bat max charge"          , "battery"       , "dashed",   1.0 , {"visible":False}  , {} ),
     ( "pv/solis%d/battery_max_discharge_current"         , "A"   , "S%d Bat max discharge"       , "battery"       , "dotted",   1.0 , {"visible":False}  , {} ),
-    ( "pv/solis%d/bms_battery_current"                   , "A"   , "S%d BMS Battery current"     , "battery"       , "solid",    1.0 , {"visible":False}  , {} ),
-    ( "pv/solis%d/bms_battery_charge_current_limit"      , "A"   , "S%d BMS max charge"          , "battery"       , "dashed",   1.0 , {}                 , {} ),
-    ( "pv/solis%d/bms_battery_discharge_current_limit"   , "A"   , "S%d BMS max discharge"       , "battery"       , "dotted",   1.0 , {}                 , {} ),
-    ( "pv/solis%d/bms_battery_soc"                       , "%"   , "S%d Battery SOC"             , "soc"           , "solid",    1.0 , {"visible":False}  , {} ),
+    ( "pv/solis%d/bms_battery_current"                   , "A"   , "S%d BMS Battery current"     , "bms"       , "solid",    1.0 , {"visible":False}  , {} ),
+    ( "pv/solis%d/bms_battery_charge_current_limit"      , "A"   , "S%d BMS max charge"          , "bms"       , "dashed",   1.0 , {}                 , {} ),
+    ( "pv/solis%d/bms_battery_discharge_current_limit"   , "A"   , "S%d BMS max discharge"       , "bms"       , "dotted",   1.0 , {}                 , {} ),
     ( "pv/solis%d/battery_voltage"                       , "V"   , "S%d Bat voltage"             , "battery"       , "solid",    1.0 , {"visible":False}  , {} ),
-    ( "pv/battery_soc"                                   , "%"   , "Battery SOC"                 , "soc"           , "solid",    1.0 , {}                 , {} ),
+    ( "pv/solis%d/bms_battery_soc"                       , "%"   , "S%d Battery SOC"             , "soc"           , "solid",    1.0 , {"visible":False}  , {} ),
+    ( "pv/bms/soc"                                       , "%"   , "BMS SOC"                 , "soc"           , "solid",    1.0 , {}                 , {} ),
     ( "pv/battery_max_charge_power"                      , "W"   , "Battery Max Charge"          , "battery"       , "dashed",   1.0 , {}                 , {} ),
+    ( "pv/bms/max_charge_power"                          , "W"   , "BMS Max Charge"          , "bms"       , "dashed",   1.0 , {}                 , {} ),
+    ( "pv/bms/max_charge_current"                        , "A"   , "BMS Max Charge"          , "#008000"       , "dashed",   1.0 , {}                 , {} ),
+    ( "pv/bms/charge_enable"                             , "?"   , "BMS Charge Enable"       , "#00FF00"       , "solid",   1.0 , {}                 , {} ),
     ( "pv/router/battery_min_charge_power"               , "W"   , "Battery Min Charge"          , "battery"       , "dashed",   1.0 , {}                 , {} ),
 
 
-    ( "pv/evse/energy"                            , "kWh" , "EVSE"                        , "#FF80FF"       , "solid",    1.0 , {"visible":False}  , {} ),
+    ( "pv/evse/energy"                                   , "kWh" , "EVSE"                        , "#FF80FF"       , "solid",    1.0 , {"visible":False}  , {} ),
     ( "pv/evse/meter/active_power"                       , "W"   , "EVSE"                        , "#FF80FF"       , "solid",    1.0 , {}                 , {} ),
     ( "pv/evse/rwr_current_limit"                        , "W"   , "EVSE ILim"                   , "#FFFFFF"       , "solid",  235.0 , {"visible":False}  , {} ),
 
@@ -111,6 +116,7 @@ DATA_STREAMS = [
     ( "pv/solis%d/meter/active_power"                    , "W"   , "S%d Grid port"               , "grid_port"     , "solid",    1.0 , {}                 , {} ),
   # ( "pv/solis%d/dc_bus_voltage"                        , "V"   , "S%d DC Bus"                  , (cat20,8)       , "solid",    1.0 , {}                 , {} ),
     ( "pv/solis%d/temperature"                           , "°C"  , "S%d Temperature"             , "temperature"   , "solid",    1.0 , {}                 , {} ),
+    ( "pv/bms/temperature"                               , "°C"  , "Battery Temperature"         , "battery"       , "solid",    1.0 , {}                 , {} ),
     ( "pv/solis%d/energy_generated_today"                , "kWh" , "S%d Energy generated"        , "pv"            , "solid",    1.0 , {}                 , {"mode":"delta"} ),
     ( "pv/evse/meter/import_active_energy"               , "kWh" , "EVSE meter"                  , "#FFC0FF"       , "solid",    1.0 , {}                 , {"mode":"delta"} ),
     ( "pv/solis%d/meter/import_active_energy"            , "kWh" , "S%d Import"                  , "input"         , "solid",    1.0 , {}                 , {"mode":"delta"} ),
@@ -139,14 +145,14 @@ DATA_STREAMS = [
     # ( "pv/solis1/b_limit_operation"                      , "V"  , "b_limit_operation"                  , "#FF00FF"       , "solid",    1.0 , {}                 , {} ),
     # ( "pv/solis1/battery_dcdc_current"                   , "V"  , "battery_dcdc_current"   , "#FF80FF"       , "solid",    1.0 , {}                 , {} ),
 
-( "pv/solis%d/reserved_33192"               , "?", "S%dR33192"              , nextcolor, "solid", 1.0, {}, {} ),
-( "pv/solis%d/reserved_33191"               , "?", "S%d 33191"              , nextcolor, "solid", 1.0, {}, {} ),
+# ( "pv/solis%d/reserved_33192"               , "?", "S%dR33192"              , nextcolor, "solid", 1.0, {}, {} ),
+# ( "pv/solis%d/reserved_33191"               , "?", "S%d 33191"              , nextcolor, "solid", 1.0, {}, {} ),
 ( "pv/solis%d/battery_current_direction"    , "?", "S%d current_direction"  , nextcolor, "solid", 1.0, {}, {} ),
 
 
-( "pv/battery/max_charge_voltage"  , "V", "Bat max_charge_voltage", nextcolor, "solid", 1.0, {}, {} ),
-( "pv/battery/protection"          , "?", "Bat protection",         nextcolor, "solid", 1.0, {}, {} ),
-( "pv/battery/alarm"               , "?", "Bat alarm",              nextcolor, "solid", 1.0, {}, {} ),
+( "pv/bms/max_charge_voltage"  , "V", "Bat max_charge_voltage", nextcolor, "solid", 1.0, {}, {} ),
+( "pv/bms/protection"          , "?", "Bat protection",         nextcolor, "solid", 1.0, {}, {} ),
+( "pv/bms/alarm"               , "?", "Bat alarm",              nextcolor, "solid", 1.0, {}, {} ),
 
 
 
@@ -192,7 +198,7 @@ PLOT_LAYOUTS = [
                 "pv/meter/house_power"                           ,
                 "pv/meter/total_power"                           ,
                 "pv/total_battery_power"                         ,
-                "pv/battery/power" ,
+                "pv/bms/power" ,
                 "pv/total_input_power"                           ,
                 "pv/total_grid_port_power"                       ,
                 "pv/evse/meter/active_power"                     ,
@@ -200,8 +206,7 @@ PLOT_LAYOUTS = [
                 # "pv/solis1/battery_power",
 
             ],[
-                "pv/battery_soc"                                 ,
-                "pv/solis%d/bms_battery_soc"                          ,
+                "pv/bms/soc"                                 ,
             ]
         ]
     ],[ 
@@ -214,6 +219,7 @@ PLOT_LAYOUTS = [
                 "pv/total_input_power"                           ,
                 "pv/total_battery_power"                           ,
                 "pv/battery_max_charge_power"                           ,
+                "pv/bms/max_charge_power"                        ,
                 "pv/router/battery_min_charge_power"             ,
                 "pv/evse/meter/active_power"                     ,
                 "pv/evse/rwr_current_limit"                      ,
@@ -282,6 +288,7 @@ PLOT_LAYOUTS = [
                 "pv/cpu_temp_c"          ,
                 "pv/cpu_load_percent"    ,
                 "pv/disk_space_gb"       ,
+                "pv/bms/temperature"     ,
             ]
         ]
     ],["S1 history", 
@@ -329,14 +336,17 @@ PLOT_LAYOUTS = [
         [
             [
                 "pv/solis%d/battery_current",
-                "pv/battery/current",
-                "pv/solis%d/reserved_33191",
+                "pv/bms/current",
+                # "pv/solis%d/reserved_33191",
             ],[
                 "pv/solis%d/battery_voltage",
-                "pv/battery/max_charge_voltage",
+                "pv/bms/max_charge_voltage",
+                "pv/bms/voltage",
 
-                "pv/battery/protection",
-                "pv/battery/alarm",
+                "pv/bms/protection",
+                "pv/bms/alarm",
+                "pv/bms/charge_enable",
+                "pv/bms/max_charge_current",
             ],
         ]
     ],

@@ -92,6 +92,11 @@ class Buffer( MQTTWrapper ):
 
 
     async def on_message( self, client, topic, payload, qos, properties ):
+        # Do not store high traffic control messages, for example
+        # fakemeter updates
+        if topic.startswith("nolog/"):
+            return
+
         # Encode MQTT message into json
         jl = orjson.dumps( [ round(time.time(),2), topic, payload.decode() ], option=orjson.OPT_APPEND_NEWLINE )
         self.msgcount += 1

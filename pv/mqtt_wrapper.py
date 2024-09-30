@@ -51,7 +51,7 @@ class MQTTWrapper:
     _callbacks_generated = set()
 
     def __init__( self, identifier ):
-        self.mqtt = gmqtt.Client( identifier )
+        self.mqtt = gmqtt.Client( identifier, clean_session=False )
         self.mqtt.on_connect    = self.on_connect
         self.mqtt.on_message    = self.on_message
         self.mqtt.on_disconnect = self.on_disconnect
@@ -76,7 +76,7 @@ class MQTTWrapper:
 
     #   Publish numeric value, rate limit when changes are small, average
     #
-    def publish_value( self, topic, value, format=str ):
+    def publish_value( self, topic, value, format=str, qos=0 ):
         if not self.mqtt.is_connected:
             log.error( "Trying to publish %s on unconnected MQTT" % topic )
             return
@@ -97,7 +97,7 @@ class MQTTWrapper:
 
             # value is still within p.margin.
             # Publish only on periodic interval
-            if time.monotonic() < p.start_time + (60 if p.is_constant else p.period):
+            if time.monotonic() < p.start_time + p.period:
                 return
 
             # periodic interval elapsed, so publish it
@@ -205,60 +205,60 @@ class MQTTWrapper:
         return decorator
 
     #   Subscribes and registers callbacks defined with the previous function
-    def register_callbacks( self, obj, mqtt_topic="" ):
+    def register_callbacks( self, obj, mqtt_topic="cmnd/" ):
         for attr in dir( obj ):
             method = getattr( obj, attr )
             if callable(method) and hasattr(method,"mqtt_topic"):
                 if func := getattr( method, "__func__", None):
                     if func in self._callbacks_generated:
-                        self.subscribe_callback( "cmnd/" + obj.mqtt_topic + method.mqtt_topic, method )
+                        self.subscribe_callback( mqtt_topic + obj.mqtt_topic + method.mqtt_topic, method )
 
-
-
-class MQTTSetting:
-    def __init__( self, container, name, datatype, validation, value, callback = None ):
+"""
+    A value that can be updated by MQTT.
+"""
+class MQTTVariable:
+    def __init__( self, mqtt_topic, container, name, datatype, validation, value, callback = None, mqtt_prefix="" ):
         assert not hasattr( container, name )
         setattr( container, name, self )
-        self.container = container
-        self.mqtt_topic      = container.mqtt_topic + name
-        self.datatype   = datatype
-        self.validation = validation
-        self.value = value
-        self.updated_callback = callback or (lambda x:None)
+        self.container      = container
+        self.mqtt_topic     = mqtt_topic
+        self.datatype       = datatype
+        self.validation     = validation
+        self.value          = self.prev_value = value
+        self.data_timestamp = time.monotonic()
+        if callback:
+            self.updated_callback = callback
         self.set_value( value )
-        container.mqtt.subscribe_callback( "cmnd/"+self.mqtt_topic, self.async_callback )
-        container.mqtt.subscribe_callback( "cmnd/"+self.container.mqtt_topic+"settings", self.async_publish_callback )  # ask to publish all settings
-
-    async def async_publish_callback( self, topic, payload, qos=None, properties=None ):
-        self.publish()
+        container.mqtt.subscribe_callback( mqtt_prefix+self.mqtt_topic, self.async_callback )
 
     async def async_callback( self, topic, payload, qos=None, properties=None ):
         self.callback( payload, qos, properties )
         await self.updated_callback( self )
+
+    async def updated_callback( self, dummy_arg ):
+        pass
 
     def callback( self, payload, qos=None, properties=None ):
         try:
             try:    # convert datatype
                 payload = self.datatype( payload )
             except Exception as e:
-                raise ValueError( "MQTT setting: %s: topic %s expects %s, received %r" % (e, self.mqtt_topic, self.datatype, payload) )
+                raise ValueError( "MQTT callback: %s: topic %s expects %s, received %r" % (e, self.mqtt_topic, self.datatype, payload) )
             # validate value
             if hasattr( self.validation, "__contains__" ):
                 if payload not in self.validation:
-                    raise ValueError( "MQTT setting: Out of range: topic %s expects %s, received %r" % (self.mqtt_topic, self.validation, payload) )
+                    raise ValueError( "MQTT callback: Out of range: topic %s expects %s, received %r" % (self.mqtt_topic, self.validation, payload) )
             elif self.validation:
                 if not self.validation( payload ):
-                    raise ValueError( "MQTT setting: Invalid value: topic %s received %r" % (self.mqtt_topic, payload) )
+                    raise ValueError( "MQTT callback: Invalid value: topic %s received %r" % (self.mqtt_topic, payload) )
         except Exception as e:
-            log.exception( "MQTTSetting" )
+            log.exception( "MQTTVariable" )
             raise
 
-        if callable( self.value ):
-            self.value( payload )
-        else:
-            log.info( "MQTTSetting: %s = %s", self.mqtt_topic, payload )
-            self.value = payload
-            self.publish()
+        self.prev_value = self.value
+        self.value = payload
+        self.data_timestamp = time.monotonic()
+        self.publish()
 
     def set_value( self, value ):
         return self.callback( value )
@@ -267,6 +267,27 @@ class MQTTSetting:
         return self.callback( value )
 
     def publish( self ):
-        self.container.mqtt.publish_value( self.mqtt_topic, self.value )
+        return
 
+"""
+    A value (usually a configuration setting) that can be updated by MQTT.
+
+    This will subscribe to a topic, listen, and when it receives a message
+        - validate the value
+        - update the value
+        - publish it so everyone knows
+
+    In addition it creates a /setting callback in the parent to list all settings.
+"""
+class MQTTSetting( MQTTVariable ):
+    def __init__( self, container, name, datatype, validation, value, callback = None, mqtt_prefix="cmnd/" ):
+        super().__init__( container.mqtt_topic+name, container, name, datatype, validation, value, callback, mqtt_prefix )
+        container.mqtt.subscribe_callback( mqtt_prefix+self.container.mqtt_topic+"settings", self.async_publish_callback )  # ask to publish all settings
+
+    async def async_publish_callback( self, topic, payload, qos=None, properties=None ):
+        self.publish()
+
+    def publish( self ):
+        log.info( "MQTTSetting: %s = %s", self.mqtt_topic, self.value )
+        self.container.mqtt.publish_value( self.mqtt_topic, self.value )
 

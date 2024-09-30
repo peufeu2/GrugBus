@@ -93,10 +93,19 @@ from config_secret import *
 ##################################################################
 # Measurement offset correction
 ##################################################################
+
+def solis2_calibrate_ibat( ibat ):
+    if ibat<0:
+        ibat += 1.3
+        if ibat < -20:
+            ibat *= 0.97
+    return ibat
+
+
 CALIBRATION = {
     # Inverter internal current measurement offset
     # If measured value is exactly zero, keep it, otherwise add offset
-    # "pv/solis2/battery_current" : (lambda x: x and (x+1.5))    ,
+    "pv/solis2/battery_current" : solis2_calibrate_ibat,
 }
 
 ##################################################################
@@ -254,24 +263,24 @@ MQTT_RATE_LIMIT = {
     'pv/evse/meter/current'                       : (  60,      0.100, 'avg'   ), #           0/          0
 
     #   CANBUS BMS INFORMATION
-    'pv/battery/protection'                       : (  60,      0.000, ''      ),
-    'pv/battery/alarm'                            : (  60,      0.000, ''      ),
-    'pv/battery/max_charge_current'               : (  60,      0.000, ''      ),
-    'pv/battery/max_charge_voltage'               : (  60,      0.000, ''      ),
-    'pv/battery/max_discharge_current'            : (  60,      0.000, ''      ),
-    'pv/battery/soc'                              : (  60,      0.000, ''      ),
-    'pv/battery/soh'                              : (  60,      0.000, ''      ),
-    'pv/battery/power'                            : (  60,      0.000, ''      ),
-    'pv/battery/voltage'                          : (  60,      0.000, ''      ),
-    'pv/battery/current'                          : (  60,      0.000, ''      ),
-    'pv/battery/temperature'                      : (  60,      0.000, ''      ),
-    'pv/battery/max_charge_power'                 : (  60,      0.000, ''      ),
-    'pv/battery/max_discharge_power'              : (  60,      0.000, ''      ),
-    'pv/battery/request_full_charge'              : (  60,      0.000, ''      ),
-    'pv/battery/request_force_charge_2'           : (  60,      0.000, ''      ),
-    'pv/battery/request_force_charge_1'           : (  60,      0.000, ''      ),
-    'pv/battery/discharge_enable'                 : (  60,      0.000, ''      ),
-    'pv/battery/charge_enable'                    : (  60,      0.000, ''      ),
+    'pv/bms/protection'                       : (  60,      0.000, ''      ),
+    'pv/bms/alarm'                            : (  60,      0.000, ''      ),
+    'pv/bms/max_charge_current'               : (  60,      0.000, ''      ),
+    'pv/bms/max_charge_voltage'               : (  60,      0.000, ''      ),
+    'pv/bms/max_discharge_current'            : (  60,      0.000, ''      ),
+    'pv/bms/soc'                              : (   2,      0.000, ''      ),
+    'pv/bms/soh'                              : (  60,      0.000, ''      ),
+    'pv/bms/power'                            : (   2,      0.000, ''      ),
+    'pv/bms/voltage'                          : (   2,      0.000, ''      ),
+    'pv/bms/current'                          : (   2,      0.000, ''      ),
+    'pv/bms/temperature'                      : (  60,      0.000, ''      ),
+    'pv/bms/max_charge_power'                 : (  60,      0.000, ''      ),
+    'pv/bms/max_discharge_power'              : (  60,      0.000, ''      ),
+    'pv/bms/request_full_charge'              : (  60,      0.000, ''      ),
+    'pv/bms/request_force_charge_2'           : (  60,      0.000, ''      ),
+    'pv/bms/request_force_charge_1'           : (  60,      0.000, ''      ),
+    'pv/bms/discharge_enable'                 : (  60,      0.000, ''      ),
+    'pv/bms/charge_enable'                    : (  60,      0.000, ''      ),
 
     'pv/solis1/fakemeter/lag'                     : (  60,      1.000, 'avg'      ),
 }

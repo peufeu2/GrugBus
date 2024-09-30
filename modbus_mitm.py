@@ -1,14 +1,6 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-import sys, time
-start_time = time.monotonic()
-class FirstFinder:
-    def find_spec(self, modulename, path=None, target=None):
-        print( time.monotonic()-start_time, modulename )
-sys.meta_path.insert(0, FirstFinder())
-
-
 import os, time, sys, serial, socket, logging, logging.handlers, shutil, importlib
 from path import Path
 
@@ -26,12 +18,10 @@ from asyncio.exceptions import TimeoutError, CancelledError
 # Device wrappers and misc local libraries
 import config
 from misc import *
-from pv.mqtt_wrapper import MQTTWrapper, MQTTSetting
+from pv.mqtt_wrapper import MQTTWrapper, MQTTSetting, MQTTVariable
 import grugbus
 from grugbus.devices import Eastron_SDM120, Eastron_SDM630, Acrel_1_Phase, Acrel_ACR10RD16TE4
 import pv.solis_s5_eh1p, pv.meters, pv.evse_abb_terra
-
-stop
 
 #
 #       TODO: test is_online
@@ -155,6 +145,7 @@ class Router( ):
         # queues to smooth measured power
         self.smooth_export = MovingAverage( 1 )
         self.smooth_bp     = MovingAverage( 1 )
+        self.charge_detect_avg = MovingAverage( 20 )
 
         # Battery charging current is limited to the product of:
         #   1) Full charging current (as requested by BMS depending on SOC)
@@ -261,10 +252,17 @@ class Router( ):
         # this behaves correctly in all cases.
         # Get battery info
         bp_proxy  = mgr.total_input_power      # Battery charging power (fast proxy from smartmeter). Positive if charging, negative if discharging.
-        soc = mgr.battery_soc            # battery SOC, 0-100
+        soc = mgr.bms_soc.value            # battery SOC, 0-100
+
+        # Detect "battery_full" which really means "inverter doesn't want to charge it"
+        # in this case, we must not reserve power for charging, because the inverter won't use it!
+        charge_detect = self.charge_detect_avg.append( mgr.bms_current.value > 1 ) 
+        charge_detect = (charge_detect or 0) > 0.1
+        battery_full = (mgr.battery_max_charge_power==0) or (soc >= 98 and not charge_detect)
+
 
         # remove battery power measurement error when battery is fully charged
-        if mgr.battery_full:
+        if battery_full:
             bp_proxy = 0
         bp_avg     = self.smooth_bp    .append( bp_proxy )
 
@@ -281,10 +279,9 @@ class Router( ):
         # if we want to keep it charging! Because some drift always occurs, so we may divert a little bit
         # more power than we should, and the inverter will provide... to do so it will reduce battery charging power
         # until it's no longer charging...
-
         # Get maximum charging power the battery can take, as determined by inverter, according to BMS info
-        if mgr.battery_full:    bp_max  = 0
-        else:                   bp_max  = mgr.battery_max_charge_power
+        if battery_full:    bp_max  = 0
+        else:               bp_max = mgr.battery_max_charge_power
         
         # how much power do we allocate to charging the battery, according to SOC
         # if EV charging has begun, pretend we have more SOC than we have to avoid start/stop cycles
@@ -351,7 +348,7 @@ class Router( ):
     #     # What we're interested in is excess production: (meter export) + (solar battery charging power)
     #     # this behaves correctly in all cases.
     #     bp  = mgr.solis1.battery_power.value or 0       # Battery charging power. Positive if charging, negative if discharging.
-    #     soc = mgr.solis1.bms_battery_soc.value or 0     # battery SOC, 0-100
+    #     soc = mgr.solis1.bms_soc.value or 0     # battery SOC, 0-100
 
     #     # correct battery power measurement offset when battery is fully charged
     #     if not mgr.solis1.battery_dcdc_active.value and -250 < bp < 200:
@@ -542,10 +539,8 @@ class SolisManager():
         self.total_pv_power           = 0    # Total PV production reported by inverters. Fast, but inaccurate.
         self.total_input_power        = 0    # Power going into the inverter/battery (PV and grid port). Fast proxy for battery charging power. For routing.
         self.total_grid_port_power    = 0    # Sum of inverters local smartmeter power (negative=export)
-        self.battery_soc              = 0    # State of charge as reported by inverter
         self.total_battery_power      = 0    # Battery power for both inverters (positive for charging)
         self.battery_max_charge_power = 0    
-        self.battery_full             = 0
 
     ########################################################################################
     #
@@ -570,17 +565,14 @@ class SolisManager():
                 total_pv_power           = 0
                 total_input_power        = 0
                 total_grid_port_power    = 0
-                battery_soc              = 0
                 total_battery_power      = 0
                 battery_max_charge_power = 0
 
                 inverters_with_battery  = []
                 inverters_online        = []
                 meters_online           = 0
-                battery_full            = 0
 
                 # TODO: degraded modes
-
                 for solis in self.inverters:
                     #   For power sharing (in fakemeter below) we need to know if both inverters are ongrid and capable
                     # of producing power, or just one. If one is marked as online when there are two, powersharing will cause oscillations.
@@ -589,7 +581,7 @@ class SolisManager():
                     # for some errors like CAN FAIL, it will still produce while this register is set to something else
                     # like "turning off"... same for operating_status...
                     if solis.is_online:
-                        if not (solis.is_offgrid or solis.rwr_power_on_off.value == solis.rwr_power_on_off.value_off):
+                        if not (solis.is_offgrid() or solis.rwr_power_on_off.value == solis.rwr_power_on_off.value_off):
                             inverters_online.append( solis )
                     elif solis.fake_meter.last_inverter_query_time > time.monotonic()-5:
                         # if COM port is disconnected, use the smartmeter connection to check if the inverter is on
@@ -605,12 +597,7 @@ class SolisManager():
                     pv_power = 0
                     solis.input_power.value = 0
                     if solis.is_online:                        
-                        if solis.bms_battery_soc.value:
-                            inverters_with_battery.append( solis )
-                            battery_soc = soc = solis.bms_battery_soc.value or 0  # Get SOC from inverter connected to battery, whichever that is
-                            # When SOC is 99-100%, Solis will not charge even if the battery requests current, so don't reserve any power
-                            if soc <= 99:
-                                battery_max_charge_power += (solis.battery_max_charge_current.value or 0) * (solis.battery_voltage.value or 0)
+                        battery_max_charge_power += (solis.battery_max_charge_current.value or 0) * (solis.battery_voltage.value or 0)
                         
                         # Battery charging power. Positive if charging, negative if discharging. Use fast register.
                         total_battery_power += solis.battery_power.value or 0                    
@@ -620,14 +607,10 @@ class SolisManager():
                         if lm.is_online:
                             solis.input_power.value = pv_power + lm_power
 
-                    battery_full += bool(solis.battery_full.value)
-                
                 #   Fake Meter
                 # shift slightly to avoid import when we can afford it
-                # print("battery_full", battery_full)
-                battery_full = (battery_full == len( inverters_with_battery ))
                 if total_battery_power > 200:
-                    meter_power_tweaked += battery_soc*total_battery_power*0.0001
+                    meter_power_tweaked += self.bms_soc.value*total_battery_power*0.0001
                 total_input_power  = total_pv_power + total_grid_port_power
 
                 for solis in self.inverters:
@@ -664,10 +647,8 @@ class SolisManager():
                 self.total_pv_power           = total_pv_power
                 self.total_input_power        = total_input_power
                 self.total_grid_port_power    = total_grid_port_power
-                self.battery_soc              = battery_soc
                 self.total_battery_power      = total_battery_power
                 self.battery_max_charge_power = battery_max_charge_power
-                self.battery_full             = battery_full
                 self.event_power.set()
                 self.event_power.clear()
 
@@ -676,7 +657,6 @@ class SolisManager():
                 mqtt.publish_value( "pv/total_battery_power",       self.total_battery_power      , int )
                 mqtt.publish_value( "pv/total_input_power",         self.total_input_power        , int )
                 mqtt.publish_value( "pv/total_grid_port_power",     self.total_grid_port_power    , int )
-                mqtt.publish_value( "pv/battery_soc",               self.battery_soc              , int )
                 mqtt.publish_value( "pv/battery_max_charge_power",  self.battery_max_charge_power , int )
                 for solis in self.inverters:
                     mqtt.publish_reg( solis.mqtt_topic, solis.input_power )
@@ -696,7 +676,7 @@ class SolisManager():
             await solis.event_all.wait()
             try:
                 # Blackout logic: enable backup output in case of blackout
-                blackout = solis.is_offgrid and solis.phase_a_voltage.value < 100
+                blackout = solis.is_offgrid() and solis.phase_a_voltage.value < 100
                 if blackout:
                     log.info( "Blackout" )
                     await solis.rwr_backup_output_enabled.write_if_changed( 1 )      # enable backup output
@@ -741,7 +721,7 @@ class SolisManager():
                 else:
                     mpptv = max( solis.mppt1_voltage.value, solis.mppt2_voltage.value )
                     if power_reg.value == power_reg.value_on:
-                        if mpptv < cfg["TURNOFF_MPPT_VOLTAGE"] and solis.bms_battery_soc.value <= cfg["TURNOFF_BATTERY_SOC"]:
+                        if mpptv < cfg["TURNOFF_MPPT_VOLTAGE"] and self.bms_soc.value <= cfg["TURNOFF_BATTERY_SOC"]:
                             timeout_power_on.reset()
                             if timeout_power_off.expired():
                                 log.info("Powering OFF %s"%solis.key)
@@ -812,6 +792,12 @@ class SolisManager():
         await mqtt.mqtt.connect( config.MQTT_BROKER_LOCAL )
         while not mqtt.is_connected:
             await asyncio.sleep(0.1)
+
+        # Get battery current from BMS
+        self.mqtt = mqtt
+        MQTTVariable( "pv/bms/current", self, "bms_current", float, None, 0 )
+        MQTTVariable( "pv/bms/power",   self, "bms_power",   float, None, 0 )
+        MQTTVariable( "pv/bms/soc",     self, "bms_soc",     float, None, 0 )
 
         #
         #   Main smartmeter
@@ -893,6 +879,17 @@ class SolisManager():
         )
         self.inverters = (self.solis1, self.solis2)
 
+        # Grab BMS info via MQTT
+        def subscribe_callback( self, topic, callback ):
+            l = self._subscriptions.setdefault( topic, [] ) # insert into callback directory
+            if self.is_connected and not l:
+                self.mqtt.subscribe( topic )                # if it's not in there already, we have to subscribe
+            if callback not in l:
+                l.append( callback )
+            print( "MQTT: registered callback for %s on %s" % (topic, callback.__name__) )
+
+
+
         #   Web server
         # app = aiohttp.web.Application()
         # app.add_routes([aiohttp.web.get('/', self.webresponse), aiohttp.web.get('/solar_api/v1/GetInverterRealtimeData.cgi', self.webresponse)])
@@ -934,7 +931,7 @@ class SolisManager():
     # async def webresponse( self, request ):
     #     p = (self.solis1.pv_power.value or 0) 
     #         # - (self.fronius.grid_port_power.value or 0)
-    #     p *= (self.solis1.bms_battery_soc.value or 0)*0.01
+    #     p *= (self.solis1.bms_soc.value or 0)*0.01
     #     p += min(0, -self.meter.total_power.value)    # if export
 
     #     p = (self.solis1.battery_power.value or 0) - (self.meter.total_power.value or 0)
