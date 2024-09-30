@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-import os, time, sys, serial, socket, logging, logging.handlers, shutil, importlib
+import os, time, sys, serial, socket, logging, logging.handlers, shutil, importlib, orjson
 from path import Path
 
 # This program is supposed to run on a potato (Allwinner H3 SoC) and uses async/await,
@@ -22,13 +22,6 @@ from pv.mqtt_wrapper import MQTTWrapper, MQTTSetting, MQTTVariable
 import grugbus
 from grugbus.devices import Eastron_SDM120, Eastron_SDM630, Acrel_1_Phase, Acrel_ACR10RD16TE4
 import pv.solis_s5_eh1p, pv.meters, pv.evse_abb_terra
-
-#
-#       TODO: test is_online
-#       TODO: move input_power from solis task to routing task, for lower lag
-#
-#
-#
 
 
 """
@@ -82,22 +75,6 @@ logging.basicConfig( encoding='utf-8',
                     ])
 log = logging.getLogger(__name__)
 
-# pymodbus.pymodbus_apply_logging_config("DEBUG")
-
-# set max reconnect wait time for Fronius
-# pymodbus.constants.Defaults.ReconnectDelayMax = 60000   # in milliseconds
-
-########################################################################################
-#   MQTT
-########################################################################################
-class MQTT( MQTTWrapper ):
-    def __init__( self ):
-        super().__init__( "pv" )
-
-    # def on_connect(self, client, flags, rc, properties):
-    #     self.mqtt.subscribe('cmd/pv/#', qos=0)
-
-mqtt = MQTT()
 
 class Routable():
     def __init__( self, name, power ):
@@ -107,12 +84,13 @@ class Routable():
         self.off()
 
 class RoutableTasmota( Routable ):
-    def __init__( self, name, power, mqtt_prefix ):
+    def __init__( self, name, power, mqtt, mqtt_prefix ):
+        self.mqtt = mqtt
         self.mqtt_prefix = mqtt_prefix
         super().__init__( name, power )
 
     def mqtt_power( self, message ):
-        return mqtt.publish( "cmnd/%s/Power"%self.mqtt_prefix, message )
+        return self.mqtt.publish( "cmnd/%s/Power"%self.mqtt_prefix, message )
 
     def off( self ):
         if self.is_on:
@@ -137,9 +115,9 @@ class Router( ):
         self.mqtt_topic  = mqtt_topic
 
         self.devices = [ 
-                         RoutableTasmota("Tasmota T4 Sèche serviette", 1050, "plugs/tasmota_t4"),
-                         RoutableTasmota("Tasmota T2 Radiateur PF", 800, "plugs/tasmota_t2"),
-                         RoutableTasmota("Tasmota T1 Radiateur bureau", 1700, "plugs/tasmota_t1"),
+                         RoutableTasmota("Tasmota T4 Sèche serviette"   , 1050 , self.mqtt, "plugs/tasmota_t4"),
+                         RoutableTasmota("Tasmota T2 Radiateur PF"      , 800  , self.mqtt, "plugs/tasmota_t2"),
+                         RoutableTasmota("Tasmota T1 Radiateur bureau"  , 1700 , self.mqtt, "plugs/tasmota_t1"),
                         ]       
 
         # queues to smooth measured power
@@ -184,7 +162,7 @@ class Router( ):
     async def route_coroutine( self ):
         try:
             # wait for startup transient to pass
-            await asyncio.sleep(5)
+            await asyncio.sleep(10)
             await mgr.event_power.wait()
             log.info("Routing enabled.")
             await mgr.evse.initialize()
@@ -306,8 +284,8 @@ class Router( ):
 
         export_avg_bat =  export_avg + steal_from_battery
         # mqtt.publish_value( "pv/router/excess_avg_nobat", export_avg )
-        mqtt.publish_value( "pv/router/battery_min_charge_power",  bp_min, int )
-        mqtt.publish_value( "pv/router/excess_avg", export_avg_bat, int )
+        self.mqtt.publish_value( "pv/router/battery_min_charge_power",  bp_min, int )
+        self.mqtt.publish_value( "pv/router/excess_avg", export_avg_bat, int )
 
         #   Note export_avg_nobat doesn't work that well. It tends to use too much from the battery
         #   because the inverter will lower battery charging power on its own to power the EVSE, but this is
@@ -496,43 +474,16 @@ class Router( ):
 
 #   Write log when a coroutine enters/exits
 #
-async def log_coroutine( title, fut ):
-    log.info("Start:"+title )
-    try:
-        await fut
-    finally:
-        log.info("Exit: "+title )
-
-########################################################################################
-#
-#       Reload code when changed
-#
-########################################################################################
-async def reload_coroutine():
-    mtimes = {}
-
-    while True:
-        for module in config,:
-            await asyncio.sleep(1)
-            try:
-                fname = Path( module.__file__ )
-                mtime = fname.mtime
-                if (old_mtime := mtimes.get( fname )) and old_mtime < mtime:
-                    log.info( "Reloading: %s", fname )
-                    importlib.reload( module )
-
-                mtimes[ fname ] = mtime
-            except Exception:
-                log.exception("Reload coroutine:")
 
 ########################################################################################
 #
 #       Put it all together
 #
 ########################################################################################
-class SolisManager():
+class Master():
     def __init__( self ):
         self.event_power = asyncio.Event()
+        self.event_meter_update = asyncio.Event()
 
         self.meter_power_tweaked      = 0    
         self.house_power              = 0    
@@ -542,25 +493,114 @@ class SolisManager():
         self.total_battery_power      = 0    # Battery power for both inverters (positive for charging)
         self.battery_max_charge_power = 0    
 
+    #
+    #   Build hardware
+    #
+    async def astart( self ):
+        self.mqtt = MQTTWrapper( "pv_master" )
+        self.mqtt_topic = "pv/"
+        await self.mqtt.mqtt.connect( config.MQTT_BROKER_LOCAL )
+
+        # Get battery current from BMS
+        MQTTVariable( "pv/bms/current", self, "bms_current", float, None, 0 )
+        MQTTVariable( "pv/bms/power",   self, "bms_power",   float, None, 0 )
+        MQTTVariable( "pv/bms/soc",     self, "bms_soc",     float, None, 0 )
+
+        # Get information from Controller
+        MQTTVariable( "pv/meter/total_power"                   , self, "meter_total_power"                  , float, None, 0, self.mqtt_update_meter_callback )
+        MQTTVariable( "pv/meter/phase_1_line_to_neutral_volts" , self, "meter_phase_1_line_to_neutral_volts", float, None, 0 )
+        MQTTVariable( "pv/meter/phase_2_line_to_neutral_volts" , self, "meter_phase_2_line_to_neutral_volts", float, None, 0 )
+        MQTTVariable( "pv/meter/phase_3_line_to_neutral_volts" , self, "meter_phase_3_line_to_neutral_volts", float, None, 0 )
+        MQTTVariable( "pv/meter/phase_1_current"               , self, "meter_phase_1_current"              , float, None, 0 )
+        MQTTVariable( "pv/meter/phase_2_current"               , self, "meter_phase_2_current"              , float, None, 0 )
+        MQTTVariable( "pv/meter/phase_3_current"               , self, "meter_phase_3_current"              , float, None, 0 )
+
+        #
+        #   EVSE and its smartmeter, both on the same modbus port
+        #
+        modbus_evse = AsyncModbusSerialClient( **config.EVSE["SERIAL"] )
+        self.evse  = pv.evse_abb_terra.EVSE( 
+            modbus_evse,
+            **config.EVSE["PARAMS"], 
+            local_meter = pv.meters.SDM120( 
+                modbus_evse,
+                mqtt       = self.mqtt,
+                mqtt_topic = "pv/evse/meter/" ,
+                **config.EVSE["LOCAL_METER"]["PARAMS"], 
+            ),
+            mqtt        = self.mqtt, 
+            mqtt_topic  = "pv/evse/" 
+        )
+
+        # add voltage to EVSE meter register poll list
+        self.evse.local_meter.reg_sets[0].append( self.evse.local_meter.voltage )
+
+        #
+        #   Solis inverters and local meters
+        #
+        self.inverters = [
+            pv.solis_s5_eh1p.Solis( 
+                AsyncModbusSerialClient( **cfg["SERIAL"] ),
+                local_meter = pv.meters.SDM120( 
+                    AsyncModbusSerialClient( **cfg["LOCAL_METER"]["SERIAL"] ),
+                    mqtt       = self.mqtt,
+                    mqtt_topic ="pv/%s/meter/" % key,
+                    **cfg["LOCAL_METER"]["PARAMS"],
+                ),
+                fake_meter_type      = Acrel_1_Phase,
+                fake_meter_placement = "grid", 
+                mqtt                 = self.mqtt,
+                mqtt_topic           = "pv/%s/" % key,
+                **cfg["PARAMS"],
+            )        
+            for key, cfg in config.SOLIS.items()
+        ]
+        for v in self.inverters:
+            setattr( self, v.key, v )
+
+        self.router = Router( mqtt = self.mqtt, mqtt_topic = "pv/router/" )
+
+        try:
+            async with asyncio.TaskGroup() as tg:
+                for v in self.inverters + [self.evse]:
+                    tg.create_task( self.log_coroutine( "read: %s"             %v.key, v.read_coroutine() ))
+                    tg.create_task( self.log_coroutine( "read: %s local meter" %v.key, v.local_meter.read_coroutine() ))
+                for v in self.inverters:
+                    tg.create_task( self.log_coroutine( "powersave: %s" % v.key, self.inverter_powersave_coroutine( v ) ))
+
+                tg.create_task( self.log_coroutine( "logic: fan",                self.inverter_fan_coroutine( ) ))
+                # tg.create_task( self.log_coroutine( "logic: blackout",           self.inverter_blackout_coroutine( self.solis1 ) ))
+                tg.create_task( self.log_coroutine( "logic: power calculations", self.power_coroutine( ) ))
+                tg.create_task( self.log_coroutine( "logic: router",             self.router.route_coroutine( ) ))
+                tg.create_task( self.log_coroutine( "Reload python modules",     self.reload_coroutine() ))
+        except (KeyboardInterrupt, CancelledError):
+            print("Terminated.")
+        finally:
+            await self.mqtt.mqtt.disconnect()
+            with open("mqtt_stats/pv_master.txt","w") as f:
+                self.mqtt.write_stats( f )
+
     ########################################################################################
     #
     #   Compute power values and fill fake meter fields
     #
     ########################################################################################
+    async def mqtt_update_meter_callback( self, param ):
+        self.event_meter_update.set()
+        self.event_meter_update.clear()
+
     async def power_coroutine( self ):
-        m = self.meter
-        await m.event_all.wait()    # wait for all registers to be read
         await asyncio.sleep(2)      # wait for Solis to read all its registers (or fail if it is offline)
 
         while True:
             try:
-                await m.event_power.wait()
+                await self.event_meter_update.wait()
 
                 # Compute power metrics
                 #
                 # Power consumed by the house loads not including inverters. Used for display and statistics, not used for routing.
                 # This is (Main spartmeter) - (inverter spartmeters). It is accurate and fast.
-                meter_power              = m.total_power.value or 0  
+                meter_power              = self.meter_total_power.value or 0  
                 meter_power_tweaked      = meter_power
                 total_pv_power           = 0
                 total_input_power        = 0
@@ -583,7 +623,7 @@ class SolisManager():
                     if solis.is_online:
                         if not (solis.is_offgrid() or solis.rwr_power_on_off.value == solis.rwr_power_on_off.value_off):
                             inverters_online.append( solis )
-                    elif solis.fake_meter.last_inverter_query_time > time.monotonic()-5:
+                    elif solis.fake_meter_lag.data_timestamp > time.monotonic()-5:
                         # if COM port is disconnected, use the smartmeter connection to check if the inverter is on
                         inverters_online.append( solis )
 
@@ -613,6 +653,8 @@ class SolisManager():
                     meter_power_tweaked += self.bms_soc.value*total_battery_power*0.0001
                 total_input_power  = total_pv_power + total_grid_port_power
 
+                fmdata = { "data_timestamp": self.meter_total_power.data_timestamp }
+
                 for solis in self.inverters:
                     if len( inverters_online ) == 1:
                         fake_power = meter_power_tweaked
@@ -624,22 +666,10 @@ class SolisManager():
                         #                     - 0.01*(solis.pv_power.value - total_pv_power*0.5) )
                         # else:
                         fake_power = meter_power_tweaked * 0.5 + 0.05*(solis.input_power.value - total_input_power*0.5)
-
-                    await solis.send_fake_meter_data( {
-                        "active_power"         : fake_power                                     ,
-                        "voltage"              : m.phase_1_line_to_neutral_volts .value         ,
-                        "current"              : m.phase_1_current               .value         ,
-                        "apparent_power"       : m.total_volt_amps               .value         ,
-                        "reactive_power"       : m.total_var                     .value         ,
-                        "power_factor"         : (m.total_power_factor            .value % 1.0) ,
-                        "frequency"            : m.frequency                     .value         ,
-                        "import_active_energy" : m.total_import_kwh              .value         ,
-                        "export_active_energy" : m.total_export_kwh              .value         ,
-                        "data_timestamp"       : m.last_transaction_timestamp                   ,
-                        "is_online"            : m.is_online                                    ,
-                    } )
-
-                await asyncio.sleep(0)      # yield to fakemeter server in case it is waiting for the values we just wrote
+                    fmdata[solis.key] = { "active_power"   : fake_power, }
+                # Send data to fakemeters
+                self.mqtt.mqtt.publish( "nolog/pv/fakemeter_update", orjson.dumps( fmdata ), qos=0 )
+                await asyncio.sleep(0)      # yield 
 
                 # atomic update
                 self.meter_power_tweaked      = meter_power_tweaked
@@ -652,15 +682,14 @@ class SolisManager():
                 self.event_power.set()
                 self.event_power.clear()
 
-                mqtt.publish_value( "pv/meter/house_power",         self.house_power              , int )
-                mqtt.publish_value( "pv/total_pv_power",            self.total_pv_power           , int )
-                mqtt.publish_value( "pv/total_battery_power",       self.total_battery_power      , int )
-                mqtt.publish_value( "pv/total_input_power",         self.total_input_power        , int )
-                mqtt.publish_value( "pv/total_grid_port_power",     self.total_grid_port_power    , int )
-                mqtt.publish_value( "pv/battery_max_charge_power",  self.battery_max_charge_power , int )
+                self.mqtt.publish_value( "pv/meter/house_power",         self.house_power              , int )
+                self.mqtt.publish_value( "pv/total_pv_power",            self.total_pv_power           , int )
+                self.mqtt.publish_value( "pv/total_battery_power",       self.total_battery_power      , int )
+                self.mqtt.publish_value( "pv/total_input_power",         self.total_input_power        , int )
+                self.mqtt.publish_value( "pv/total_grid_port_power",     self.total_grid_port_power    , int )
+                self.mqtt.publish_value( "pv/battery_max_charge_power",  self.battery_max_charge_power , int )
                 for solis in self.inverters:
-                    mqtt.publish_reg( solis.mqtt_topic, solis.input_power )
-
+                    self.mqtt.publish_reg( solis.mqtt_topic, solis.input_power )
 
             except Exception:
                 log.exception("PowerManager coroutine:")
@@ -670,31 +699,31 @@ class SolisManager():
     #   Blackout logic
     #
     ########################################################################################
-    async def inverter_blackout_coroutine( self, solis ):
-        timeout_blackout  = Timeout( 120, expired=True )
-        while True:
-            await solis.event_all.wait()
-            try:
-                # Blackout logic: enable backup output in case of blackout
-                blackout = solis.is_offgrid() and solis.phase_a_voltage.value < 100
-                if blackout:
-                    log.info( "Blackout" )
-                    await solis.rwr_backup_output_enabled.write_if_changed( 1 )      # enable backup output
-                    await solis.rwr_power_on_off         .write_if_changed( solis.rwr_power_on_off.value_on )   # Turn inverter on (if it was off)
-                    await solis.rwr_energy_storage_mode  .write_if_changed( 0x32 )   # mode = Backup, optimal revenue, charge from grid
-                    timeout_blackout.reset()
-                elif not timeout_blackout.expired():        # stay in backup mode with backup output enabled for a while
-                    log.info( "Remain in backup mode for %d s", timeout_blackout.remain() )
-                    timeout_power_on.reset()
-                    timeout_power_off.reset()
-                else:
-                    await solis.rwr_backup_output_enabled.write_if_changed( 0 )      # disable backup output
-                    await solis.rwr_energy_storage_mode  .write_if_changed( 0x23 )   # Self use, optimal revenue, charge from grid
+    # async def inverter_blackout_coroutine( self, solis ):
+    #     timeout_blackout  = Timeout( 120, expired=True )
+    #     while True:
+    #         await solis.event_all.wait()
+    #         try:
+    #             # Blackout logic: enable backup output in case of blackout
+    #             blackout = solis.is_offgrid() and solis.phase_a_voltage.value < 100
+    #             if blackout:
+    #                 log.info( "Blackout" )
+    #                 await solis.rwr_backup_output_enabled.write_if_changed( 1 )      # enable backup output
+    #                 await solis.rwr_power_on_off         .write_if_changed( solis.rwr_power_on_off.value_on )   # Turn inverter on (if it was off)
+    #                 await solis.rwr_energy_storage_mode  .write_if_changed( 0x32 )   # mode = Backup, optimal revenue, charge from grid
+    #                 timeout_blackout.reset()
+    #             elif not timeout_blackout.expired():        # stay in backup mode with backup output enabled for a while
+    #                 log.info( "Remain in backup mode for %d s", timeout_blackout.remain() )
+    #                 timeout_power_on.reset()
+    #                 timeout_power_off.reset()
+    #             else:
+    #                 await solis.rwr_backup_output_enabled.write_if_changed( 0 )      # disable backup output
+    #                 await solis.rwr_energy_storage_mode  .write_if_changed( 0x23 )   # Self use, optimal revenue, charge from grid
 
-            except (TimeoutError, ModbusException): pass
-            except Exception:
-                log.exception("")
-                await asyncio.sleep(5)           
+    #         except (TimeoutError, ModbusException): pass
+    #         except Exception:
+    #             log.exception("")
+    #             await asyncio.sleep(5)           
 
     ########################################################################################
     #
@@ -712,7 +741,7 @@ class SolisManager():
             try:
                 # Auto on/off: turn it off at night when the battery is below specified SOC
                 # so it doesn't keep draining it while doing nothing useful
-                cfg = config.SOLIS_POWERSAVE_CONFIG[ solis.mqtt_topic ]
+                cfg = config.SOLIS_POWERSAVE_CONFIG[ solis.key ]
 
                 if not cfg["ENABLE_INVERTER"]:
                     await power_reg.write_if_changed( power_reg.value_off )
@@ -751,27 +780,25 @@ class SolisManager():
     #   start fan if temperature too high or average battery power high
     #
     ########################################################################################
-    async def inverter_fan_coroutine( self, solis ):
+    async def inverter_fan_coroutine( self ):
         timeout_fan_off = Timeout( 60 )
-        bat_power_avg_1 = MovingAverage(10)
-        bat_power_avg_2 = MovingAverage(10)
+        bat_power_avg = { _.key: MovingAverage(10) for _ in self.inverters }
+        await asyncio.sleep( 5 )
         while True:
-            await self.solis1.event_all.wait()
+            await asyncio.sleep( 2 )
             try:
-                fan_on = False
-                if self.solis1.is_online:
-                    avg = bat_power_avg_1.append( abs(self.solis1.battery_power.value or 0) ) or 0
-                    if self.solis1.temperature.value > 40 or avg > 2000:
-                        fan_on = True
-                if self.solis2.is_online:
-                    avg = bat_power_avg_2.append( abs(self.solis2.battery_power.value or 0) ) or 0
-                    if self.solis2.temperature.value > 40 or avg > 2000:
-                        fan_on = True
-                if fan_on:
+                temps = []
+                avgp = []
+                for solis in self.inverters:
+                    if solis.is_online:
+                        avgp.append( bat_power_avg[solis.key].append( abs(solis.battery_power.value or 0) ) or 0 )
+                        temps.append( solis.temperature.value )
+
+                if temps and (max(temps)> 40 or max(avgp) > 2000):
                     timeout_fan_off.reset()
-                    mqtt.publish_value( "cmnd/plugs/tasmota_t3/Power", 1 )
-                elif self.solis1.temperature.value < 35 and self.solis2.temperature.value < 35 and timeout_fan_off.expired():
-                    mqtt.publish_value( "cmnd/plugs/tasmota_t3/Power", 0 )
+                    self.mqtt.publish_value( "cmnd/plugs/tasmota_t3/Power", 1 )
+                elif min( temps ) < 35 and timeout_fan_off.expired():
+                    self.mqtt.publish_value( "cmnd/plugs/tasmota_t3/Power", 0 )
 
             except (TimeoutError, ModbusException): pass
             except:
@@ -785,191 +812,38 @@ class SolisManager():
         with asyncio.Runner(loop_factory=uvloop.new_event_loop) as runner:
             runner.run(self.astart())
 
+    ########################################################################################
     #
-    #   Build hardware
+    #       Reload code when changed
     #
-    async def astart( self ):
-        await mqtt.mqtt.connect( config.MQTT_BROKER_LOCAL )
-        while not mqtt.is_connected:
-            await asyncio.sleep(0.1)
-
-        # Get battery current from BMS
-        self.mqtt = mqtt
-        MQTTVariable( "pv/bms/current", self, "bms_current", float, None, 0 )
-        MQTTVariable( "pv/bms/power",   self, "bms_power",   float, None, 0 )
-        MQTTVariable( "pv/bms/soc",     self, "bms_soc",     float, None, 0 )
-
-        #
-        #   Main smartmeter
-        #
-        self.meter = pv.meters.SDM630( 
-            AsyncModbusSerialClient(    # open Modbus on serial port
-                port            = config.COM_PORT_METER,        timeout         = 0.5,
-                retries         = 1,    baudrate        = 19200,
-                bytesize        = 8,    parity          = "N",  stopbits        = 1,
-            ), 
-            modbus_addr=1, key="meter", name="SDM630 Smartmeter", mqtt=mqtt, mqtt_topic="pv/meter/", mgr=self )
-
-        #
-        #   EVSE and its smartmeter, both on the same modbus port
-        #
-        modbus_evse = AsyncModbusSerialClient(    # open Modbus on serial port
-                port            = config.COM_PORT_EVSE,         timeout         = 2,
-                retries         = 1,    baudrate        = 9600,
-                bytesize        = 8,    parity          = "N",  stopbits        = 1,
-            )
-        self.evse  = pv.evse_abb_terra.EVSE( 
-            modbus_evse, 
-            modbus_addr=3, key="evse", name="ABB Terra", 
-            local_meter = pv.meters.SDM120( modbus_evse, 
-                modbus_addr=1, key="mevse", name="SDM120 Smartmeter on EVSE", mqtt=mqtt, mqtt_topic="pv/evse/meter/" 
-            ),
-            mqtt=mqtt, mqtt_topic="pv/evse/" )
-
-        # add voltage to EVSE meter register poll list
-        self.evse.local_meter.reg_sets[0].append( self.evse.local_meter.voltage )
-        self.router = Router( mqtt = mqtt, mqtt_topic = "pv/router/" )
-
-        #
-        #   Solis inverter 1 and local meter
-        #
-        self.solis1 = pv.solis_s5_eh1p.Solis( 
-                AsyncModbusSerialClient(
-                port            = config.COM_PORT_SOLIS1,  timeout         = 0.5,
-                retries         = 1,    baudrate        = 9600,
-                bytesize        = 8,    parity          = "N",  stopbits        = 1,
-            ), 
-            modbus_addr = 1,       key = "solis1", name = "Solis 1",    
-            local_meter = pv.meters.SDM120( 
-                AsyncModbusSerialClient(
-                    port            = config.COM_PORT_LOCALMETER1,  timeout         = 0.5,
-                    retries         = 1,    baudrate        = 9600,
-                    bytesize        = 8,    parity          = "N",  stopbits        = 1,
-                ), 
-                modbus_addr=3, key="ms1", name="SDM120 Smartmeter on Solis 1", mqtt=mqtt, mqtt_topic="pv/solis1/meter/" 
-            ),
-            fake_meter_type = Acrel_1_Phase,
-            fake_meter_placement = "grid", 
-            mqtt = mqtt,
-            mqtt_topic = "pv/solis1/"
-        )
- 
-        #
-        #   Solis inverter 2 and local meter
-        #
-        self.solis2 = pv.solis_s5_eh1p.Solis( 
-                AsyncModbusSerialClient(
-                port            = config.COM_PORT_SOLIS2,  timeout         = 0.5,
-                retries         = 1,    baudrate        = 9600,
-                bytesize        = 8,    parity          = "N",  stopbits        = 1,
-            ), 
-            modbus_addr = 1,       key = "solis2", name = "Solis 2",    
-            local_meter = pv.meters.SDM120( 
-                AsyncModbusSerialClient(
-                    port            = config.COM_PORT_LOCALMETER2,  timeout         = 0.5,
-                    retries         = 1,    baudrate        = 9600,
-                    bytesize        = 8,    parity          = "N",  stopbits        = 1,
-                ), 
-                modbus_addr=1, key="ms2", name="SDM120 Smartmeter on Solis 2", mqtt=mqtt, mqtt_topic="pv/solis2/meter/" 
-            ),
-            fake_meter_type = Acrel_1_Phase,
-            fake_meter_placement = "grid", 
-            mqtt = mqtt, 
-            mqtt_topic = "pv/solis2/"
-        )
-        self.inverters = (self.solis1, self.solis2)
-
-        # Grab BMS info via MQTT
-        def subscribe_callback( self, topic, callback ):
-            l = self._subscriptions.setdefault( topic, [] ) # insert into callback directory
-            if self.is_connected and not l:
-                self.mqtt.subscribe( topic )                # if it's not in there already, we have to subscribe
-            if callback not in l:
-                l.append( callback )
-            print( "MQTT: registered callback for %s on %s" % (topic, callback.__name__) )
-
-
-
-        #   Web server
-        # app = aiohttp.web.Application()
-        # app.add_routes([aiohttp.web.get('/', self.webresponse), aiohttp.web.get('/solar_api/v1/GetInverterRealtimeData.cgi', self.webresponse)])
-        # runner = aiohttp.web.AppRunner(app, access_log=False)
-        # await runner.setup()
-        # site = aiohttp.web.TCPSite(runner,host=config.SOLARPI_IP,port=8080)
-        # await site.start()
-
-
-        try:
-            async with asyncio.TaskGroup() as tg:
-                tg.create_task( log_coroutine( "read: main meter",          self.meter.read_coroutine() ))
-                tg.create_task( log_coroutine( "read: solis1",              self.solis1.read_coroutine() ))
-                tg.create_task( log_coroutine( "read: solis1 local meter",  self.solis1.local_meter.read_coroutine() ))
-                tg.create_task( log_coroutine( "read: solis2",              self.solis2.read_coroutine() ))
-                tg.create_task( log_coroutine( "read: solis2 local meter",  self.solis2.local_meter.read_coroutine() ))
-                tg.create_task( log_coroutine( "read: evse local meter",    self.evse.local_meter.read_coroutine() ))
-                tg.create_task( log_coroutine( "read: evse",                self.evse.read_coroutine() ))
-                tg.create_task( log_coroutine( "logic: fan",                self.inverter_fan_coroutine( self.solis1 ) ))
-                # tg.create_task( log_coroutine( "logic: blackout",           self.inverter_blackout_coroutine( self.solis1 ) ))
-                # todo: powersave is deactivated
-                tg.create_task( log_coroutine( "logic: power calculations", self.power_coroutine( ) ))
-                tg.create_task( log_coroutine( "logic: router",             self.router.route_coroutine( ) ))
-                tg.create_task( log_coroutine( "logic: powersave 1",        self.inverter_powersave_coroutine( self.solis1 ) ))
-                tg.create_task( log_coroutine( "logic: powersave 2",        self.inverter_powersave_coroutine( self.solis2 ) ))
-                tg.create_task( log_coroutine( "sysinfo",                   self.sysinfo_coroutine() ))
-                tg.create_task( log_coroutine( "Reload python modules",     reload_coroutine() ))
-        except (KeyboardInterrupt, CancelledError):
-            print("Terminated.")
-        finally:
-            await mqtt.mqtt.disconnect()
-            with open("mqtt_stats/modbus_mitm.txt","w") as f:
-                mqtt.write_stats( f )
-
     ########################################################################################
-    #   Web server
-    ########################################################################################
+    async def reload_coroutine( self ):
+        mtimes = {}
 
-    # async def webresponse( self, request ):
-    #     p = (self.solis1.pv_power.value or 0) 
-    #         # - (self.fronius.grid_port_power.value or 0)
-    #     p *= (self.solis1.bms_soc.value or 0)*0.01
-    #     p += min(0, -self.meter.total_power.value)    # if export
-
-    #     p = (self.solis1.battery_power.value or 0) - (self.meter.total_power.value or 0)
-    #     # print("HTTP Power:%d" % p)
-    #     return aiohttp.web.Response( text='{"Power" : %d}' % p )
-
-    ########################################################################################
-    #   System info
-    ########################################################################################
-
-    async def sysinfo_coroutine( self ):
-        prev_cpu_timings = None
         while True:
-            try:
-                pub = {}
-                with open("/proc/stat") as f:
-                    cpu_timings = [ int(_) for _ in f.readline().split()[1:] ]
-                    cpu_timings = cpu_timings[3], sum(cpu_timings)  # idle time, total time
-                    if prev_cpu_timings:
-                        pub["cpu_load_percent"] = round( 100.0*( 1.0-(cpu_timings[0]-prev_cpu_timings[0])/(cpu_timings[1]-prev_cpu_timings[1]) ), 1 )
-                    prev_cpu_timings = cpu_timings
+            for module in config,:
+                await asyncio.sleep(1)
+                try:
+                    fname = Path( module.__file__ )
+                    mtime = fname.mtime
+                    if (old_mtime := mtimes.get( fname )) and old_mtime < mtime:
+                        log.info( "Reloading: %s", fname )
+                        importlib.reload( module )
+                        if module is config:
+                            self.mqtt.load_rate_limit() # reload rate limit configuration
 
-                with open("/sys/devices/virtual/thermal/thermal_zone0/temp") as f:
-                    pub["cpu_temp_c"] = round( int(f.read())*0.001, 1 )
+                    mtimes[ fname ] = mtime
+                except Exception:
+                    log.exception("Reload coroutine:")
 
-                total, used, free = shutil.disk_usage("/")
-                pub["disk_space_gb"] = round( free/2**30, 2 )
-                for k,v in pub.items():
-                    mqtt.publish_value( "pv/"+k, v  )
-
-                await asyncio.sleep(10)
-            except Exception:
-                log.exception( "Sysinfo" )
-
+    async def log_coroutine( self, title, fut ):
+        log.info("Start:"+title )
+        try:        await fut
+        finally:    log.info("Exit: "+title )
 
 if 1:
     try:
-        mgr = SolisManager()
+        mgr = Master()
         mgr.start()
     finally:
         logging.shutdown()
@@ -978,7 +852,7 @@ else:
     with cProfile.Profile( time.process_time ) as pr:
         pr.enable()
         try:
-            mgr = SolisManager()
+            mgr = Master()
             mgr.start()
         finally:
             logging.shutdown()

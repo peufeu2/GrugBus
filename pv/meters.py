@@ -24,11 +24,10 @@ log = logging.getLogger(__name__)
 #
 ########################################################################################
 class SDM630( grugbus.SlaveDevice ):
-    def __init__( self, modbus, modbus_addr, key, name, mqtt, mqtt_topic, mgr ):
+    def __init__( self, modbus, modbus_addr, key, name, mqtt, mqtt_topic ):
         super().__init__( modbus, modbus_addr, key, name, Eastron_SDM630.MakeRegisters() ),
         self.mqtt        = mqtt
         self.mqtt_topic  = mqtt_topic
-        self.mgr = mgr
 
         self.total_power_tweaked = 0.0
         self.event_power = asyncio.Event()  # Fires every time frequent_regs below are read

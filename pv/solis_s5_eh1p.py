@@ -8,7 +8,7 @@ from asyncio.exceptions import TimeoutError
 # Device wrappers and misc local libraries
 import grugbus
 from grugbus.devices import Solis_S5_EH1P_6K_2020_Extras, Eastron_SDM120, Eastron_SDM630, Acrel_1_Phase, EVSE_ABB_Terra, Acrel_ACR10RD16TE4
-from pv.mqtt_wrapper import MQTTWrapper
+from pv.mqtt_wrapper import MQTTWrapper, MQTTVariable
 from misc import *
 import config
 
@@ -33,6 +33,9 @@ class Solis( grugbus.SlaveDevice ):
         self.mqtt_topic  = mqtt_topic
         self.mqtt_written_regs = {}
         mqtt.register_callbacks( self )
+
+        # Get fake meter lag from Controller
+        MQTTVariable( self.mqtt_topic+"fakemeter/lag", self, "fake_meter_lag" , float, None, 0 )
 
         # For power routing we need to know battery power, in order to steal some of it when we want to.
         # The inverter's report of battery_power is slow and does not account for energy stored
@@ -112,20 +115,6 @@ class Solis( grugbus.SlaveDevice ):
         # Build modbus requests: read frequent_regs on every request, plus one chunk out of all_regs
         self.reg_sets = list( self.reg_list_interleave( frequent_regs, all_regs ) )
 
-    async def send_fake_meter_data( self, data ):
-        if not self.fake_meter_socket:
-            reader, writer = await asyncio.open_unix_connection( config.SOCKET_FAKE_METER )
-            self.fake_meter_socket = writer
-
-        try:
-            self.fake_meter_socket.write( orjson.dumps( {self.key:data}, option=orjson.OPT_APPEND_NEWLINE ))
-            # await writer.drain()
-
-        except:
-            self.fake_meter_socket = None
-            raise
-
-
     async def read_coroutine( self ):
         # set meter type remotely to make it easy to emulate different fakemeters
         if   self.fake_meter_type == Acrel_1_Phase:      mt = 1
@@ -140,8 +129,8 @@ class Solis( grugbus.SlaveDevice ):
 
             # configure inverter
             for reg, value in  [(self.rwr_meter1_type_and_location, mt), 
-                                (self.rwr_battery_charge_current_maximum_setting, 1000),
-                                (self.rwr_battery_discharge_current_maximum_setting, 1000 )]:
+                                (self.rwr_battery_charge_current_maximum_setting, 100.0),
+                                (self.rwr_battery_discharge_current_maximum_setting, 100.0)]:
                 await reg.read()
                 await reg.write_if_changed( value )
 

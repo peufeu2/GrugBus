@@ -150,7 +150,7 @@ class FakeSmartmeter( grugbus.LocalServer ):
         if (elapsed := self.stat_tick.ticked()) and self.mqtt_topic:
             self.mqtt.publish_value( self.mqtt_topic + "req_per_s", self.request_count/max(elapsed,1) )
             self.request_count = 0
-        self.mqtt.publish_value( self.mqtt_topic + "lag", age )
+        self.mqtt.publish_value( self.mqtt_topic + "lag", age, lambda x:round(x,2) )
 
         # Do not serve stale data
         if self.is_online:
@@ -205,6 +205,7 @@ class Controller:
             runner.run(self.astart())
 
     async def astart( self ):    
+        self.error_tick = Metronome( 10 )
 
         self.mqtt = MQTTWrapper( "pv_controller" )
         self.mqtt_topic = "pv/"
@@ -212,15 +213,15 @@ class Controller:
 
         #   Update fakemeters via MQTT
         #
-        MQTTVariable( "nolog/pv/fakemeter_update", self, "fakemeter_data", orjson.loads, None, "{}" )
+        MQTTVariable( "nolog/pv/fakemeter_update", self, "fakemeter_data", orjson.loads, None, "{}", self.mqtt_update_meter_callback )
 
         #   Main smartmeter
         #
         self.meter = pv.meters.SDM630(
             AsyncModbusSerialClient( **config.METER["SERIAL"] ), 
+            mqtt        = self.mqtt,
+            mqtt_topic  = "pv/meter/",
             **config.METER["PARAMS"],
-            mqtt=self.mqtt,
-            mqtt_topic="pv/meter/", mgr=self 
         )
 
         #   Modbus-RTU Fake Meter
@@ -257,10 +258,35 @@ class Controller:
     #   Compute power values and fill fake meter fields
     #
     ########################################################################################
+    async def mqtt_update_meter_callback( self, param ):
+        if not self.fakemeter_data.value:
+            if self.error_tick.ticked():
+                log.warning( "FakeMeters: No data from master." )
+            return
+
+        t = time.monotonic()
+        ts = self.fakemeter_data.value["data_timestamp"]
+        age = t-ts
+        if age > config.FAKE_METER_MAX_AGE:
+            self.fakemeter_data.value = {}
+            log.warning( "FakeMeter: data is too old (%f seconds), ignoring", age )
+            return
+
+        if not self.fakemeter_data.prev_value:
+            log.info( "FakeMeter: received data from master (age %f seconds)", age )
+
+        for k, fm in self.fake_meters.items():
+            data = self.fakemeter_data.value[k]
+            fm.active_power           .value = data[ "active_power" ]
+            fm.data_timestamp                = ts
+
+        # if there was no exception, we can update both meters
+        for fm in self.fake_meters.values():
+            fm.write_regs_to_context()
+
     async def update_coroutine( self ):
         m = self.meter
         await m.event_all.wait()    # wait for all registers to be read
-        error_tick = Metronome( 10 )
 
         while True:
             try:
@@ -286,21 +312,7 @@ class Controller:
 
                 # Now update with values received from master (if any)
                 try:
-                    if not self.fakemeter_data.value:
-                        if error_tick.ticked():
-                            log.warning( "FakeMeters: No data from master." )
-                    else:
-                        t = time.monotonic()
-                        for key, data in self.fakemeter_data.value.items():
-                            age = t-data["data_timestamp"]
-                            if age > config.FAKE_METER_MAX_AGE:
-                                self.fakemeter_data.value = {}
-                                log.warning( "FakeMeter %s: data is too old (%f seconds), ignoring", key, age )
-                            else:
-                                fm = self.fake_meters[key]
-                                fm.active_power           .value = data[ "active_power" ]
-                                fm.data_timestamp                = data[ "data_timestamp" ]
-                                fm.is_online                     = data[ "is_online" ]
+                    await self.mqtt_update_meter_callback( None )
                 except Exception:
                     log.exception("PowerManager coroutine:")
 

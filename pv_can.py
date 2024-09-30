@@ -412,9 +412,9 @@ mqtt = MQTT()
 async def astart():
     await mqtt.mqtt.connect( config.MQTT_BROKER_LOCAL )
     can_bat    = PylonCAN( config.CAN_PORT_BATTERY, mqtt )
-    can_solis1 = SolisCAN( config.CAN_PORT_SOLIS1 )
+    can_solis1 = SolisCAN( config.SOLIS["solis1"]["CAN_PORT"] )
     can_solis1.can_bat = can_bat
-    can_solis2 = SolisCAN( config.CAN_PORT_SOLIS2 )
+    can_solis2 = SolisCAN( config.SOLIS["solis2"]["CAN_PORT"] )
     can_solis1.can_bat = can_bat
     can_solis2.can_bat = can_bat
     can_bat.can_inverters = (can_solis1, can_solis2)

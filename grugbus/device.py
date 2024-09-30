@@ -253,8 +253,8 @@ class SlaveDevice( DeviceBase ):
         retries = retries or self.default_retries
         old_is_online = self.is_online
         try:
-            await self.connect()
             start_time = time.monotonic()
+            await self.connect()
             update_list = []
             for fcode, chunk in self.reg_list_to_chunks( read_list, max_hole_size ):
                 # print( fcode, ":", " ".join( "%d-%d" % (c[0],c[1]) for c in chunk ))
@@ -354,9 +354,9 @@ class SlaveDevice( DeviceBase ):
         retries = retries or self.default_retries
         old_is_online = self.is_online
         try:
+            start_time = time.monotonic()
             await self.connect()
             update_list = []
-            start_time = time.monotonic()
             for fcode, chunk in self.reg_list_to_chunks( write_list, 0 ):
                 # check address span of this write operation and build data buffer
                 start_addr = chunk[0][0]

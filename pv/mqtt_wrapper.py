@@ -126,7 +126,7 @@ class MQTTWrapper:
             if text == p.text and time.monotonic() < p.start_time + p.period:
                 return
         else:
-            p = self._published_data[topic] = RateLimit( 0, 60, "", len(self._published_data)%60 )
+            p = self._published_data[topic] = RateLimit( 0, 60, "" )
             p.total_count = 1
             log.info( "MQTT: No ratelimit for %s", topic )
         p.published_count += 1

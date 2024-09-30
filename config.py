@@ -69,7 +69,12 @@ _SERIAL_DEFAULTS = {
 SOLIS = {
     "solis1":  {
         "CAN_PORT"   : 'can_1',
-        "COM_PORT"   : "/dev/serial/by-id/usb-FTDI_USB_RS485_1-if01-port0",   # Solis1 COM port
+        "SERIAL"     : _SERIAL_DEFAULTS | { "port"   : "/dev/serial/by-id/usb-FTDI_USB_RS485_1-if01-port0" },   # Solis1 COM port
+        "PARAMS": {
+            "modbus_addr" : 1,
+            "key"         : "solis1",
+            "name"        : "Solis 1",    
+        },
         "FAKE_METER" : {
             "port"            : "/dev/serial/by-id/usb-FTDI_USB_RS485_1-if00-port0",   # Solis1 fakemeter
             "baudrate"        : 9600, 
@@ -88,7 +93,12 @@ SOLIS = {
     },
     "solis2": {
         "CAN_PORT"   : 'can_2',
-        "COM_PORT"   : "/dev/serial/by-id/usb-FTDI_USB_RS485_2-if01-port0",   # Solis1 COM port
+        "SERIAL"     : _SERIAL_DEFAULTS | { "port"   : "/dev/serial/by-id/usb-FTDI_USB_RS485_2-if01-port0" },   # Solis2 COM port
+        "PARAMS": {
+            "modbus_addr" : 1,
+            "key"         : "solis2",
+            "name"        : "Solis 2",    
+        },
         "FAKE_METER" : {
             "port"            : "/dev/serial/by-id/usb-FTDI_USB_RS485_2-if00-port0",   # Solis1 fakemeter
             "baudrate"        : 9600, 
@@ -99,7 +109,7 @@ SOLIS = {
         "LOCAL_METER" : { 
             "SERIAL": _SERIAL_DEFAULTS | { "port" : "/dev/serial/by-id/usb-FTDI_USB_RS485_4-if01-port0" },
             "PARAMS": {
-                "modbus_addr" : 3,
+                "modbus_addr" : 1,
                 "key"         : "ms2",
                 "name"        : "Smartmeter on Solis 2",
             }
@@ -122,23 +132,27 @@ METER = {
 #   Fake meter will ignore data from Master process if it is older than this, in seconds
 FAKE_METER_MAX_AGE = 1.5
 
-
-
-
-COM_PORT_SOLIS1      = "/dev/serial/by-id/usb-FTDI_USB_RS485_1-if01-port0"   # Solis1 COM port
-COM_PORT_FAKE_METER1 = "/dev/serial/by-id/usb-FTDI_USB_RS485_1-if00-port0"   # Solis1 fakemeter
-COM_PORT_LOCALMETER1 = "/dev/serial/by-id/usb-FTDI_USB_RS485_4-if00-port0"   # Main meter
-
-COM_PORT_SOLIS2      = "/dev/serial/by-id/usb-FTDI_USB_RS485_2-if01-port0"   # Solis1 COM port
-COM_PORT_FAKE_METER2 = "/dev/serial/by-id/usb-FTDI_USB_RS485_2-if00-port0"   # Solis1 fakemeter
-COM_PORT_LOCALMETER2 = "/dev/serial/by-id/usb-FTDI_USB_RS485_4-if01-port0"   # Main meter
-
-COM_PORT_EVSE        = "/dev/serial/by-id/usb-FTDI_USB_RS485_3-if00-port0"   # EVSE and its meter
-COM_PORT_METER       = "/dev/serial/by-id/usb-FTDI_USB_RS485_3-if01-port0"   # Main meter
+EVSE = {
+    "SERIAL": _SERIAL_DEFAULTS | { 
+        "port"    : "/dev/serial/by-id/usb-FTDI_USB_RS485_3-if00-port0",        
+        "timeout" : 2,    
+    },
+    "PARAMS": {
+        "modbus_addr" : 3,
+        "key"         : "evse",
+        "name"        : "ABB Terra", 
+    },
+    "LOCAL_METER" : { 
+        # No serial definition as it uses the same port as EVSE
+        "PARAMS": {
+            "modbus_addr" : 1, 
+            "key"         : "mevse", 
+            "name"        : "SDM120 Smartmeter on EVSE"
+        }
+    }
+}
 
 CAN_PORT_BATTERY  = 'can_bat'
-CAN_PORT_SOLIS1   = 'can_1'
-CAN_PORT_SOLIS2   = 'can_2'
 
 # not used
 # COM_PORT_METER       = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_54D2042261-if00"
@@ -187,14 +201,14 @@ SOLIS_BATTERY_FULL_SOC = 98
 
 # Inverter auto turn on/off settings
 SOLIS_POWERSAVE_CONFIG = {
-    "pv/solis1/": {
+    "solis1": {
         "ENABLE_INVERTER"      : True,       # If False, turn inverter off
         "ENABLE_POWERSAVE"     : True,       # If True, enable following logic:
         "TURNOFF_BATTERY_SOC"  : 95,         # turn it off when SOC < value
         "TURNOFF_MPPT_VOLTAGE" : 50,         # ...and MPPT voltage < value
         "TURNON_MPPT_VOLTAGE"  : 80,         # turn it back on when MPPT voltage > value
     },
-    "pv/solis2/": {
+    "solis2": {
         "ENABLE_INVERTER"      : True,
         "ENABLE_POWERSAVE"     : True,
         "TURNOFF_BATTERY_SOC"  : 8 ,  
@@ -222,15 +236,21 @@ MQTT_RATE_LIMIT = {
     #   PV Controller
     #
 
+    # This is used by the Master to know if the inverter queries the meter,
+    # do not change this setting
+    'pv/solis1/fakemeter/lag'                       : (  2,       1.000, 'avg'   ), #  0.026/14.297,
+
     # Compress/threshold heavily
-    'pv/solis1/fakemeter/lag'                       : (  60,      1.000, 'avg'   ), #  0.026/14.297,
     'pv/meter/is_online'                            : (  60,      0.000, ''      ), #  0.021/ 5.011,
+
+    # Published every minute, do not limit
+    'pv/solis1/fakemeter/req_per_s'                 : (  0,      0.000, ''      ), #  0.021/ 0.021,
 
     # Master process needs every value, don't limit it, so set margin to -1
     'pv/meter/total_power'                          : (   0,     -1.000, ''      ), #  4.736/ 4.995,
 
     # This is for debugging only and generates huge traffic, average it
-    'pv/solis1/fakemeter/active_power'              : (   1,     20.000, ''      ), #  4.714/ 4.974,
+    'pv/solis1/fakemeter/active_power'              : (   1,     25.000, ''      ), #  4.714/ 4.974,
 
     # Average voltage
     'pv/meter/phase_1_line_to_neutral_volts'        : (  10,      1.500, 'avg'   ), #  1.250/ 1.250,
@@ -270,12 +290,10 @@ MQTT_RATE_LIMIT = {
     'pv/disk_space_gb'                              : (  0,      0.000, ''      ), #  0.021/ 0.117,
     'pv/cpu_temp_c'                                 : (  0,      0.000, ''      ), #  0.085/ 0.101,
     'pv/cpu_load_percent'                           : (  0,      0.000, ''      ), #  0.090/ 0.095,
-    'pv/solis1/fakemeter/req_per_s'                 : (  0,      0.000, ''      ), #  0.021/ 0.021,
 
 
     #   CANBUS BMS INFORMATION
     #
-
     # Publish all on change
     'pv/bms/soc'                                  : (   2,      0.000, ''      ), #  0.483/ 0.981,
     'pv/bms/voltage'                              : (   1,      0.000, ''      ), #  0.479/ 0.917,
@@ -297,6 +315,73 @@ MQTT_RATE_LIMIT = {
     'pv/bms/max_discharge_power'                  : (  10,      0.000, ''      ), #  0.069/ 0.508,
     'pv/bms/charge_current_limit'                 : (  10,      0.000, ''      ), #  0.000/ 0.000,
     'pv/bms/discharge_current_limit'              : (  10,      0.000, ''      ), #  0.000/ 0.000,
+
+    #   PVMaster 
+    #
+
+    'pv/evse/meter/active_power'               : (   1,      2.000, 'avg'      ), #  0.019/ 0.937,
+    'pv/evse/rwr_current_limit'                : (  60,      0.000, ''      ), #  0.019/ 0.112,
+
+    'pv/evse/energy'                           : (  60,      0.010, ''      ), #  0.019/ 1.012,
+    'pv/evse/meter/export_active_energy'       : (  60,      0.000, ''      ), #  0.019/ 0.099,
+    'pv/evse/meter/import_active_energy'       : (  60,      0.010, ''      ), #  0.019/ 0.099,
+
+    'pv/evse/meter/voltage'                    : (  60,      1.000, 'avg'      ), #  0.341/ 0.838,
+
+    'pv/meter/house_power'                     : (   1,     25.000, 'avg'      ), #  4.711/ 4.743,
+    'pv/total_battery_power'                   : (   1,     25.000, 'avg'      ), #  1.074/ 4.743,
+    'pv/total_grid_port_power'                 : (   1,     25.000, 'avg'      ), #  4.227/ 4.743,
+    'pv/total_input_power'                     : (   1,     25.000, 'avg'      ), #  4.227/ 4.743,
+    'pv/total_pv_power'                        : (   1,     25.000, 'avg'      ), #  0.019/ 4.755,
+
+    'pv/router/excess_avg'                     : (   1,     25.000, 'avg'      ), #  4.463/ 4.463,
+
+    'pv/solis1/input_power'                    : (   1,     25.000, 'avg'      ), #  4.165/ 4.743,
+    'pv/solis1/meter/active_power'             : (   1,     25.000, 'avg'      ), #  4.674/ 4.978,
+    'pv/solis1/pv_power'                       : (   1,     25.000, 'avg'      ), #  0.019/ 1.825,
+
+    'pv/solis1/battery_current'                : (   1,      0.200, 'avg'      ), #  0.534/ 1.813,
+    'pv/solis1/battery_power'                  : (   1,     25.000, 'avg'      ), #  0.534/ 1.813,
+    'pv/solis1/battery_voltage'                : (  10,      0.100, 'avg'      ), #  0.031/ 0.279,
+
+    'pv/solis1/backup_load_power'              : (  60,     50.000, 'avg'      ), #  0.019/ 0.279,
+    'pv/solis1/backup_voltage'                 : (  60,      1.000, 'avg'      ), #  0.149/ 0.267,
+    'pv/solis1/battery_charge_energy_today'    : (  60,      0.100, ''      ), #  0.019/ 0.279,
+    'pv/solis1/battery_discharge_energy_today' : (  60,      0.100, ''      ), #  0.019/ 0.279,
+    'pv/solis1/energy_generated_today'         : (  60,      0.100, ''      ), #  0.019/ 0.279,
+    'pv/solis1/energy_generated_yesterday'     : (  60,      0.100, ''      ), #  0.019/ 0.279,
+    'pv/solis1/meter/export_active_energy'     : (  60,      0.100, ''      ), #  0.056/ 0.497,
+    'pv/solis1/meter/import_active_energy'     : (  60,      0.100, ''      ), #  0.019/ 0.509,
+
+    'pv/solis1/mppt1_current'                  : (   2,      0.100, 'avg'      ), #  0.019/ 1.825,
+    'pv/solis1/mppt2_current'                  : (   2,      0.100, 'avg'      ), #  0.019/ 1.825,
+    'pv/solis1/mppt1_power'                    : (   2,     25.000, 'avg'      ), #  0.019/ 1.825,
+    'pv/solis1/mppt2_power'                    : (   2,     25.000, 'avg'      ), #  0.019/ 1.825,
+    'pv/solis1/mppt1_voltage'                  : (   2,      2.000, 'avg'      ), #  0.453/ 1.813,
+    'pv/solis1/mppt2_voltage'                  : (   2,      2.000, 'avg'      ), #  0.081/ 1.819,
+
+    'pv/solis1/phase_a_voltage'                : (  60,      2.000, 'avg'      ), #  0.161/ 0.267,
+    'pv/solis1/temperature'                    : (  60,      0.200, 'avg'      ), #  0.068/ 0.273,
+
+    # publish only on change
+    'pv/battery_max_charge_power'              : (  60,      0.000, ''      ), #  0.050/ 4.749,
+    'pv/solis1/battery_max_charge_current'     : (  60,      0.000, ''      ), #  0.019/ 0.273,
+    'pv/solis1/battery_max_discharge_current'  : (  60,      0.000, ''      ), #  0.019/ 0.273,
+    'pv/solis1/fault_status_1_grid'            : (  60,      0.000, ''      ), #  0.031/ 0.279,
+    'pv/solis1/fault_status_2_backup'          : (  60,      0.000, ''      ), #  0.019/ 0.279,
+    'pv/solis1/fault_status_3_battery'         : (  60,      0.000, ''      ), #  0.019/ 0.279,
+    'pv/solis1/fault_status_4_inverter'        : (  60,      0.000, ''      ), #  0.019/ 0.279,
+    'pv/solis1/fault_status_5_inverter'        : (  60,      0.000, ''      ), #  0.019/ 0.279,
+    'pv/solis1/inverter_status'                : (  60,      0.000, ''      ), #  0.031/ 0.279,
+    'pv/solis1/operating_status'               : (  60,      0.000, ''      ), #  0.118/ 0.267,
+    'pv/solis1/rwr_backup_output_enabled'      : (  60,      0.000, ''      ), #  0.019/ 0.273,
+    'pv/solis1/rwr_energy_storage_mode'        : (  60,      0.000, ''      ), #  0.019/ 0.273,
+    'pv/solis1/rwr_power_on_off'               : (  60,      0.000, ''      ), #  0.019/ 0.273,
+
+
+
+
+
 }
 
 for k,v in tuple(MQTT_RATE_LIMIT.items()):
