@@ -15,7 +15,7 @@ log = logging.getLogger(__name__)
 
 class RateLimit:
     __slots__ = "text","value","margin","start_time","period","sum","count","mode","total_count","published_count","is_constant"
-    def __init__( self, margin, period, mode, offset ):
+    def __init__( self, margin, period, mode ):
         self.margin    = margin or 0
         self.start_time = time.monotonic()
         self.period    = period
@@ -61,9 +61,11 @@ class MQTTWrapper:
         self._published_data = {}
         self._subscriptions = {}
         self._startup_time = time.monotonic()
+        self.load_rate_limit()
 
+    def load_rate_limit( self ):
         for topic, (period, margin, mode) in config.MQTT_RATE_LIMIT.items():
-            p = self._published_data[topic] = RateLimit( margin, period, mode, len(self._published_data)%60 )
+            self._published_data[topic] = RateLimit( margin, period, mode )
 
     def write_stats( self, file ):
         maxlen = 1+max( len(topic) for topic in self._published_data.keys() )
@@ -106,7 +108,7 @@ class MQTTWrapper:
             p.reset( value )
 
         else:
-            p = self._published_data[topic] = RateLimit( 0, 60, "", len(self._published_data)%60 )
+            p = self._published_data[topic] = RateLimit( 0, 60, "" )
             p.reset( value )
             log.info( "MQTT: No ratelimit for %s", topic )
             self.mqtt.publish( topic, format( value ), qos=0 )

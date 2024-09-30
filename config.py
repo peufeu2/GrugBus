@@ -57,6 +57,74 @@ MQTT_BUFFER_TEMP = "/mnt/ssd/temp/solarpi/mqtt"
 #   Note: FTDI FT_PROG utility can change serial number in FT2232 EEPROM, which
 #   allows renaming serial ports.
 
+_SERIAL_DEFAULTS = {
+    "timeout"  : 0.5,
+    "retries"  : 1,
+    "baudrate" : 9600,
+    "bytesize" : 8,
+    "parity"   : "N",
+    "stopbits" : 1,
+}
+
+SOLIS = {
+    "solis1":  {
+        "CAN_PORT"   : 'can_1',
+        "COM_PORT"   : "/dev/serial/by-id/usb-FTDI_USB_RS485_1-if01-port0",   # Solis1 COM port
+        "FAKE_METER" : {
+            "port"            : "/dev/serial/by-id/usb-FTDI_USB_RS485_1-if00-port0",   # Solis1 fakemeter
+            "baudrate"        : 9600, 
+            "key"             : "fake_meter_1", 
+            "name"            : "Fake meter for Solis 1", 
+            "modbus_address"  : 1, 
+        },
+        "LOCAL_METER" : { 
+            "SERIAL": _SERIAL_DEFAULTS | { "port" : "/dev/serial/by-id/usb-FTDI_USB_RS485_4-if00-port0" },
+            "PARAMS": {
+                "modbus_addr" : 3, 
+                "key"         : "ms1", 
+                "name"        : "Smartmeter on Solis 1", 
+            }
+        },
+    },
+    "solis2": {
+        "CAN_PORT"   : 'can_2',
+        "COM_PORT"   : "/dev/serial/by-id/usb-FTDI_USB_RS485_2-if01-port0",   # Solis1 COM port
+        "FAKE_METER" : {
+            "port"            : "/dev/serial/by-id/usb-FTDI_USB_RS485_2-if00-port0",   # Solis1 fakemeter
+            "baudrate"        : 9600, 
+            "key"             : "fake_meter_2",
+            "name"            : "Fake meter for Solis 2",
+            "modbus_address"  : 1, 
+        },
+        "LOCAL_METER" : { 
+            "SERIAL": _SERIAL_DEFAULTS | { "port" : "/dev/serial/by-id/usb-FTDI_USB_RS485_4-if01-port0" },
+            "PARAMS": {
+                "modbus_addr" : 3,
+                "key"         : "ms2",
+                "name"        : "Smartmeter on Solis 2",
+            }
+        }
+    }
+}
+
+METER = {
+    "SERIAL": _SERIAL_DEFAULTS | {
+        "port"     : "/dev/serial/by-id/usb-FTDI_USB_RS485_3-if01-port0",
+        "baudrate" : 19200,
+    },
+    "PARAMS": {
+        "modbus_addr" : 1,
+        "key"         : "meter",
+        "name"        : "SDM630 Smartmeter"
+    }
+}
+
+#   Fake meter will ignore data from Master process if it is older than this, in seconds
+FAKE_METER_MAX_AGE = 1.5
+
+
+
+
 COM_PORT_SOLIS1      = "/dev/serial/by-id/usb-FTDI_USB_RS485_1-if01-port0"   # Solis1 COM port
 COM_PORT_FAKE_METER1 = "/dev/serial/by-id/usb-FTDI_USB_RS485_1-if00-port0"   # Solis1 fakemeter
 COM_PORT_LOCALMETER1 = "/dev/serial/by-id/usb-FTDI_USB_RS485_4-if00-port0"   # Main meter
@@ -65,9 +133,7 @@ COM_PORT_SOLIS2      = "/dev/serial/by-id/usb-FTDI_USB_RS485_2-if01-port0"   # S
 COM_PORT_FAKE_METER2 = "/dev/serial/by-id/usb-FTDI_USB_RS485_2-if00-port0"   # Solis1 fakemeter
 COM_PORT_LOCALMETER2 = "/dev/serial/by-id/usb-FTDI_USB_RS485_4-if01-port0"   # Main meter
 
-SOCKET_FAKE_METER    = "/tmp/fake_meter_socket"   # fake meter server socket
-
-COM_PORT_EVSE        = "/dev/serial/by-id/usb-FTDI_USB_RS485_3-if00-port0"   # Main meter
+COM_PORT_EVSE        = "/dev/serial/by-id/usb-FTDI_USB_RS485_3-if00-port0"   # EVSE and its meter
 COM_PORT_METER       = "/dev/serial/by-id/usb-FTDI_USB_RS485_3-if01-port0"   # Main meter
 
 CAN_PORT_BATTERY  = 'can_bat'
@@ -152,137 +218,85 @@ SOLIS_POWERSAVE_CONFIG = {
 ############################################################################
 
 MQTT_RATE_LIMIT = {
-    'pv/solis1/meter/active_power'                : (   1,     50.000, 'avg'   ), #         277/      13177
-    'pv/meter/is_online'                          : (  60,      0.000, ''      ), #          46/      13175
-    'pv/meter/total_power'                        : (   1,     10.000, 'avg'   ), #        3749/      13175
-    'pv/total_pv_power'                           : (   1,     50.000, 'avg'   ), #         792/      13171
-    'pv/total_battery_power'                      : (   1,     50.000, 'avg'   ), #        1209/      13171
-    'pv/total_input_power'                        : (   1,     50.000, 'avg'   ), #         748/      13171
-    'pv/battery_soc'                              : (  60,      0.000, 'avg'   ), #          48/      13171
-    'pv/battery_max_charge_power'                 : (  60,     50.000, 'avg'   ), #          47/      13171
-    'pv/total_grid_port_power'                    : (   1,     50.000, 'avg'   ), #          67/      13171
-    'pv/solis1/fakemeter/active_power'            : (  10,     50.000, 'avg'   ), #          67/      13171
-    'pv/meter/house_power'                        : (   1,     10.000, 'avg'   ), #        3441/      13171
-    'pv/solis1/input_power'                       : (   1,    110.000, 'avg'   ), #         274/      13171
-    'pv/router/excess_avg'                        : (   1,    110.000, 'avg'   ), #         273/      13145
-    'pv/router/battery_min_charge_power'          : (  60,    150.000, 'avg'   ), #         265/      13145
-    'pv/solis1/battery_power'                     : (  1,      25.000, 'avg'   ), #          59/       6771
-    'pv/solis1/battery_voltage'                   : (  10,      0.200, 'avg'   ), #          46/       6771
-    'pv/solis1/battery_current'                   : (  10,      0.500, 'avg'   ), #          58/       6771
-    'pv/solis1/pv_power'                          : (  10,     50.000, 'avg'   ), #          49/       6771
-    'pv/meter/phase_1_power'                      : (   1,     50.000, 'avg'   ), #        1323/       3294
-    'pv/meter/phase_2_power'                      : (   1,     50.000, 'avg'   ), #        1322/       3294
-    'pv/meter/phase_3_power'                      : (   1,     50.000, 'avg'   ), #        1324/       3294
-    'pv/meter/phase_1_line_to_neutral_volts'      : (  10,      1.500, 'avg'   ), #          47/       3294
-    'pv/meter/phase_2_line_to_neutral_volts'      : (  10,      1.500, 'avg'   ), #          48/       3294
-    'pv/meter/phase_3_line_to_neutral_volts'      : (  10,      1.500, 'avg'   ), #          48/       3294
-    'pv/meter/phase_1_current'                    : (  10,      0.100, 'avg'   ), #          56/       3294
-    'pv/meter/phase_2_current'                    : (  10,      0.100, 'avg'   ), #          58/       3294
-    'pv/meter/phase_3_current'                    : (  10,      0.100, 'avg'   ), #         398/       3294
-    'pv/meter/total_export_kwh'                   : (  60,      0.010, 'avg'   ), #          46/       3294
-    'pv/meter/total_import_kwh'                   : (  60,      0.010, 'avg'   ), #          46/       3294
-    'pv/meter/total_power_factor'                 : (  10,      5.000, 'avg'   ), #          45/       3294
-    'pv/meter/total_var'                          : (  10,    100.000, 'avg'   ), #          49/       3294
-    'pv/meter/total_volt_amps'                    : (  10,    100.000, 'avg'   ), #          55/       3294
-    'pv/meter/average_line_current_thd'           : (  60,    100.000, 'avg'   ), #         540/       3293
-    'pv/meter/average_line_to_neutral_volts_thd'  : (  60,     10.000, 'avg'   ), #          45/       3293
-    'pv/evse/charge_state'                        : (  60,      0.000, ''      ), #          46/       2635
-    'pv/evse/current_limit'                       : (  60,      0.000, 'avg'   ), #          46/       2635
-    'pv/evse/energy'                              : (  60,      0.010, ''      ), #          46/       2635
-    'pv/evse/error_code'                          : (  60,      0.000, ''      ), #          45/       2635
-    'pv/evse/socket_state'                        : (  60,      0.000, ''      ), #          46/       2635
-    'pv/evse/meter/active_power'                  : (   1,     50.000, 'avg'   ), #         265/       1342
-    'pv/solis1/meter/export_active_energy'        : (  60,      0.010, ''      ), #          46/       1317
-    'pv/solis1/meter/import_active_energy'        : (  60,      0.010, ''      ), #          46/       1317
-    'pv/evse/meter/voltage'                       : (  10,      1.500, 'avg'   ), #          47/       1208
-    'pv/solis1/mppt1_voltage'                     : (   5,     10.000, 'avg'   ), #          48/        565
-    'pv/solis1/mppt2_voltage'                     : (   5,     10.000, 'avg'   ), #          45/        565
-    'pv/solis1/mppt1_current'                     : (   5,      0.100, 'avg'   ), #          73/        565
-    'pv/solis1/mppt2_current'                     : (   5,      0.100, 'avg'   ), #          70/        565
-    'pv/solis1/mppt1_power'                       : (   5,     50.000, 'avg'   ), #          46/        565
-    'pv/solis1/mppt2_power'                       : (   5,     50.000, 'avg'   ), #          45/        565
-    'pv/solis1/energy_generated_today'            : (  60,      0.010, ''      ), #          48/        565
-    'pv/solis1/energy_generated_yesterday'        : (  60,      0.010, ''      ), #          46/        565
-    'pv/solis1/backup_load_power'                 : (  60,     25.000, 'avg'   ), #          45/        564
-    'pv/solis1/bms_battery_power'                 : (  10,     25.000, 'avg'   ), #          62/        564
-    'pv/solis1/bms_battery_voltage'               : (  10,      0.200, 'avg'   ), #          46/        564
-    'pv/solis1/dc_bus_half_voltage'               : (  10,     10.000, 'avg'   ), #          44/        564
-    'pv/solis1/dc_bus_voltage'                    : (  10,     10.000, 'avg'   ), #          45/        564
-    'pv/solis1/backup_voltage'                    : (  10,     10.000, 'avg'   ), #          45/        564
-    'pv/solis1/phase_a_voltage'                   : (  10,     10.000, 'avg'   ), #          45/        564
-    'pv/solis1/battery_max_charge_current'        : (  60,      0.500, 'avg'   ), #          45/        564
-    'pv/solis1/battery_max_discharge_current'     : (  60,      0.500, 'avg'   ), #          45/        564
-    'pv/solis1/bms_battery_charge_current_limit'  : (  60,      0.500, 'avg'   ), #          45/        564
-    'pv/solis1/bms_battery_current'               : (  60,      0.500, 'avg'   ), #          62/        564
-    'pv/solis1/bms_battery_discharge_current_limit': (  60,      0.500, 'avg'  ), #          45/        564
-    'pv/solis1/battery_charge_energy_today'       : (  60,      0.010, ''      ), #          47/        564
-    'pv/solis1/battery_discharge_energy_today'    : (  60,      0.010, ''      ), #          46/        564
-    'pv/solis1/temperature'                       : (  10,      1.000, ''      ), #          46/        564
-    'pv/solis1/bms_battery_health_soh'            : (  60,      0.000, ''      ), #          46/        564
-    'pv/solis1/bms_battery_soc'                   : (  60,      0.000, ''      ), #          47/        564
-    'pv/solis1/bms_battery_fault_information_01'  : (  60,      0.000, ''      ), #          45/        564
-    'pv/solis1/bms_battery_fault_information_02'  : (  60,      0.000, ''      ), #          45/        564
-    'pv/solis1/rwr_power_on_off'                  : (  60,      0.000, ''      ), #          46/        564
-    'pv/solis1/fault_status_1_grid'               : (  60,      0.000, ''      ), #          45/        564
-    'pv/solis1/fault_status_2_backup'             : (  60,      0.000, ''      ), #          45/        564
-    'pv/solis1/fault_status_3_battery'            : (  60,      0.000, ''      ), #          45/        564
-    'pv/solis1/fault_status_4_inverter'           : (  60,      0.000, ''      ), #          45/        564
-    'pv/solis1/fault_status_5_inverter'           : (  60,      0.000, ''      ), #          45/        564
-    'pv/solis1/inverter_status'                   : (  60,      0.000, ''      ), #          46/        564
-    'pv/solis1/operating_status'                  : (  60,      0.000, ''      ), #          54/        564
-    'pv/solis1/rwr_backup_output_enabled'         : (  60,      0.000, ''      ), #          46/        564
-    'pv/solis1/rwr_energy_storage_mode'           : (  60,      0.000, ''      ), #          46/        564
-    'cmnd/plugs/tasmota_t3/Power'                 : (  60,      0.000, ''      ), #          45/        552
-    'pv/evse/rwr_current_limit'                   : (  60,      0.000, 'avg'   ), #          46/        264
-    'pv/cpu_temp_c'                               : (  60,      1.000, ''      ), #          47/        264
-    'pv/disk_space_gb'                            : (  60,      0.100, ''      ), #          46/        264
-    'pv/cpu_load_percent'                         : (  60,      1.000, 'avg'   ), #         156/        263
-    'pv/evse/meter/export_active_energy'          : ( 600,      0.010, ''      ), #           7/        134
-    'pv/evse/meter/import_active_energy'          : (  60,      0.010, ''      ), #          46/        134
-    'cmnd/plugs/tasmota_t4/Power'                 : (  60,      0.000, ''      ), #           3/          4
-    'cmnd/plugs/tasmota_t2/Power'                 : (  60,      0.000, ''      ), #           3/          4
-    'cmnd/plugs/tasmota_t1/Power'                 : (  60,      0.000, ''      ), #           3/          4
-    'pv/evse/force_charge_until_kWh'              : (  60,      0.000, ''      ), #           2/          2
-    'pv/evse/stop_charge_after_kWh'               : (  60,      0.000, ''      ), #           2/          2
-    'pv/evse/start_excess_threshold_W'            : (  60,      0.000, ''      ), #           1/          1
-    'pv/evse/charge_detect_threshold_W'           : (  60,      0.000, ''      ), #           1/          1
-    'pv/evse/force_charge_minimum_A'              : (  60,      0.000, ''      ), #           1/          1
-    'pv/evse/offset'                              : (  60,      0.000, ''      ), #           1/          1
-    'pv/evse/settle_timeout_ms'                   : (  60,      0.000, ''      ), #           1/          1
-    'pv/evse/command_interval_ms'                 : (  60,      0.000, ''      ), #           1/          1
-    'pv/evse/command_interval_small_ms'           : (  60,      0.000, ''      ), #           1/          1
-    'pv/evse/dead_band_W'                         : (  60,      0.000, ''      ), #           1/          1
-    'pv/evse/stability_threshold_W'               : (  60,      0.000, ''      ), #           1/          1
-    'pv/evse/small_current_step_A'                : (  60,      0.000, ''      ), #           1/          1
-    'pv/evse/control_gain'                        : (  60,      0.000, ''      ), #           1/          1
-    'pv/evse/charge_active'                       : (  60,      0.000, ''      ), #           0/          0
-    'pv/evse/charging_unpaused'                   : (  60,      0.000, ''      ), #           0/          0
-    'pv/evse/current'                             : (  60,      0.200, 'avg'   ), #           0/          0
-    'pv/evse/req_time'                            : (  60,      0.010, 'avg'   ), #           0/          0
-    'pv/evse/req_period'                          : (  60,      0.010, 'avg'   ), #           0/          0
-    'pv/evse/meter/current'                       : (  60,      0.100, 'avg'   ), #           0/          0
+
+    #   PV Controller
+    #
+
+    # Compress/threshold heavily
+    'pv/solis1/fakemeter/lag'                       : (  60,      1.000, 'avg'   ), #  0.026/14.297,
+    'pv/meter/is_online'                            : (  60,      0.000, ''      ), #  0.021/ 5.011,
+
+    # Master process needs every value, don't limit it, so set margin to -1
+    'pv/meter/total_power'                          : (   0,     -1.000, ''      ), #  4.736/ 4.995,
+
+    # This is for debugging only and generates huge traffic, average it
+    'pv/solis1/fakemeter/active_power'              : (   1,     20.000, ''      ), #  4.714/ 4.974,
+
+    # Average voltage
+    'pv/meter/phase_1_line_to_neutral_volts'        : (  10,      1.500, 'avg'   ), #  1.250/ 1.250,
+    'pv/meter/phase_2_line_to_neutral_volts'        : (  10,      1.500, 'avg'   ), #  1.250/ 1.250,
+    'pv/meter/phase_3_line_to_neutral_volts'        : (  10,      1.500, 'avg'   ), #  1.250/ 1.250,
+
+    # Master needs real time current to avoid tripping breakers
+    'pv/meter/phase_1_current'                      : (   1,      1.000, 'avg'   ), #  1.240/ 1.250,
+    'pv/meter/phase_2_current'                      : (   1,      1.000, 'avg'   ), #  1.240/ 1.250,
+    'pv/meter/phase_3_current'                      : (   1,      1.000, 'avg'   ), #  1.250/ 1.250,
+
+    # Per-phase power is useful, don't reduce it too much
+    'pv/meter/phase_1_power'                        : (   1,     50.000, ''      ), #  1.250/ 1.250,
+    'pv/meter/phase_2_power'                        : (   1,     50.000, ''      ), #  1.250/ 1.250,
+    'pv/meter/phase_3_power'                        : (   1,     50.000, ''      ), #  1.250/ 1.250,
+
+    # Only for logging purposes, average it
+    'pv/meter/total_volt_amps'                      : (  10,    100.000, 'avg'      ), #  1.250/ 1.250,
+    'pv/meter/total_var'                            : (  10,    100.000, 'avg'      ), #  1.250/ 1.250,
+    'pv/meter/total_power_factor'                   : (  10,   1000.000, 'avg'      ), #  1.250/ 1.250,
+    'pv/meter/total_phase_angle'                    : (  10,   1000.000, 'avg'      ), #  0.996/ 1.250,
+
+    # Energy: use threshold
+    'pv/meter/total_import_kwh'                     : (  60,      0.01 , ''      ), #  0.074/ 1.250,
+    'pv/meter/total_export_kwh'                     : (  60,      0.01 , ''      ), #  0.085/ 1.250,
+    'pv/meter/total_import_kvarh'                   : (  60,      0.01 , ''      ), #  0.026/ 1.250,
+    'pv/meter/total_export_kvarh'                   : (  60,      0.01 , ''      ), #  0.037/ 1.250,
+    'pv/meter/total_kwh'                            : (  60,      0.01 , ''      ), #  0.079/ 1.245,
+    'pv/meter/total_kvarh'                          : (  60,      0.01 , ''      ), #  0.058/ 1.245,
+
+    # Average these
+    'pv/meter/average_line_to_neutral_volts_thd'    : (  10,      100.0, 'avg'   ), #  1.250/ 1.250,
+    'pv/meter/average_line_current_thd'             : (  10,      100.0, 'avg'   ), #  1.250/ 1.250,
+    'pv/meter/frequency'                            : (  10,      1.000, 'avg'   ), #  1.234/ 1.250,
+
+    # Low rate, publish as-is
+    'pv/disk_space_gb'                              : (  0,      0.000, ''      ), #  0.021/ 0.117,
+    'pv/cpu_temp_c'                                 : (  0,      0.000, ''      ), #  0.085/ 0.101,
+    'pv/cpu_load_percent'                           : (  0,      0.000, ''      ), #  0.090/ 0.095,
+    'pv/solis1/fakemeter/req_per_s'                 : (  0,      0.000, ''      ), #  0.021/ 0.021,
+
 
     #   CANBUS BMS INFORMATION
-    'pv/bms/protection'                       : (  60,      0.000, ''      ),
-    'pv/bms/alarm'                            : (  60,      0.000, ''      ),
-    'pv/bms/max_charge_current'               : (  60,      0.000, ''      ),
-    'pv/bms/max_charge_voltage'               : (  60,      0.000, ''      ),
-    'pv/bms/max_discharge_current'            : (  60,      0.000, ''      ),
-    'pv/bms/soc'                              : (   2,      0.000, ''      ),
-    'pv/bms/soh'                              : (  60,      0.000, ''      ),
-    'pv/bms/power'                            : (   2,      0.000, ''      ),
-    'pv/bms/voltage'                          : (   2,      0.000, ''      ),
-    'pv/bms/current'                          : (   2,      0.000, ''      ),
-    'pv/bms/temperature'                      : (  60,      0.000, ''      ),
-    'pv/bms/max_charge_power'                 : (  60,      0.000, ''      ),
-    'pv/bms/max_discharge_power'              : (  60,      0.000, ''      ),
-    'pv/bms/request_full_charge'              : (  60,      0.000, ''      ),
-    'pv/bms/request_force_charge_2'           : (  60,      0.000, ''      ),
-    'pv/bms/request_force_charge_1'           : (  60,      0.000, ''      ),
-    'pv/bms/discharge_enable'                 : (  60,      0.000, ''      ),
-    'pv/bms/charge_enable'                    : (  60,      0.000, ''      ),
+    #
 
-    'pv/solis1/fakemeter/lag'                     : (  60,      1.000, 'avg'      ),
+    # Publish all on change
+    'pv/bms/soc'                                  : (   2,      0.000, ''      ), #  0.483/ 0.981,
+    'pv/bms/voltage'                              : (   1,      0.000, ''      ), #  0.479/ 0.917,
+    'pv/bms/current'                              : (   1,      0.000, ''      ), #  0.481/ 0.902,
+    'pv/bms/power'                                : (   1,      0.000, ''      ), #  0.482/ 0.889,
+    'pv/bms/max_charge_voltage'                   : (  10,      0.000, ''      ), #  0.017/ 0.516,
+    'pv/bms/max_discharge_current'                : (  10,      0.000, ''      ), #  0.017/ 0.516,
+    'pv/bms/protection'                           : (  10,      0.000, ''      ), #  0.017/ 0.516,
+    'pv/bms/alarm'                                : (  10,      0.000, ''      ), #  0.017/ 0.516,
+    'pv/bms/soh'                                  : (  10,      0.000, ''      ), #  0.017/ 0.516,
+    'pv/bms/request_full_charge'                  : (  10,      0.000, ''      ), #  0.017/ 0.516,
+    'pv/bms/request_force_charge_2'               : (  10,      0.000, ''      ), #  0.017/ 0.516,
+    'pv/bms/request_force_charge_1'               : (  10,      0.000, ''      ), #  0.017/ 0.516,
+    'pv/bms/discharge_enable'                     : (  10,      0.000, ''      ), #  0.017/ 0.516,
+    'pv/bms/charge_enable'                        : (  10,      0.000, ''      ), #  0.017/ 0.516,
+    'pv/bms/max_charge_current'                   : (  10,      0.000, ''      ), #  0.017/ 0.515,
+    'pv/bms/temperature'                          : (  10,      0.000, ''      ), #  0.026/ 0.514,
+    'pv/bms/max_charge_power'                     : (  10,      0.000, ''      ), #  0.062/ 0.510,
+    'pv/bms/max_discharge_power'                  : (  10,      0.000, ''      ), #  0.069/ 0.508,
+    'pv/bms/charge_current_limit'                 : (  10,      0.000, ''      ), #  0.000/ 0.000,
+    'pv/bms/discharge_current_limit'              : (  10,      0.000, ''      ), #  0.000/ 0.000,
 }
 
 for k,v in tuple(MQTT_RATE_LIMIT.items()):
