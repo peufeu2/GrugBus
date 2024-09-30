@@ -162,7 +162,7 @@ class Router( ):
     async def route_coroutine( self ):
         try:
             # wait for startup transient to pass
-            await asyncio.sleep(10)
+            await asyncio.sleep(5)
             await mgr.event_power.wait()
             log.info("Routing enabled.")
             await mgr.evse.initialize()

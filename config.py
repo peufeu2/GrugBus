@@ -357,8 +357,8 @@ MQTT_RATE_LIMIT = {
     'pv/solis1/mppt2_current'                  : (   2,      0.100, 'avg'      ), #  0.019/ 1.825,
     'pv/solis1/mppt1_power'                    : (   2,     25.000, 'avg'      ), #  0.019/ 1.825,
     'pv/solis1/mppt2_power'                    : (   2,     25.000, 'avg'      ), #  0.019/ 1.825,
-    'pv/solis1/mppt1_voltage'                  : (   2,      2.000, 'avg'      ), #  0.453/ 1.813,
-    'pv/solis1/mppt2_voltage'                  : (   2,      2.000, 'avg'      ), #  0.081/ 1.819,
+    'pv/solis1/mppt1_voltage'                  : (  10,      2.000, 'avg'      ), #  0.453/ 1.813,
+    'pv/solis1/mppt2_voltage'                  : (  10,      2.000, 'avg'      ), #  0.081/ 1.819,
 
     'pv/solis1/phase_a_voltage'                : (  60,      2.000, 'avg'      ), #  0.161/ 0.267,
     'pv/solis1/temperature'                    : (  60,      0.200, 'avg'      ), #  0.068/ 0.273,
