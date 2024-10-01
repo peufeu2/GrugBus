@@ -297,6 +297,7 @@ class InsertPooler():
         self.begin_ts = time.time()
         self.insert_floats = []
         self.insert_str    = []
+        self.last = {}
 
     def reset( self, l=0, st=0 ):
         t = time.time()
@@ -313,12 +314,25 @@ class InsertPooler():
         # clickhouse accepts numeric format, so don't bother with ISO timestamp.
         self._add( int(ts*100), k, v )
 
+    def notdupe( self, k, v ):
+        t = time.monotonic()
+        last = self.last.get(k)
+        if last:
+            last_t, last_v = last
+            if last_v == v and t < last_t+1000:     # unit is 10ms
+                return
+        self.last[k] = (t,v)
+        return True
+
     def _add( self, ts, k, v ):
         if isinstance( v, int ):
-            return self.insert_floats.append((k,ts,1,int(v)))
+            if self.notdupe( k,v ):
+                self.insert_floats.append((k,ts,1,v))
+            return
         elif isinstance( v, float ):
             if math.isfinite(v):
-                self.insert_floats.append((k,ts,0,v))  
+                if self.notdupe( k,v ):
+                    self.insert_floats.append((k,ts,0,v))  
             return
         elif isinstance( v, dict ):
             k += "/"
@@ -336,11 +350,13 @@ class InsertPooler():
                     return self._add( ts, k, float(v) )
                 except:
                     if k.endswith("/exception"):
-                        return self.insert_str.append((k,ts,True,v))
+                        if self.notdupe( k,v ):
+                            return self.insert_str.append((k,ts,True,v))
                     elif v.startswith("{"):
                         return self._add( ts, k, orjson.loads( v ))
                     else:
-                        return self.insert_str.append((k,ts,False,v))
+                        if self.notdupe( k,v ):
+                            return self.insert_str.append((k,ts,False,v))
 
     def flush( self ):
         st = time.time()

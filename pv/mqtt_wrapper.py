@@ -14,13 +14,14 @@ import config
 log = logging.getLogger(__name__)
 
 class RateLimit:
-    __slots__ = "text","value","margin","start_time","period","sum","count","mode","total_count","published_count","is_constant"
+    __slots__ = "text","value","last_pub","margin","start_time","period","sum","count","mode","total_count","published_count","is_constant"
     def __init__( self, margin, period, mode ):
         self.margin    = margin or 0
         self.start_time = time.monotonic()
         self.period    = period
         self.text      = None
         self.value     = 0
+        self.last_pub    = 0
         self.sum       = 0
         self.count     = 0
         self.mode      = mode
@@ -28,8 +29,9 @@ class RateLimit:
         self.published_count = 0
         self.is_constant  = False
 
-    def reset( self, value ):
+    def reset( self, value, last_pub=None ):
         self.value = value
+        self.last_pub = last_pub or value
         self.sum = value
         self.count = 1
         self.is_constant = True
@@ -90,7 +92,7 @@ class MQTTWrapper:
         if p := self._published_data.get(topic):
             # If value moved more than p.margin, we must publish. 
             # Previous unpublished values within p.margin are discarded.
-            if abs(value-p.value)>p.margin:
+            if abs(value - p.last_pub)>p.margin:
                 self.mqtt.publish( topic, format(value), qos=0 )
                 p.reset( value )
                 return
@@ -103,9 +105,13 @@ class MQTTWrapper:
                 return
 
             # periodic interval elapsed, so publish it
-            if p.mode == "avg": self.mqtt.publish( topic, format(p.avg()), qos=0 )
-            else:               self.mqtt.publish( topic, format(value), qos=0 )
-            p.reset( value )
+            if p.mode == "avg":
+                pub = p.avg()
+                self.mqtt.publish( topic, format(pub), qos=0 )
+                p.reset( value, pub )
+            else:
+                self.mqtt.publish( topic, format(value), qos=0 )
+                p.reset( value )
 
         else:
             p = self._published_data[topic] = RateLimit( 0, 60, "" )

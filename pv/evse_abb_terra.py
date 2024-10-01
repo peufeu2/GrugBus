@@ -35,13 +35,19 @@ class EVSE( grugbus.SlaveDevice ):
         #
         MQTTSetting( self, "start_excess_threshold_W"   , int  , range( 0, 2001 )            , 1400     , self.setting_updated )  # minimum excess power to start charging, unless overriden by:    
         MQTTSetting( self, "charge_detect_threshold_W"  , int  , range( 0, 2001 )            , 1200     , self.setting_updated )  # minimum excess power to start charging, unless overriden by:    
+
         MQTTSetting( self, "force_charge_minimum_A"     , int  , range( 6, 32 )              , 10       , self.setting_updated )  # guarantee this charge minimum current    
         MQTTSetting( self, "force_charge_until_kWh"     , int  , range( 0, 81 )              , 0        , self.setting_updated )  # until this energy has been delivered (0 to disable force charge)
         MQTTSetting( self, "stop_charge_after_kWh"      , int  , range( 0, 81 )              , 6        , self.setting_updated )
+
         MQTTSetting( self, "offset"                     , int  , range( -10000, 10000 )      , 0        , self.setting_updated )
-        MQTTSetting( self, "settle_timeout_ms"          , int  , range( 0, 10001 )           ,  250     , self.setting_updated )
-        MQTTSetting( self, "command_interval_ms"        , int  , range( 0, 10001 )           ,  500     , self.setting_updated )
-        MQTTSetting( self, "command_interval_small_ms"  , int  , range( 0, 10001 )           , 9000     , self.setting_updated )
+
+        MQTTSetting( self, "settle_timeout_s"           , float, (lambda x: 0.1<=x<=10)     , 1.0   , self.setting_updated )
+        MQTTSetting( self, "command_interval_s"         , float, (lambda x: 0.1<=x<=10)     , 0.5   , self.setting_updated )
+        MQTTSetting( self, "command_interval_small_s"   , float, (lambda x: 1<=x<=10)       , 9     , self.setting_updated )
+        MQTTSetting( self, "up_timeout_s"               , float, (lambda x: 0.1<=x<=20)     , 15    , self.setting_updated )
+        MQTTSetting( self, "end_of_charge_timeout_s"    , float, (lambda x: 0.1<=x<=320)     , 120    , self.setting_updated )
+
         MQTTSetting( self, "dead_band_W"                , int  , range( 0, 501 )             ,  0.5*240 , self.setting_updated )        # dead band for power routing
         MQTTSetting( self, "stability_threshold_W"      , int  , range( 50, 201 )            ,  150     , self.setting_updated )
         MQTTSetting( self, "small_current_step_A"       , int  , ( 1, 2 )                    ,  1       , self.setting_updated )
@@ -85,15 +91,28 @@ class EVSE( grugbus.SlaveDevice ):
         #   In addition, excess PV power needs to be smoothed (see Router class) to avoid freaking out every time a motor is started in the house.
         #   Excess power also needs to settle before it can be used to calculate a new current_limit command.
         #   All this means it will be quite slow.
-        self.command_interval          = Timeout( 10, expired=True ) # different intervals depending on size of current_limit adjustment (see below)
-        self.settle_timeout            = Timeout( 2, expired=True ) # different intervals depending on size of current_limit adjustment (see below)
-        self.command_interval_small    = Timeout( 10, expired=True ) # different intervals depending on size of current_limit adjustment (see below)
+        self.command_interval          = Timeout( self.command_interval_s         .value, expired=True ) # different intervals depending on size of current_limit adjustment (see below)
+        self.settle_timeout            = Timeout( self.settle_timeout_s           .value, expired=True ) # different intervals depending on size of current_limit adjustment (see below)
+        self.command_interval_small    = Timeout( self.command_interval_small_s   .value, expired=True ) # different intervals depending on size of current_limit adjustment (see below)
+        self.up_timeout                = Timeout( self.up_timeout_s               .value, expired=True )      # after reducing current, wait before increasing it again
+
         self.resend_current_limit_tick = Metronome( 10 )    # sometimes the EVSE forgets the setting, got to send it once in a while
         self.unplug_timeout            = Timeout( 3 )
+
+        self.end_of_charge_timeout     = Timeout( self.end_of_charge_timeout_s.value )
 
         self._last_call     = Chrono()
         self.car_ready = None    # if car is plugged in and ready
         self._begin_charge_timestamp = 0                # set when car begins to draw current, for soft start
+
+        # State of this softwate (not the charger)
+        self.state = self.STATE_UNPLUGGED
+
+    STATE_UNPLUGGED = 0
+    STATE_PLUGGED   = 1
+    STATE_CHARGING  = 2
+    STATE_FINISHING = 3
+    STATE_FINISHED  = 4
 
     # sanitize settings
     async def setting_updated( self, setting=None ):
@@ -127,11 +146,19 @@ class EVSE( grugbus.SlaveDevice ):
     async def resume_charge( self ):
         if self.is_charge_paused():
             log.info("EVSE: Resume charge")
+            self.end_of_charge_timeout.reset( self.end_of_charge_timeout_s.value )
         self.local_meter.tick.set( config.POLL_PERIOD_EVSE_METER ) # poll meter more often
         self.start_counter.to_maximum()
         self.stop_counter.to_maximum()
         self.integrator.set(0)
         await self.set_current_limit( self.i_start )
+
+    def advance_state( self, state ):
+        self.state = max( self.state, state )
+
+    def set_state( self, state ):
+        self.state = state
+        self.mqtt.publish_value( self.mqtt_topic+"state",  state )
 
     async def read_coroutine( self ):
         mqtt = self.mqtt
@@ -169,7 +196,6 @@ class EVSE( grugbus.SlaveDevice ):
 
         # TODO: do not trip breaker     mgr.meter.phase_1_current
 
-
         #   Timer to Start Charge
         #
         if self.is_online and self.energy.value < self.force_charge_until_kWh.value:   # Force charge?
@@ -197,8 +223,10 @@ class EVSE( grugbus.SlaveDevice ):
                 log.info("EVSE: EV unplugged. Reset settings.")
                 self.force_charge_until_kWh.set( 0 ) # reset it after unplugging car
                 self.stop_charge_after_kWh .set( 0 )
+                self.set_state( self.STATE_UNPLUGGED )
             return await self.pause_charge( )
-
+        
+        self.advance_state( self.STATE_PLUGGED )
         self.unplug_timeout.reset( 3 )  # sometimes the EVSE crashes or reports "not ready" for one second
 
         # now, EV is plugged in, but not necessarily authorized or willing to charge.
@@ -207,8 +235,13 @@ class EVSE( grugbus.SlaveDevice ):
         #              400     : charging
         # and... it's not necessary to check: if it wants to charge, it will do it automatically.
 
+        # Do not interrupt the final balancing stage
+        if self.state >= self.STATE_FINISHING:
+            return
+
         # Energy limit?
         if (v := self.stop_charge_after_kWh.value) and self.energy.value >= v:
+            self.set_state( self.STATE_FINISHED )
             return await self.pause_charge( )
 
         # Should we start charge ?
@@ -219,6 +252,7 @@ class EVSE( grugbus.SlaveDevice ):
             return
 
         # now we're in charge mode, not paused
+        self.advance_state( self.STATE_CHARGING )
         power   = self.local_meter.active_power.value
         voltage = self.local_meter.voltage.value            # Use car's actual power use
         if power < self.charge_detect_threshold_W.value:
@@ -226,10 +260,18 @@ class EVSE( grugbus.SlaveDevice ):
             # - Charge hasn't started yet, so we shouldn't issue new current adjustments and whack the current limit 
             # into the maximum and then charging would start with a big current spike.
             # - Or it is in the final balancing stage, and we want that to finish cleanly no matter what excess PV is.
-            # In both cases, just do nothing, except prolong the timeout to delay the next current_limit update/
+            # In both cases, just do nothing, except prolong the timeout to delay the next current_limit update
             self.command_interval.reset( 5 )
-            self._begin_charge_timestamp = time.monotonic()
+            if self.end_of_charge_timeout.expired():
+                # Low current for a long time means the charge is finishing
+                # Note unless we specify a maximum energy, it is not possible to know
+                # if charge is finished. The car sometimes wakes up to draw a bit of power.
+                self.advance_state( self.STATE_FINISHING )
+            else:
+                self._begin_charge_timestamp = time.monotonic()
             return
+        else:
+            self.end_of_charge_timeout.reset( self.end_of_charge_timeout_s.value )
 
         # Should we stop charge ? Do not move this check earlier as that would interrupt the final balancing stage
         if self.stop_counter.at_minimum():
@@ -263,6 +305,7 @@ class EVSE( grugbus.SlaveDevice ):
 
         if not delta_i:
             return
+
         # do not constantly send small changes
         if abs( delta_i ) <= self.small_current_step_A.value:
             if not self.command_interval_small.expired():
@@ -277,12 +320,22 @@ class EVSE( grugbus.SlaveDevice ):
         # to stabilize.  This avoids sending a small change at the beginning of a step, then having to wait for
         # the car to update to proces the rest of the step.
         if not self.settle_timeout.expiry:      # Timeout is not set
-            self.settle_timeout.reset( self.settle_timeout_ms.value * 0.001 )   # Set timeout, when it expires we end up at the next line
+            self.settle_timeout.reset( self.settle_timeout_s.value )   # Set timeout, when it expires we end up at the next line
 
-        if self.settle_timeout.expired():     # Execute current limit change
-            await self.set_current_limit( new_limit )
-            self.command_interval.reset( self.command_interval_ms.value * 0.001 )
-            self.command_interval_small.reset( self.command_interval_small_ms.value * 0.001 )  # prevent frequent small updates
+        if not self.settle_timeout.expired():
+            return
+
+        # after reducing current, wait until bringing it back up
+        if delta_i>0 and not self.up_timeout.expired():
+            return
+        else:
+            # we're reducing current
+            self.up_timeout.reset( self.up_timeout_s.value )
+
+        # Execute current limit change
+        await self.set_current_limit( new_limit )
+        self.command_interval.reset( self.command_interval_s.value )
+        self.command_interval_small.reset( self.command_interval_small_s.value )  # prevent frequent small updates
 
     async def set_current_limit( self, current_limit ):
         current_limit = round(current_limit)

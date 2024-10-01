@@ -319,20 +319,20 @@ MQTT_RATE_LIMIT = {
     #   PVMaster 
     #
 
-    'pv/evse/meter/active_power'               : (   1,      2.000, 'avg'      ), #  0.019/ 0.937,
+    'pv/evse/meter/active_power'               : (   1,     50.000, 'avg'      ), #  0.019/ 0.937,
     'pv/evse/rwr_current_limit'                : (  60,      0.000, ''      ), #  0.019/ 0.112,
 
     'pv/evse/energy'                           : (  60,      0.010, ''      ), #  0.019/ 1.012,
-    'pv/evse/meter/export_active_energy'       : (  60,      0.000, ''      ), #  0.019/ 0.099,
+    'pv/evse/meter/export_active_energy'       : (  600,     1.000, ''      ), #  0.019/ 0.099,
     'pv/evse/meter/import_active_energy'       : (  60,      0.010, ''      ), #  0.019/ 0.099,
 
     'pv/evse/meter/voltage'                    : (  60,      1.000, 'avg'      ), #  0.341/ 0.838,
 
-    'pv/meter/house_power'                     : (   1,     25.000, 'avg'      ), #  4.711/ 4.743,
-    'pv/total_battery_power'                   : (   1,     25.000, 'avg'      ), #  1.074/ 4.743,
-    'pv/total_grid_port_power'                 : (   1,     25.000, 'avg'      ), #  4.227/ 4.743,
-    'pv/total_input_power'                     : (   1,     25.000, 'avg'      ), #  4.227/ 4.743,
-    'pv/total_pv_power'                        : (   1,     25.000, 'avg'      ), #  0.019/ 4.755,
+    'pv/meter/house_power'                     : (   1,     40.000, 'avg'      ), #  4.711/ 4.743,
+    'pv/total_battery_power'                   : (   1,     40.000, 'avg'      ), #  1.074/ 4.743,
+    'pv/total_grid_port_power'                 : (   1,     40.000, 'avg'      ), #  4.227/ 4.743,
+    'pv/total_input_power'                     : (   1,     40.000, 'avg'      ), #  4.227/ 4.743,
+    'pv/total_pv_power'                        : (   1,     40.000, 'avg'      ), #  0.019/ 4.755,
 
     'pv/router/excess_avg'                     : (   1,     25.000, 'avg'      ), #  4.463/ 4.463,
 

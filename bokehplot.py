@@ -34,8 +34,8 @@ def nextcolor():
 
 colors = {
     "pv"            : ["#00FF00", "#00C000", "#008000"],
-    "mppt1"         : [None     , "#00FFC0", "#00C080"],
-    "mppt2"         : [None     , "#C0FF00", "#80C000"],
+    "mppt1"         : [None     , nextcolor(), nextcolor()],
+    "mppt2"         : [None     , nextcolor(), nextcolor()],
     "battery"       : ["#FFC080", "#C0A060", "#807040"],
     "bms"           : ["#FF80C0", "#C060A0", "#804070"],
     "fakemeter"     : ["#FFFFFF", "#C0C0C0", "#808080"],
@@ -44,7 +44,9 @@ colors = {
     "soc"           : ["#00FF00", "#00C000", "#008000"],
     "temperature"   : ["cyan"   , "#00C0C0", "#008080"],
 }
-
+color_phase1 = "#FF0000"
+color_phase2 = "#00FF00"
+color_phase3 = "#FFFF00"
 
 # For window title
 # TITLE_DATA = { k:None for k in (
@@ -56,106 +58,98 @@ colors = {
 #   ( topic, unit, label, color, dash, scale, attrs ) < must be tuples
 #
 DATA_STREAMS = [
-    ( "pv/total_pv_power"                                , "W"   , "Total PV"                    , "pv"            , "solid",    1.0 , {}                 , {} ),
-    ( "pv/solis%d/pv_power"                              , "W"   , "S%d PV"                      , "pv"            , "solid",    1.0 , {}                 , {} ),
-    ( "pv/solis%d/mppt1_power"                           , "W"   , "S%d MPPT1"                   , "mppt1"         , "solid",    1.0 , {}                 , {} ),
-    ( "pv/solis%d/mppt2_power"                           , "W"   , "S%d MPPT2"                   , "mppt2"         , "solid",    1.0 , {}                 , {} ),
-    ( "pv/solis%d/mppt1_current"                         , "A"   , "S%d MPPT1"                   , "mppt2"         , "solid",    1.0 , {}                 , {} ),
-    ( "pv/solis%d/mppt2_current"                         , "A"   , "S%d MPPT2"                   , "mppt1"         , "solid",    1.0 , {}                 , {} ),
-    ( "pv/solis%d/mppt1_voltage"                         , "V"   , "S%d MPPT1"                   , "mppt1"         , "solid",    1.0 , {}                 , {} ),
-    ( "pv/solis%d/mppt2_voltage"                         , "V"   , "S%d MPPT2"                   , "mppt2"         , "solid",    1.0 , {}                 , {} ),
+    # PV
+    ( "pv/total_pv_power"                                , "W"   , "Total PV"                    , "pv"            , "solid"    , 1.0 , {}                 , {} ),
+    ( "pv/solis%d/pv_power"                              , "W"   , "S%d PV"                      , "pv"            , "solid"    , 1.0 , {}                 , {} ),
+    ( "pv/solis%d/mppt1_power"                           , "W"   , "S%d MPPT1"                   , "mppt1"         , "solid"    , 1.0 , {}                 , {} ),
+    ( "pv/solis%d/mppt2_power"                           , "W"   , "S%d MPPT2"                   , "mppt2"         , "solid"    , 1.0 , {}                 , {} ),
+    ( "pv/solis%d/mppt1_current"                         , "A"   , "S%d MPPT1"                   , "mppt2"         , "solid"    , 1.0 , {}                 , {} ),
+    ( "pv/solis%d/mppt2_current"                         , "A"   , "S%d MPPT2"                   , "mppt1"         , "solid"    , 1.0 , {}                 , {} ),
+    ( "pv/solis%d/mppt1_voltage"                         , "V"   , "S%d MPPT1"                   , "mppt1"         , "solid"    , 1.0 , {}                 , {} ),
+    ( "pv/solis%d/mppt2_voltage"                         , "V"   , "S%d MPPT2"                   , "mppt2"         , "solid"    , 1.0 , {}                 , {} ),
 
-    ( "pv/total_battery_power"                           , "W"   , "Battery"                     , "battery"       , "solid",    1.0 , {}                 , {} ),
-    ( "pv/solis%d/battery_power"                         , "W"   , "S%d Battery"                 , "battery"       , "solid",    1.0 , {"visible":False}  , {} ),
-    ( "pv/bms/power"                                     , "W"   , "BMS"                         , "bms"       , "solid",    1.0 , {"visible":False}  , {} ),
-    ( "pv/bms/current"                                   , "A"   , "BMS"                         , "bms"       , "solid",    1.0 , {"visible":False}  , {} ),
-    ( "pv/bms/voltage"                                   , "V"   , "BMS"                         , "bms"       , "solid",    1.0 , {"visible":False}  , {} ),
-    # ( "pv/solis%d/battery_dcdc_power"                    , "W"   , "S%d Battery DC/DC"           , "battery"       , "dotted",    1.0 , {"visible":False}  , {} ),
-    ( "pv/solis%d/battery_current"                       , "A"   , "S%d Bat current"             , "battery"       , "solid",    1.0 , {"visible":False}  , {} ),
-    ( "pv/solis%d/battery_max_charge_current"            , "A"   , "S%d Bat max charge"          , "battery"       , "dashed",   1.0 , {"visible":False}  , {} ),
-    ( "pv/solis%d/battery_max_discharge_current"         , "A"   , "S%d Bat max discharge"       , "battery"       , "dotted",   1.0 , {"visible":False}  , {} ),
-    ( "pv/solis%d/bms_battery_current"                   , "A"   , "S%d BMS Battery current"     , "bms"       , "solid",    1.0 , {"visible":False}  , {} ),
-    ( "pv/solis%d/bms_battery_charge_current_limit"      , "A"   , "S%d BMS max charge"          , "bms"       , "dashed",   1.0 , {}                 , {} ),
-    ( "pv/solis%d/bms_battery_discharge_current_limit"   , "A"   , "S%d BMS max discharge"       , "bms"       , "dotted",   1.0 , {}                 , {} ),
-    ( "pv/solis%d/battery_voltage"                       , "V"   , "S%d Bat voltage"             , "battery"       , "solid",    1.0 , {"visible":False}  , {} ),
-    ( "pv/solis%d/bms_battery_soc"                       , "%"   , "S%d Battery SOC"             , "soc"           , "solid",    1.0 , {"visible":False}  , {} ),
-    ( "pv/bms/soc"                                       , "%"   , "BMS SOC"                 , "soc"           , "solid",    1.0 , {}                 , {} ),
-    ( "pv/battery_max_charge_power"                      , "W"   , "Battery Max Charge"          , "battery"       , "dashed",   1.0 , {}                 , {} ),
-    ( "pv/bms/max_charge_power"                          , "W"   , "BMS Max Charge"          , "bms"       , "dashed",   1.0 , {}                 , {} ),
-    ( "pv/bms/max_charge_current"                        , "A"   , "BMS Max Charge"          , "#008000"       , "dashed",   1.0 , {}                 , {} ),
-    ( "pv/bms/charge_enable"                             , "?"   , "BMS Charge Enable"       , "#00FF00"       , "solid",   1.0 , {}                 , {} ),
-    ( "pv/router/battery_min_charge_power"               , "W"   , "Battery Min Charge"          , "battery"       , "dashed",   1.0 , {}                 , {} ),
+    # Meter
+    ( "pv/meter/total_power"                             , "W"   , "Grid"                        , "#FF0000"       , "solid"    , 1.0 , {}                 , {} ),
+    ( "pv/meter/house_power"                             , "W"   , "House"                       , "#8080FF"       , "solid"    , 1.0 , {}                 , {} ),
+    ( "pv/meter/phase_1_power"                           , "W"   , "Phase 1"                     , color_phase1    , "solid"    , 1.0 , {}                 , {} ),
+    ( "pv/meter/phase_2_power"                           , "W"   , "Phase 2"                     , color_phase2    , "solid"    , 1.0 , {}                 , {} ),
+    ( "pv/meter/phase_3_power"                           , "W"   , "Phase 3"                     , color_phase3    , "solid"    , 1.0 , {}                 , {} ),
+    ( "pv/meter/phase_1_line_to_neutral_volts"           , "V"   , "Phase 1"                     , color_phase1    , "solid"    , 1.0 , {}                 , {} ),
+    ( "pv/meter/phase_2_line_to_neutral_volts"           , "V"   , "Phase 2"                     , color_phase2    , "solid"    , 1.0 , {}                 , {} ),
+    ( "pv/meter/phase_3_line_to_neutral_volts"           , "V"   , "Phase 3"                     , color_phase3    , "solid"    , 1.0 , {}                 , {} ),
+    ( "pv/meter/phase_1_current"                         , "A"   , "Phase 1"                     , color_phase1    , "solid"    , 1.0 , {}                 , {} ),
+    ( "pv/meter/phase_2_current"                         , "A"   , "Phase 2"                     , color_phase2    , "solid"    , 1.0 , {}                 , {} ),
+    ( "pv/meter/phase_3_current"                         , "A"   , "Phase 3"                     , color_phase3    , "solid"    , 1.0 , {}                 , {} ),
 
+    ( "pv/meter/frequency"                               , "Hz"  , "Frequency"                   , nextcolor()     , "solid",    1.0, {}, {}),
+    ( "pv/meter/req_period"                              , "s"   , "req_period"                  , "#FFFF00"       , "solid",    1.0 , {}                 , {"aggregate":"max"} ),
 
-    ( "pv/evse/energy"                                   , "kWh" , "EVSE"                        , "#FF80FF"       , "solid",    1.0 , {"visible":False}  , {} ),
-    ( "pv/evse/meter/active_power"                       , "W"   , "EVSE"                        , "#FF80FF"       , "solid",    1.0 , {}                 , {} ),
-    ( "pv/evse/rwr_current_limit"                        , "W"   , "EVSE ILim"                   , "#FFFFFF"       , "solid",  235.0 , {"visible":False}  , {} ),
-
-    ( "pv/evse/command_interval"                         , "s"   , "EVSE timeout L"              , "#FFFFFF"       , "dotted",  1000.0 , {"visible":False}  , {} ),
-    ( "pv/evse/command_interval_small"                   , "s"   , "EVSE timeout S"              , "#808080"       , "dotted",  1000.0 , {"visible":False}  , {} ),
-
-
-    ( "pv/evse/target_power_min"                         , "W"   , "EVSE Min"         , "#808080"       , "dashed", 1.0 , {"visible":False}  , {} ),
-    ( "pv/evse/target_power_max"                         , "W"   , "EVSE Max"         , "#808080"       , "dashed", 1.0 , {"visible":False}  , {} ),
-
-    ( "pv/meter/house_power"                             , "W"   , "House"                       , "#8080FF"       , "solid",    1.0 , {}                 , {} ),
-    ( "pv/meter/phase_1_power"                           , "W"   , "Phase 1"                     , "#FF0000"       , "solid",    1.0 , {}                 , {} ),
-    ( "pv/meter/phase_2_power"                           , "W"   , "Phase 2"                     , "#00FF00"       , "solid",    1.0 , {}                 , {} ),
-    ( "pv/meter/phase_3_power"                           , "W"   , "Phase 3"                     , "#FFFF00"       , "solid",    1.0 , {}                 , {} ),
-    ( "pv/meter/phase_1_line_to_neutral_volts"           , "V"   , "Phase 1"                     , "#FF0000"       , "solid",    1.0 , {}                 , {} ),
-    ( "pv/meter/phase_2_line_to_neutral_volts"           , "V"   , "Phase 2"                     , "#00FF00"       , "solid",    1.0 , {}                 , {} ),
-    ( "pv/meter/phase_3_line_to_neutral_volts"           , "V"   , "Phase 3"                     , "#FFFF00"       , "solid",    1.0 , {}                 , {} ),
-    ( "pv/meter/total_power"                             , "W"   , "Grid"                        , "#FF0000"       , "solid",    1.0 , {}                 , {} ),
-    ( "pv/router/excess_avg"                             , "W"   , "Route excess"                , "#FF00FF"       , "solid",   -1.0 , {"visible":False}  , {} ),
-    ( "pv/router/excess_avg_nobat"                       , "W"   , "Route excess nobat"          , "#FF00FF"       , "solid",   -1.0 , {"visible":False}  , {} ),
+    # Totals across inverters
     ( "pv/total_input_power"                             , "W"   , "Battery Proxy"               , "input"         , "solid",    1.0 , {}                 , {} ),
     ( "pv/total_grid_port_power"                         , "W"   , "Grid Ports"                  , "grid_port"     , "solid",    1.0 , {}                 , {} ),
-    ( "pv/meter/req_period"                              , "s"   , "req_period"                  , "#FFFF00"       , "solid",    1.0 , {}                 , {"aggregate":"max"} ),
+    ( "pv/total_battery_power"                           , "W"   , "Battery"                     , "battery"       , "solid"    , 1.0 , {}                 , {} ),
+    ( "pv/battery_max_charge_power"                      , "W"   , "Battery Max Charge"          , "battery"       , "dashed"   , 1.0 , {}                 , {} ),
+
+    # Per-inverter data
     ( "pv/solis%d/fakemeter/active_power"                , "W"   , "S%d FakeMeter"               , "fakemeter"     , "solid",    1.0 , {"visible":False}  , {} ),
     ( "pv/solis%d/input_power"                           , "W"   , "S%d Battery Proxy"           , "input"         , "solid",    1.0 , {}                 , {} ),
     ( "pv/solis%d/meter/active_power"                    , "W"   , "S%d Grid port"               , "grid_port"     , "solid",    1.0 , {}                 , {} ),
   # ( "pv/solis%d/dc_bus_voltage"                        , "V"   , "S%d DC Bus"                  , (cat20,8)       , "solid",    1.0 , {}                 , {} ),
     ( "pv/solis%d/temperature"                           , "°C"  , "S%d Temperature"             , "temperature"   , "solid",    1.0 , {}                 , {} ),
-    ( "pv/bms/temperature"                               , "°C"  , "Battery Temperature"         , "battery"       , "solid",    1.0 , {}                 , {} ),
-    ( "pv/solis%d/energy_generated_today"                , "kWh" , "S%d Energy generated"        , "pv"            , "solid",    1.0 , {}                 , {"mode":"delta"} ),
+    # ( "pv/solis%d/energy_generated_today"                , "kWh" , "S%d Energy generated"        , "pv"            , "solid",    1.0 , {}                 , {"mode":"delta"} ),
     ( "pv/evse/meter/import_active_energy"               , "kWh" , "EVSE meter"                  , "#FFC0FF"       , "solid",    1.0 , {}                 , {"mode":"delta"} ),
     ( "pv/solis%d/meter/import_active_energy"            , "kWh" , "S%d Import"                  , "input"         , "solid",    1.0 , {}                 , {"mode":"delta"} ),
     ( "pv/solis%d/meter/export_active_energy"            , "kWh" , "S%d Export"                  , "grid_port"     , "solid",    1.0 , {}                 , {"mode":"delta"} ),
 
+    # Router
+    ( "pv/router/excess_avg"                             , "W"   , "Route excess"                , "#FF00FF"       , "solid",   -1.0 , {"visible":False}  , {} ),
+    ( "pv/router/excess_avg_nobat"                       , "W"   , "Route excess nobat"          , "#FF00FF"       , "solid",   -1.0 , {"visible":False}  , {} ),
+
+    # Battery (inverter side)
+    ( "pv/solis%d/battery_power"                         , "W"   , "S%d Battery"                 , "battery"       , "solid"    , 1.0 , {"visible":False}  , {} ),
+    ( "pv/solis%d/battery_current"                       , "A"   , "S%d Bat current"             , "battery"       , "solid"    , 1.0 , {"visible":False}  , {} ),
+    ( "pv/solis%d/battery_voltage"                       , "V"   , "S%d Bat voltage"             , "battery"       , "solid"    , 1.0 , {"visible":False}  , {} ),
+
+    ( "pv/solis%d/battery_max_charge_current"            , "A"   , "S%d Bat max charge"          , "battery"       , "dashed",   1.0 , {"visible":False}  , {} ),
+    ( "pv/solis%d/battery_max_discharge_current"         , "A"   , "S%d Bat max discharge"       , "battery"       , "dotted",   1.0 , {"visible":False}  , {} ),
+    # ( "pv/solis%d/bms_battery_charge_current_limit"      , "A"   , "S%d BMS max charge"          , "bms"       , "dashed",   1.0 , {}                 , {} ),
+    # ( "pv/solis%d/bms_battery_discharge_current_limit"   , "A"   , "S%d BMS max discharge"       , "bms"       , "dotted",   1.0 , {}                 , {} ),
+
+    # Solis1 history
+    ( "pv/solis1/bms_battery_current"                   , "A"   , "S%d BMS Battery current"     , "bms"       , "solid",    1.0 , {"visible":False}  , {} ),
+    ( "pv/solis1/bms_battery_soc"                       , "%"   , "S%d Battery SOC"             , "soc"           , "solid",    1.0 , {"visible":False}  , {} ),
+
+    # BMS
+    ( "pv/bms/power"                                     , "W"   , "BMS"                         , "bms"           , "solid"    , 1.0 , {"visible":False}  , {} ),
+    ( "pv/bms/max_charge_power"                          , "W"   , "BMS Max Charge"              , "bms"           , "dashed"   , 1.0 , {}                 , {} ),
+    ( "pv/bms/current"                                   , "A"   , "BMS"                         , "bms"           , "solid"    , 1.0 , {"visible":False}  , {} ),
+    ( "pv/bms/max_charge_current"                        , "A"   , "BMS Max Charge"              , "#008000"       , "dashed"   , 1.0 , {}                 , {} ),
+    ( "pv/bms/voltage"                                   , "V"   , "BMS"                         , "bms"           , "solid"    , 1.0 , {"visible":False}  , {} ),
+    ( "pv/bms/soc"                                       , "%"   , "BMS SOC"                     , "soc"           , "solid"    , 1.0 , {}                 , {} ),
+    ( "pv/bms/charge_enable"                             , "?"   , "BMS Charge Enable"           , "#00FF00"       , "solid"    , 1.0 , {}                 , {} ),
+    ( "pv/bms/temperature"                               , "°C"  , "Battery Temperature"         , "battery"       , "solid",    1.0 , {}                 , {} ),
+    ( "pv/bms/max_charge_voltage"  , "V", "Bat max_charge_voltage", nextcolor, "solid", 1.0, {}, {} ),
+    ( "pv/bms/protection"          , "?", "Bat protection",         nextcolor, "solid", 1.0, {}, {} ),
+    ( "pv/bms/alarm"               , "?", "Bat alarm",              nextcolor, "solid", 1.0, {}, {} ),
+
+    # Router
+    ( "pv/router/battery_min_charge_power"               , "W"   , "Battery Min Charge"          , "battery"       , "dashed",   1.0 , {}                 , {} ),
+
+    # EVSE
+    ( "pv/evse/energy"                                   , "kWh" , "EVSE"                        , "#FF80FF"       , "solid",    1.0 , {"visible":False}  , {} ),
+    ( "pv/evse/meter/active_power"                       , "W"   , "EVSE"                        , "#FF80FF"       , "solid",    1.0 , {}                 , {} ),
+    ( "pv/evse/rwr_current_limit"                        , "W"   , "EVSE ILim"                   , "#FFFFFF"       , "solid",  235.0 , {"visible":False}  , {} ),
+    ( "pv/evse/state"                                    , ""    , "EVSE State"                  , "#FF80FF"       , "solid",    1.0 , {"visible":False}  , {} ),
+
+    # ( "pv/evse/command_interval"                         , "s"   , "EVSE timeout L"              , "#FFFFFF"       , "dotted",  1000.0 , {"visible":False}  , {} ),
+    # ( "pv/evse/command_interval_small"                   , "s"   , "EVSE timeout S"              , "#808080"       , "dotted",  1000.0 , {"visible":False}  , {} ),
+
+    # Pi
     ( "pv/cpu_temp_c"                                    , "°C"  , "Pi CPU Temperature"          , "#FF0000"       , "solid",    1.0 , {}                 , {} ),
     ( "pv/cpu_load_percent"                              , "%"   , "Pi CPU Load"                 , "#00FF00"       , "solid",    1.0 , {}                 , {} ),
     ( "pv/disk_space_gb"                                 , "GB"  , "Pi Disk Space"               , "#0080FF"       , "solid",    1.0 , {}                 , {} ),
-                
-    # ( "pv/solis1/llc_bus_voltage"                        , "V"  , "LLC BUS"               , "#FF80FF"       , "solid",    1.0 , {}                 , {} ),
-    # ( "pv/solis%d/inverter_status"                       , "?"  , "S%d Status"                      , nextcolor()       , "solid",    1.0 , {}                 , {} ),
 
-    # ( "pv/solis1/inverting_power_or_rectifying_power"       , "?", "inverting_power_or_rectifying_power"       , nextcolor, "solid", 1.0, {}, {} ),
-    # ( "pv/solis1/grid_port_power"                           , "?", "grid_port_power"                           , nextcolor, "solid", 1.0, {}, {} ),
-    # ( "pv/solis1/b_limit_operation"                         , "?", "b_limit_operation"                         , nextcolor, "solid", 1.0, {}, {} ),
-    # ( "pv/solis1/rwr_power_limit_setting"                   , "?", "43052 rwr_power_limit_setting"                   , nextcolor, "solid", -60, {}, {} ),
-    # ( "pv/solis1/rwr_power_limit_switch"                    , "?", "rwr_power_limit_switch"                    , nextcolor, "solid", 1.0, {}, {} ),
-    # ( "pv/solis1/rwr_actual_power_limit_adjustment_value"   , "?", "rwr_actual_power_limit_adjustment_value"   , nextcolor, "solid", 1.0, {}, {} ),
-    # ( "pv/solis1/limit_active_power_adjustment_rated_power" , "?", "limit_active_power_adjustment_rated_power" , nextcolor, "solid", 1.0, {}, {} ),
-    # ( "pv/solis1/actual_power_limit"                        , "?", "33104 actual_power_limit"                        , nextcolor, "solid", -0.6, {}, {} ),
-    # ( "pv/solis1/backup_load_power"                          , "?", "backup_load_power"                        , nextcolor, "solid", 1.0, {}, {} ),
-     # ( "pv/solis1/operating_status"                       , "Bool"  , "Limit"               , "#FFFFFF"       , "solid",    1.0 , {}                 , {"func":lambda x:3000*(x.astype(np.int64)&64).astype(bool)} ),
-                
-    # ( "pv/solis1/battery_dcdc_enable"                    , "V"  , "battery_dcdc_enable"    , "#FFFF00"       , "solid",    1.0 , {}                 , {} ),
-    # ( "pv/solis1/b_battery_status"                       , "V"  , "b_battery_status"                   , "#00FF00"       , "solid",    1.0 , {}                 , {} ),
-    # ( "pv/solis1/b_limit_operation"                      , "V"  , "b_limit_operation"                  , "#FF00FF"       , "solid",    1.0 , {}                 , {} ),
-    # ( "pv/solis1/battery_dcdc_current"                   , "V"  , "battery_dcdc_current"   , "#FF80FF"       , "solid",    1.0 , {}                 , {} ),
-
-# ( "pv/solis%d/reserved_33192"               , "?", "S%dR33192"              , nextcolor, "solid", 1.0, {}, {} ),
-# ( "pv/solis%d/reserved_33191"               , "?", "S%d 33191"              , nextcolor, "solid", 1.0, {}, {} ),
-( "pv/solis%d/battery_current_direction"    , "?", "S%d current_direction"  , nextcolor, "solid", 1.0, {}, {} ),
-
-
-( "pv/bms/max_charge_voltage"  , "V", "Bat max_charge_voltage", nextcolor, "solid", 1.0, {}, {} ),
-( "pv/bms/protection"          , "?", "Bat protection",         nextcolor, "solid", 1.0, {}, {} ),
-( "pv/bms/alarm"               , "?", "Bat alarm",              nextcolor, "solid", 1.0, {}, {} ),
-
-
-
+    # Heating                
     ( "chauffage/depart"             , "°C", "Départ"                   , "#FF0000"  , "solid",   1.0             , {"visible":False}, { }),
     ( "chauffage/retour"             , "°C", "Retour"                   , "#FF0000"  , "solid",   1.0             , {"visible":False}, { }),
     ( "chauffage/pac_depart"         , "°C", "PAC départ"               , "#FF8000"  , "solid",   1.0             , {"visible":False}, { }),
@@ -179,10 +173,24 @@ DATA_STREAMS = [
     ( "chauffage/pac_rejet"          , "°C", "PAC rejet"                , "#008080"  , "solid",   1.0             , {"visible":False}, { }),
     ( "chauffage/rc_pf_che"          , "°C", "RC Chauffe-eau"           , "#FF8000"  , "solid",   1.0             , {"visible":False}, { }),
 
+    # Broker
     ( "$SYS/broker/load/messages/received/1min" , "msg/s", "MQTT received"    , "#00FF00"  , "solid",      1/60             , {}, { }),
     ( "$SYS/broker/load/messages/sent/1min"     , "msg/s", "MQTT sent"        , "#FF0080"  , "solid",      1/60             , {}, { }),
     ( "$SYS/broker/load/bytes/received/1min"    , "kB/s",  "MQTT received"       , "#00FF00"  , "solid",   1/(60*1024)      , {}, { }),
     ( "$SYS/broker/load/bytes/sent/1min"        , "kB/s",  "MQTT sent"           , "#FF0080"  , "solid",   1/(60*1024)      , {}, { }),
+
+    # SQL
+    # ( 
+    # SQLtopic( 
+    #     """
+    #     select toStartOfMinute(ts), max(kWh) from (
+    #         select ts, sum(value*duration/3600000000) over (order by ts) kWh from (
+    #             select ts, lagInFrame(value) over (order by ts) value, age('ms', lagInFrame(ts,1) over (order by ts), ts) duration 
+    #             from mqtt_float where topic='pv/meter/total_power' and ts > '2024-10-01 00:00:00' order by ts
+    #         ) where value>0
+    #     ) group by 1 order by 1;
+    #     """
+    # ), "kWh" , "Grid import"                        , "#FF0000"       , "solid",    1.0 , {"visible":False}  , {} ),
 
 
 ]
@@ -197,14 +205,9 @@ PLOT_LAYOUTS = [
                 "pv/total_pv_power"                              ,
                 "pv/meter/house_power"                           ,
                 "pv/meter/total_power"                           ,
-                "pv/total_battery_power"                         ,
                 "pv/bms/power" ,
-                "pv/total_input_power"                           ,
                 "pv/total_grid_port_power"                       ,
                 "pv/evse/meter/active_power"                     ,
-                # "pv/solis%d/pv_power"                            ,
-                # "pv/solis1/battery_power",
-
             ],[
                 "pv/bms/soc"                                 ,
             ]
@@ -219,28 +222,25 @@ PLOT_LAYOUTS = [
                 "pv/total_input_power"                           ,
                 "pv/total_battery_power"                           ,
                 "pv/battery_max_charge_power"                           ,
-                "pv/bms/max_charge_power"                        ,
+                # "pv/bms/max_charge_power"                        ,
                 "pv/router/battery_min_charge_power"             ,
                 "pv/evse/meter/active_power"                     ,
                 "pv/evse/rwr_current_limit"                      ,
                 "pv/router/excess_avg"                           ,
                 # "pv/router/excess_avg_nobat"                     ,
-                "pv/evse/target_power_min"                       ,
-                "pv/evse/target_power_max"                       ,
-                "pv/evse/command_interval",
-                "pv/evse/command_interval_small",
+            ],
+            [
+                "pv/evse/state",
             ]
         ]
     ],[ "Strings", 
         [
-            # [
-            #     "pv/total_pv_power"                              ,
-            #     "pv/solis%d/pv_power"                            ,
-            # ],
             [
+                "pv/total_pv_power"                              ,
+                "pv/solis%d/pv_power"                            ,
+            ],[
                 "pv/solis1/mppt1_power"                          ,
                 "pv/solis1/mppt2_power"                          ,
-            ],[
                 "pv/solis2/mppt1_power"                          ,
                 "pv/solis2/mppt2_power"                          ,
             ],[
@@ -258,18 +258,29 @@ PLOT_LAYOUTS = [
                 "pv/total_pv_power"                              ,
                 "pv/meter/house_power"                           ,
                 "pv/meter/total_power"                           ,
-                "pv/total_input_power"                           ,
-                "pv/evse/meter/active_power"                     ,
+                "pv/total_battery_power"                         ,
             ],[
                 "pv/meter/phase_1_power"                         ,
                 "pv/meter/phase_2_power"                         ,
                 "pv/meter/phase_3_power"                         ,
-                "pv/solis%d/meter/active_power"                  ,
             ],[
-                "pv/solis%d/input_power"                         ,
+                "pv/solis%d/meter/active_power"                  ,
                 "pv/solis%d/battery_power"                         ,
-                # "pv/solis%d/battery_dcdc_power"                  ,
                 "pv/solis%d/pv_power"                            ,
+            ]
+        ]
+    ],[ "Grid",
+        [
+            [
+                "pv/meter/phase_1_line_to_neutral_volts",
+                "pv/meter/phase_2_line_to_neutral_volts",
+                "pv/meter/phase_3_line_to_neutral_volts",
+            ],[
+                "pv/meter/phase_1_current",
+                "pv/meter/phase_2_current",
+                "pv/meter/phase_3_current",
+            ],[
+                "pv/meter/frequency",
             ]
         ]
     ],[ "Energy", 
@@ -365,7 +376,7 @@ PLOT_LAYOUTS = [
 
 def insert_inverters_data_streams( l ):
     for topic, unit, label, color, dash, scale, bokeh_attrs, attrs in l:
-        if "%d" in topic:
+        if isinstance( topic, str ) and "%d" in topic:
             for solis, _ in (1,"dashed"),(2,"dotted"):
                 if c:=colors.get(color):
                     c = c[solis]
@@ -597,7 +608,7 @@ class PVDashboard():
                     active_drag   = "xpan",
                     active_scroll = "xwheel_zoom"
                 )
-                if len(tabs)==0 and len(rows)==1:
+                if len(tabs) in (0,1) and len(rows)==1:
                     fig.sizing_mode = "stretch_width"
                     fig.height_policy = "fixed"
                     fig.height = 200
@@ -764,11 +775,15 @@ class PVDashboard():
         for ph in self.get_redraw_list():
             ds = ph.line.data_source
             stream  = ph.stream
+            if stream.x[-1] == ph.last_update:  # nothing new to add
+                continue
+            last_update = ph.last_update
             ph.last_update = stream.x[-1]
+
             x = np.array( stream.x )
             y = np.array( stream.y )
-            x = np.hstack((x, [now]   ))      # add last point to finish line on right edge of screen
-            y = np.hstack((y, [y[-1]] ))
+            # x = np.hstack((x, [now]   ))      # add last point to finish line on right edge of screen
+            # y = np.hstack((y, [y[-1]] ))
 
             trange = self.get_t_range()
             if trange:
@@ -778,8 +793,18 @@ class PVDashboard():
                 x = x[start_idx:]                   
                 y = y[start_idx:]
 
-            ds.data = {"x":x, "y":y}
-            ds.trigger('data', ds.data, ds.data )
+                if (not len(ds.data["x"])) or ds.data["x"][0] > x[0]:
+                    # send enough data to fill screen
+                    ds.data = {"x":x, "y":y}
+                    ds.trigger('data', ds.data, ds.data )
+                else:
+                    # stream updates
+                    prev_idx = np.searchsorted( x, last_update, side="right" )
+                    print( stream.topic, "add", ds.data["x"][-3:], x[prev_idx:] )
+                    ds.stream( {"x":x[prev_idx:], "y":y[prev_idx:] }, rollover=len(stream.x) )
+            else:
+                ds.data = {"x":x, "y":y}
+                ds.trigger('data', ds.data, ds.data )
 
     def get_t_range( self ):
         fig = self.figs[0]
