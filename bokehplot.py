@@ -120,7 +120,7 @@ DATA_STREAMS = [
     ( "pv/solis1/bms_battery_soc"                       , "%"   , "S%d Battery SOC"             , "soc"           , "solid",    1.0 , {"visible":False}  , {} ),
 
     # BMS
-    ( "pv/bms/power"                                     , "W"   , "BMS"                         , "bms"           , "solid"    , 1.0 , {"visible":False}  , {} ),
+    ( "pv/bms/power"                                     , "W"   , "BMS"                         , "bms"           , "solid"    , 1.0 , {}  , {} ),
     ( "pv/bms/max_charge_power"                          , "W"   , "BMS Max Charge"              , "bms"           , "dashed"   , 1.0 , {}                 , {} ),
     ( "pv/bms/current"                                   , "A"   , "BMS"                         , "bms"           , "solid"    , 1.0 , {"visible":False}  , {} ),
     ( "pv/bms/max_charge_current"                        , "A"   , "BMS Max Charge"              , "#008000"       , "dashed"   , 1.0 , {}                 , {} ),

@@ -66,6 +66,7 @@ class MQTTWrapper:
         self.load_rate_limit()
 
     def load_rate_limit( self ):
+        log.info("MQTT: Load rate limits")
         for topic, (period, margin, mode) in config.MQTT_RATE_LIMIT.items():
             self._published_data[topic] = RateLimit( margin, period, mode )
 

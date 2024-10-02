@@ -20,6 +20,7 @@ from grugbus.devices import Eastron_SDM120, Acrel_1_Phase
 import pv.meters
 
 from pv.mqtt_wrapper import MQTTWrapper, MQTTSetting, MQTTVariable
+import pv.reload, pv.controller_coroutines
 
 from misc import *
 
@@ -108,11 +109,16 @@ class FakeSmartmeter( grugbus.LocalServer ):
         slave_ctx._on_getValues = self._on_getValues
         slave_ctx.modbus_address = modbus_address
 
+        # only make registers we actually need
+        keys = { "active_power","voltage","current","apparent_power","reactive_power","power_factor",
+                 "frequency","import_active_energy","export_active_energy"}
+
         # Use grugbus for data type translation
-        super().__init__( slave_ctx, modbus_address, key, name, meter_type.MakeRegisters() )
+        super().__init__( slave_ctx, modbus_address, key, name, [ reg for reg in meter_type.MakeRegisters() if reg.key in keys ])
 
         # Create Server context and assign previously created datastore to smartmeter_modbus_address, this means our 
         # local server will respond to requests to this address with the contents of this datastore
+
         self.server_ctx = ModbusServerContext( { modbus_address : slave_ctx }, single=False )
 
         self.port = port
@@ -128,7 +134,6 @@ class FakeSmartmeter( grugbus.LocalServer ):
         self.last_query_time = 0
         self.data_timestamp = 0
         self.error_count = 0
-        self.error_tick = Metronome( 10 )
         self.stat_tick  = Metronome( 60 )
         self.request_count = 0
         self.lags = []
@@ -154,18 +159,16 @@ class FakeSmartmeter( grugbus.LocalServer ):
 
         # Do not serve stale data
         if self.is_online:
-            if age > 2:
+            if age > 1.5:
                 self.error_count += 1
-                if self.error_tick.ticked():
-                    log.error( "FakeMeter %s: data is too old (%f seconds) [%d errors]", self.key, age, self.error_count )
-                    self.active_power.value = 0 # Prevent runaway inverter output power
-                if age > 10.0:
+                log.error( "FakeMeter %s: data is too old (%f seconds) [%d errors]", self.key, age, self.error_count )
+                self.active_power.value = 0 # Prevent runaway inverter output power
+                if age > 2.5:
                     log.error( "FakeMeter %s: shutting down", self.key )
                     self.is_online = False
 
-        # print( self.is_online, self.active_power.value )
-
-        return self.is_online
+        # call reloadable routine to tweak values if necessary
+        return self.is_online and pv.controller_coroutines.fakemeter_on_getvalues( self )
         # If return value is False, pymodbus server will abort the request, which the inverter
         # correctly interprets as the meter being offline
 
@@ -236,6 +239,8 @@ class Controller:
             for key, cfg in config.SOLIS.items()
         }
 
+        pv.reload.add_module_to_reload( "config", self.mqtt.load_rate_limit ) # reload rate limit configuration
+
         #   Launch it
         #
         try:
@@ -245,7 +250,7 @@ class Controller:
                 tg.create_task( self.log_coroutine( "Read: main meter",          self.meter.read_coroutine() ))
                 tg.create_task( self.log_coroutine( "Fakemeter: update fields",  self.update_coroutine( ) ))
                 tg.create_task( self.log_coroutine( "sysinfo",                   self.sysinfo_coroutine() ))
-                tg.create_task( self.log_coroutine( "Reload python modules",     self.reload_coroutine() ))
+                tg.create_task( self.log_coroutine( "Reload python modules",     pv.reload.reload_coroutine() ))
         except (KeyboardInterrupt, CancelledError):
             print("Terminated.")
         finally:
@@ -351,31 +356,6 @@ class Controller:
                 log.exception( "Sysinfo" )
 
             await asyncio.sleep(10)
-
-
-    ########################################################################################
-    #
-    #       Reload code when changed
-    #
-    ########################################################################################
-    async def reload_coroutine( self ):
-        mtimes = {}
-
-        while True:
-            for module in config,:
-                await asyncio.sleep(1)
-                try:
-                    fname = Path( module.__file__ )
-                    mtime = fname.mtime
-                    if (old_mtime := mtimes.get( fname )) and old_mtime < mtime:
-                        log.info( "Reloading: %s", fname )
-                        importlib.reload( module )
-                        if module is config:
-                            self.mqtt.load_rate_limit() # reload rate limit configuration
-
-                    mtimes[ fname ] = mtime
-                except Exception:
-                    log.exception("Reload coroutine:")
 
     async def log_coroutine( self, title, fut ):
         log.info("Start:"+title )
