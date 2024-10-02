@@ -101,12 +101,14 @@ class EVSE( grugbus.SlaveDevice ):
 
         self.end_of_charge_timeout     = Timeout( self.end_of_charge_timeout_s.value )
 
+        self.busy_timeout = Timeout( 8 )
+
         self._last_call     = Chrono()
         self.car_ready = None    # if car is plugged in and ready
-        self._begin_charge_timestamp = 0                # set when car begins to draw current, for soft start
+        self.soft_start_timestamp = 0                # set when car begins to draw current, for soft start
 
         # State of this softwate (not the charger)
-        self.state = self.STATE_UNPLUGGED
+        self.set_state( self.STATE_UNPLUGGED )
 
     STATE_UNPLUGGED = 0
     STATE_PLUGGED   = 1
@@ -123,6 +125,8 @@ class EVSE( grugbus.SlaveDevice ):
             elif setting is stop:   stop.value = force.value = min( stop.value, force.value )
             stop.publish()
             force.publish()
+        if setting in (force, stop):    # if it was updated, go back from finished to charging
+            self.set_state( min( self.state, STATE_CHARGING ))
 
     # Async stuff that can't be in constructor
     async def initialize( self ):
@@ -154,7 +158,7 @@ class EVSE( grugbus.SlaveDevice ):
         await self.set_current_limit( self.i_start )
 
     def advance_state( self, state ):
-        self.state = max( self.state, state )
+        self.set_state( max( self.state, state ) )
 
     def set_state( self, state ):
         self.state = state
@@ -190,8 +194,8 @@ class EVSE( grugbus.SlaveDevice ):
         time_since_last_call = min( 1, self._last_call.lap() )
 
         excess += self.offset.value
-        sys.stdout.write( "\revse: exc %-4d start %-2d stop %-2d power %d " % (excess, self.start_counter.value, self.stop_counter.value, self.local_meter.active_power.value) )
-        sys.stdout.flush()
+        # sys.stdout.write( "\revse: exc %-4d start %-2d stop %-2d power %d " % (excess, self.start_counter.value, self.stop_counter.value, self.local_meter.active_power.value) )
+        # sys.stdout.flush()
 
 
         # TODO: do not trip breaker     mgr.meter.phase_1_current
@@ -224,7 +228,8 @@ class EVSE( grugbus.SlaveDevice ):
                 self.force_charge_until_kWh.set( 0 ) # reset it after unplugging car
                 self.stop_charge_after_kWh .set( 0 )
                 self.set_state( self.STATE_UNPLUGGED )
-            return await self.pause_charge( )
+                await self.pause_charge( )
+            return 
         
         self.advance_state( self.STATE_PLUGGED )
         self.unplug_timeout.reset( 3 )  # sometimes the EVSE crashes or reports "not ready" for one second
@@ -241,7 +246,7 @@ class EVSE( grugbus.SlaveDevice ):
 
         # Energy limit?
         if (v := self.stop_charge_after_kWh.value) and self.energy.value >= v:
-            self.set_state( self.STATE_FINISHED )
+            self.advance_state( self.STATE_FINISHED )
             return await self.pause_charge( )
 
         # Should we start charge ?
@@ -262,14 +267,12 @@ class EVSE( grugbus.SlaveDevice ):
             # - Or it is in the final balancing stage, and we want that to finish cleanly no matter what excess PV is.
             # In both cases, just do nothing, except prolong the timeout to delay the next current_limit update
             self.command_interval.reset( 5 )
+            self.soft_start_timestamp = time.monotonic()
             if self.end_of_charge_timeout.expired():
                 # Low current for a long time means the charge is finishing
                 # Note unless we specify a maximum energy, it is not possible to know
                 # if charge is finished. The car sometimes wakes up to draw a bit of power.
                 self.advance_state( self.STATE_FINISHING )
-            else:
-                self._begin_charge_timestamp = time.monotonic()
-            return
         else:
             self.end_of_charge_timeout.reset( self.end_of_charge_timeout_s.value )
 
@@ -278,7 +281,7 @@ class EVSE( grugbus.SlaveDevice ):
             return await self.pause_charge()
 
         # Soft start
-        self.current_limit_counter.set_maximum( max( self.i_start, min( self.i_max, time.monotonic() - self._begin_charge_timestamp )))
+        self.current_limit_counter.set_maximum( max( self.i_start, min( self.i_max, time.monotonic() - self.soft_start_timestamp )))
 
         # Is EVSE power reading stable?
         if max(self.local_meter.power_history) - min(self.local_meter.power_history) > self.stability_threshold_W.value:
@@ -313,6 +316,9 @@ class EVSE( grugbus.SlaveDevice ):
         else:
             self.integrator.value = 0.
 
+        # Signal to router: we're busy allowating power
+        self.busy_timeout.reset()
+
         if not self.command_interval.expired():
             return
 
@@ -336,6 +342,16 @@ class EVSE( grugbus.SlaveDevice ):
         await self.set_current_limit( new_limit )
         self.command_interval.reset( self.command_interval_s.value )
         self.command_interval_small.reset( self.command_interval_small_s.value )  # prevent frequent small updates
+
+    # Used by router.
+    # False signals the router can use excess power to do its thing.
+    # True means either we have some commands in flight, or we're not at max power and would like to
+    # def is_busy( self ):
+    #     if self.state >= self.STATE_FINISHING: return True
+    #     if self.state >= self.STATE_FINISHING: return True
+    #     if self.busy_timeout.expired(): return False
+    #     and self.rwr_current_limit.value 
+
 
     async def set_current_limit( self, current_limit ):
         current_limit = round(current_limit)
