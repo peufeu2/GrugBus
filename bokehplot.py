@@ -346,9 +346,13 @@ PLOT_LAYOUTS = [
     ["TEST", 
         [
             [
-                "pv/solis%d/battery_current",
-                "pv/bms/current",
+                # "pv/solis%d/battery_current",
+                # "pv/bms/current",
                 # "pv/solis%d/reserved_33191",
+                "pv/solis2/fakemeter/active_power",
+                "pv/meter/house_power",
+                "pv/meter/total_power",
+                "pv/solis2/meter/active_power",
             ],[
                 "pv/solis%d/battery_voltage",
                 "pv/bms/max_charge_voltage",
@@ -793,15 +797,25 @@ class PVDashboard():
                 x = x[start_idx:]                   
                 y = y[start_idx:]
 
-                if (not len(ds.data["x"])) or ds.data["x"][0] > x[0]:
+                # if (not len(ds.data["x"])) or ds.data["x"][0] > x[0]:
                     # send enough data to fill screen
-                    ds.data = {"x":x, "y":y}
-                    ds.trigger('data', ds.data, ds.data )
-                else:
-                    # stream updates
-                    prev_idx = np.searchsorted( x, last_update, side="right" )
-                    print( stream.topic, "add", ds.data["x"][-3:], x[prev_idx:] )
-                    ds.stream( {"x":x[prev_idx:], "y":y[prev_idx:] }, rollover=len(stream.x) )
+                ds.data = {"x":x, "y":y}
+                ds.trigger('data', ds.data, ds.data )
+                # else:
+                #     # stream updates
+                #     prev_idx = np.searchsorted( x, ds.data["x"][-1] , side="right" )
+                #     if prev_idx < len(x) and  ds.data["x"][-1] >= x[ prev_idx ]:
+                #         for px, py in zip( ds.data["x"][-3:], ds.data["y"][-3:] ):
+                #             print( stream.topic, "old", px, py )
+                #         for px, py in zip( x[prev_idx:], y[prev_idx:] ):
+                #             print( stream.topic, "new", px, py )
+                #         print()
+                #     ds.stream( {"x":x[prev_idx:], "y":y[prev_idx:] } )#, rollover=len(x) )
+                #     remove_old = len(ds.data["x"]) - len(x)
+                #     if remove_old > 0:
+                #         s = slice(remove_old)
+                #         ds.patch ( {"x" : [(s, [])], "y" : [(s, [])] })
+                #     print( stream.topic, "oldest", ds.data["x"][0], "len", len(ds.data["x"]) )
             else:
                 ds.data = {"x":x, "y":y}
                 ds.trigger('data', ds.data, ds.data )

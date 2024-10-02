@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-import os, time, sys, logging, orjson
+import os, time, sys, logging, orjson, shutil, collections
 
 # This program is supposed to run on a potato (Allwinner H3 SoC) and uses async/await,
 # so import the fast async library uvloop
@@ -25,30 +25,35 @@ pv.reload.add_module_to_reload( "pv.controller_coroutines" )
 def on_module_unload():
     pass
 
-
 ########################################################################################
 #
-#   Fill Fakemeter fields
+#   - Compute and publish totals across inverters
+#   - Fill Fakemeter fields for inverters
 #
 ########################################################################################
 async def power_coroutine( module_updated, first_start, self ):
     if first_start:
-        await asyncio.sleep(2)      # wait for Solis to read all its registers (or fail if it is offline)
+        await asyncio.sleep(3)      # wait for Solis to read all its registers (or fail if it is offline)
 
-    last_power = None
-    step_counter = BoundedCounter( 0, -10, 10 )
+    m = self.meter
+    await m.event_all.wait()    # wait for all registers to be read
+
+    boost = 0
+
+    chrono = Chrono()
     while True:
         try:
             if module_updated(): # Exit if this module was reloaded
                 return
 
-            await self.event_meter_update.wait()
+            await m.event_power.wait()
+            time_since_last = chrono.lap()
 
             # Compute power metrics
             #
             # Power consumed by the house loads not including inverters. Used for display and statistics, not used for routing.
             # This is (Main spartmeter) - (inverter spartmeters). It is accurate and fast.
-            meter_power              = self.meter_total_power.value or 0  
+            meter_power              = self.meter.total_power.value or 0  
             meter_power_tweaked      = meter_power
             total_pv_power           = 0
             total_input_power        = 0
@@ -71,17 +76,19 @@ async def power_coroutine( module_updated, first_start, self ):
                 if solis.is_online:
                     if not (solis.is_offgrid() or solis.rwr_power_on_off.value == solis.rwr_power_on_off.value_off):
                         inverters_online.append( solis )
-                elif solis.fake_meter_lag.data_timestamp > time.monotonic()-5:
-                    # if COM port is disconnected, use the smartmeter connection to check if the inverter is on
+                # if COM port is disconnected, use the smartmeter connection to check if the inverter is on
+                elif solis.fake_meter.last_query_time > time.monotonic()-5:
                     inverters_online.append( solis )
 
+                # inverters local smartmeters power (negative for export)
                 lm = solis.local_meter
                 lm_power = 0
-                if lm.is_online:    # inverter local smartmeter power (negative for export)
+                if lm.is_online:
                     lm_power = solis.local_meter.active_power.value or 0
                     total_grid_port_power += lm_power
                     meters_online += 1
 
+                # PV and battery
                 pv_power = 0
                 solis.input_power.value = 0
                 if solis.is_online:                        
@@ -94,6 +101,9 @@ async def power_coroutine( module_updated, first_start, self ):
 
                     if lm.is_online:
                         solis.input_power.value = pv_power + lm_power
+                    else:
+                        # If meter offline, use inverter's measured battery power instead
+                        solis.input_power.value = solis.battery_power.value
 
             #   Fake Meter
             # shift slightly to avoid import when we can afford it
@@ -101,35 +111,12 @@ async def power_coroutine( module_updated, first_start, self ):
                 meter_power_tweaked += self.bms_soc.value*total_battery_power*0.0001
             total_input_power  = total_pv_power + total_grid_port_power
 
-            fmdata = { "data_timestamp": self.meter_total_power.data_timestamp }
-
-            fp = meter_power_tweaked
-
             #   Insert full impulse response into fakemeter
             #
             #
-
-            # if last_power != None:
-            #     delta = fp - last_power
-            #     if abs(delta) > 50:
-            #         fp += delta
-            #         print( "%5d %5d added" % (fp, delta))
-            #     else:
-            #         print( "%5d %5d" % (fp, delta))
-
-            # last_power = meter_power_tweaked
-
-            # if abs(fp) < 100:
-            #     step_counter.add( -1 )
-            # else:
-            #     # if step_counter.add( 1 ) < 0:
-            #     fp *= 2
-
-            # print( "%5d %5d" % (meter_power_tweaked, fp))
-
             for solis in self.inverters:
                 if len( inverters_online ) == 1:
-                    fake_power = fp
+                    fake_power = meter_power_tweaked
                 else:
                     # balance power between inverters
                     # if len( inverters_with_battery ) == 2:
@@ -137,10 +124,36 @@ async def power_coroutine( module_updated, first_start, self ):
                     #                     + 0.05*(solis.battery_power.value - total_battery_power*0.5)
                     #                     - 0.01*(solis.pv_power.value - total_pv_power*0.5) )
                     # else:
-                    fake_power = fp * 0.5 + 0.05*(solis.input_power.value - total_input_power*0.5)
-                fmdata[solis.key] = { "active_power"   : fake_power, }
-            # Send data to fakemeters
-            self.mqtt.mqtt.publish( "nolog/pv/fakemeter_update", orjson.dumps( fmdata ), qos=0 )
+                    fake_power = meter_power_tweaked * 0.5 + 0.05*(solis.input_power.value - total_input_power*0.5)
+
+                # This is good stuff
+                # bonus = 0
+                # for threshold, multiplier in (200,2), (500,1), (1000,1):
+                #     if fake_power > threshold:
+                #         bonus += (fake_power - threshold) * multiplier
+                # if not bonus:
+                #     boost = 1
+                # else:
+                #     fake_power = min( 15000, fake_power+bonus*boost )
+                #     boost = max( 0, boost - time_since_last*0.3 )
+
+                fm = solis.fake_meter
+                fm.active_power           .value = fake_power
+                fm.voltage                .value = m.phase_1_line_to_neutral_volts .value
+                fm.current                .value = m.phase_1_current               .value
+                fm.apparent_power         .value = m.total_volt_amps               .value
+                fm.reactive_power         .value = m.total_var                     .value
+                fm.power_factor           .value = (m.total_power_factor            .value % 1.0)
+                fm.frequency              .value = m.frequency                     .value
+                fm.import_active_energy   .value = m.total_import_kwh              .value
+                fm.export_active_energy   .value = m.total_export_kwh              .value
+                fm.data_timestamp                = m.last_transaction_timestamp
+                fm.is_online                     = m.is_online
+
+                fm.write_regs_to_context()
+
+                self.mqtt.publish_reg( fm.mqtt_topic, fm.active_power )
+
             await asyncio.sleep(0)      # yield 
 
             # atomic update
@@ -166,6 +179,30 @@ async def power_coroutine( module_updated, first_start, self ):
         except Exception:
             log.exception("PowerManager coroutine:")
 
+# class RingBuffer:
+#     def __init__( self, length ):
+#         self.q = [0] * length
+#         self.pos = 0
+
+#     def cur( self ):
+#         return self.q[self.pos]
+
+#     def at( self, offset ):
+#         return self.q[ (self.pos+offset) % len(self.q) ]
+
+#     def set( self, offset, value ):
+#         self.q[ (self.pos+offset) % len(self.q) ] = value
+
+#     def pop( self ):
+#         r = self.q[self.pos]
+#         self.q[self.pos] = 0
+#         self.pos = (self.pos+1) % len(self.q)
+#         return r
+
+#     def add( self, offset, value ):
+#         self.q[ (self.pos+offset) % len(self.q) ] += value
+
+
 ########################################################################################
 #
 #   FakeMeter callback before serving values to inverter
@@ -173,7 +210,6 @@ async def power_coroutine( module_updated, first_start, self ):
 ########################################################################################
 def fakemeter_on_getvalues( self ):
     try:
-        # print( self.key, self.active_power.value )
         return True
     except Exception:
         log.exception("fakemeter_on_getvalues")
@@ -298,4 +334,24 @@ async def inverter_fan_coroutine( module_updated, first_start, self ):
             log.exception("")
             await asyncio.sleep(5)
 
+########################################################################################
+#   System info
+########################################################################################
+async def sysinfo_coroutine( module_updated, first_start, self ):
+    prev_cpu_timings = None
+    while True:
+        if module_updated(): # Exit if this module was reloaded
+            return
+        await asyncio.sleep(10)
+        with open("/proc/stat") as f:
+            cpu_timings = [ int(_) for _ in f.readline().split()[1:] ]
+            cpu_timings = cpu_timings[3], sum(cpu_timings)  # idle time, total time
+            if prev_cpu_timings:
+                self.mqtt.publish_value( "pv/cpu_load_percent", round( 100.0*( 1.0-(cpu_timings[0]-prev_cpu_timings[0])/(cpu_timings[1]-prev_cpu_timings[1]) ), 1 ))
+            prev_cpu_timings = cpu_timings
+
+        with open("/sys/devices/virtual/thermal/thermal_zone0/temp") as f:
+            self.mqtt.publish_value( "pv/cpu_temp_c", round( int(f.read())*0.001, 1 ) )
+        total, used, free = shutil.disk_usage("/")
+        self.mqtt.publish_value( "pv/disk_space_gb", round( free/2**30, 2 ) )
 

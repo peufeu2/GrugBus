@@ -21,6 +21,7 @@ import pv.meters
 
 from pv.mqtt_wrapper import MQTTWrapper, MQTTSetting, MQTTVariable
 import pv.reload, pv.controller_coroutines
+import pv.solis_s5_eh1p, pv.meters
 
 from misc import *
 
@@ -159,16 +160,17 @@ class FakeSmartmeter( grugbus.LocalServer ):
 
         # Do not serve stale data
         if self.is_online:
-            if age > 1.5:
+            if age > config.FAKE_METER_MAX_AGE_IGNORE:
                 self.error_count += 1
                 log.error( "FakeMeter %s: data is too old (%f seconds) [%d errors]", self.key, age, self.error_count )
                 self.active_power.value = 0 # Prevent runaway inverter output power
-                if age > 2.5:
+                if age > config.FAKE_METER_MAX_AGE_ABORT:
                     log.error( "FakeMeter %s: shutting down", self.key )
                     self.is_online = False
 
         # call reloadable routine to tweak values if necessary
         return self.is_online and pv.controller_coroutines.fakemeter_on_getvalues( self )
+
         # If return value is False, pymodbus server will abort the request, which the inverter
         # correctly interprets as the meter being offline
 
@@ -201,7 +203,16 @@ class FakeSmartmeter( grugbus.LocalServer ):
 
 class Controller:
     def __init__( self ):
-        pass
+        self.event_power = asyncio.Event()
+
+        self.meter_power_tweaked      = 0    
+        self.house_power              = 0    
+        self.total_pv_power           = 0    # Total PV production reported by inverters. Fast, but inaccurate.
+        self.total_input_power        = 0    # Power going into the inverter/battery (PV and grid port). Fast proxy for battery charging power. For routing.
+        self.total_grid_port_power    = 0    # Sum of inverters local smartmeter power (negative=export)
+        self.total_battery_power      = 0    # Battery power for both inverters (positive for charging)
+        self.battery_max_charge_power = 0    
+
 
     def start( self ):
         with asyncio.Runner(loop_factory=uvloop.new_event_loop) as runner:
@@ -214,9 +225,10 @@ class Controller:
         self.mqtt_topic = "pv/"
         await self.mqtt.mqtt.connect( config.MQTT_BROKER_LOCAL )
 
-        #   Update fakemeters via MQTT
-        #
-        MQTTVariable( "nolog/pv/fakemeter_update", self, "fakemeter_data", orjson.loads, None, "{}", self.mqtt_update_meter_callback )
+        # Get battery current from BMS
+        MQTTVariable( "pv/bms/current", self, "bms_current", float, None, 0 )
+        MQTTVariable( "pv/bms/power",   self, "bms_power",   float, None, 0 )
+        MQTTVariable( "pv/bms/soc",     self, "bms_soc",     float, None, 0 )
 
         #   Main smartmeter
         #
@@ -227,17 +239,33 @@ class Controller:
             **config.METER["PARAMS"],
         )
 
-        #   Modbus-RTU Fake Meter
         #
-        self.fake_meters = {
-            key: FakeSmartmeter( 
+        #   Solis inverters, local meters, fake meters
+        #
+        self.inverters = [
+            pv.solis_s5_eh1p.Solis( 
+                AsyncModbusSerialClient( **cfg["SERIAL"] ),
+                local_meter = pv.meters.SDM120( 
+                    AsyncModbusSerialClient( **cfg["LOCAL_METER"]["SERIAL"] ),
+                    mqtt       = self.mqtt,
+                    mqtt_topic ="pv/%s/meter/" % key,
+                    **cfg["LOCAL_METER"]["PARAMS"],
+                ),
+                fake_meter = FakeSmartmeter( 
                     meter_type      = Acrel_1_Phase,
                     mqtt            = self.mqtt, 
                     mqtt_topic      = ("pv/%s/fakemeter/"%key),
                     **cfg["FAKE_METER"]
-                )
+                ),
+                mqtt                 = self.mqtt,
+                mqtt_topic           = "pv/%s/" % key,
+                **cfg["PARAMS"],
+            )        
             for key, cfg in config.SOLIS.items()
-        }
+        ]
+
+        for v in self.inverters:
+            setattr( self, v.key, v )
 
         pv.reload.add_module_to_reload( "config", self.mqtt.load_rate_limit ) # reload rate limit configuration
 
@@ -245,117 +273,24 @@ class Controller:
         #
         try:
             async with asyncio.TaskGroup() as tg:
-                for k, v in self.fake_meters.items():
-                    tg.create_task( self.log_coroutine( "Fakemeter: Modbus server %s"%k, v.start_server() ))
+                for v in self.inverters:
+                    tg.create_task( self.log_coroutine( "%s: Read"                   %v.key, v.read_coroutine() ))
+                    tg.create_task( self.log_coroutine( "%s: Read local meter"       %v.key, v.local_meter.read_coroutine() ))
+                    tg.create_task( self.log_coroutine( "%s: Fakemeter Modbus server"%v.key, v.fake_meter.start_server() ))
+                    tg.create_task( pv.reload.reloadable_coroutine( "Powersave: %s" % v.key, lambda: pv.controller_coroutines.inverter_powersave_coroutine, self, v ))
+
                 tg.create_task( self.log_coroutine( "Read: main meter",          self.meter.read_coroutine() ))
-                tg.create_task( self.log_coroutine( "Fakemeter: update fields",  self.update_coroutine( ) ))
-                tg.create_task( self.log_coroutine( "sysinfo",                   self.sysinfo_coroutine() ))
                 tg.create_task( self.log_coroutine( "Reload python modules",     pv.reload.reload_coroutine() ))
+                tg.create_task( pv.reload.reloadable_coroutine( "Inverter fan control", lambda: pv.controller_coroutines.inverter_fan_coroutine, self ))
+                tg.create_task( pv.reload.reloadable_coroutine( "Power coroutine"     , lambda: pv.controller_coroutines.power_coroutine, self ))
+                tg.create_task( pv.reload.reloadable_coroutine( "Sysinfo"             , lambda: pv.controller_coroutines.sysinfo_coroutine, self ))
+
         except (KeyboardInterrupt, CancelledError):
             print("Terminated.")
         finally:
             with open("mqtt_stats/pv_controller.txt","w") as f:
                 self.mqtt.write_stats( f )
             await self.mqtt.mqtt.disconnect()
-
-    ########################################################################################
-    #
-    #   Compute power values and fill fake meter fields
-    #
-    ########################################################################################
-    async def mqtt_update_meter_callback( self, param ):
-        if not self.fakemeter_data.value:
-            if self.error_tick.ticked():
-                log.warning( "FakeMeters: No data from master." )
-            return
-
-        t = time.monotonic()
-        ts = self.fakemeter_data.value["data_timestamp"]
-        age = t-ts
-        if age > config.FAKE_METER_MAX_AGE:
-            self.fakemeter_data.value = {}
-            log.warning( "FakeMeter: data is too old (%f seconds), ignoring", age )
-            return
-
-        if not self.fakemeter_data.prev_value:
-            log.info( "FakeMeter: received data from master (age %f seconds)", age )
-
-        for k, fm in self.fake_meters.items():
-            data = self.fakemeter_data.value[k]
-            fm.active_power           .value = data[ "active_power" ]
-            fm.data_timestamp                = ts
-
-        # if there was no exception, we can update both meters
-        for fm in self.fake_meters.values():
-            fm.write_regs_to_context()
-
-    async def update_coroutine( self ):
-        m = self.meter
-        await m.event_all.wait()    # wait for all registers to be read
-
-        while True:
-            try:
-                await m.event_power.wait()
-
-                # Pre-fill all the fake meter fields with defaults. If data received from master is good, we will overwrite below.
-                # Divide power between all inverters, without checking if they're online or not. Only the master process knows that.
-                fake_power              = (m.total_power.value or 0) / len( self.fake_meters )
-
-                # Fill all fields with defaults
-                for k, fm in self.fake_meters.items():
-                    fm.active_power           .value = fake_power
-                    fm.voltage                .value = m.phase_1_line_to_neutral_volts .value
-                    fm.current                .value = m.phase_1_current               .value
-                    fm.apparent_power         .value = m.total_volt_amps               .value
-                    fm.reactive_power         .value = m.total_var                     .value
-                    fm.power_factor           .value = (m.total_power_factor            .value % 1.0)
-                    fm.frequency              .value = m.frequency                     .value
-                    fm.import_active_energy   .value = m.total_import_kwh              .value
-                    fm.export_active_energy   .value = m.total_export_kwh              .value
-                    fm.data_timestamp                = m.last_transaction_timestamp
-                    fm.is_online                     = m.is_online
-
-                # Now update with values received from master (if any)
-                try:
-                    await self.mqtt_update_meter_callback( None )
-                except Exception:
-                    log.exception("PowerManager coroutine:")
-
-                for fm in self.fake_meters.values():
-                    fm.write_regs_to_context()
-                    self.mqtt.publish_reg( fm.mqtt_topic, fm.active_power )
-
-            except Exception:
-                log.exception("PowerManager coroutine:")
-
-    ########################################################################################
-    #   System info
-    ########################################################################################
-
-    async def sysinfo_coroutine( self ):
-        prev_cpu_timings = None
-        while True:
-            try:
-                pub = {}
-                with open("/proc/stat") as f:
-                    cpu_timings = [ int(_) for _ in f.readline().split()[1:] ]
-                    cpu_timings = cpu_timings[3], sum(cpu_timings)  # idle time, total time
-                    if prev_cpu_timings:
-                        pub["cpu_load_percent"] = round( 100.0*( 1.0-(cpu_timings[0]-prev_cpu_timings[0])/(cpu_timings[1]-prev_cpu_timings[1]) ), 1 )
-                    prev_cpu_timings = cpu_timings
-
-                with open("/sys/devices/virtual/thermal/thermal_zone0/temp") as f:
-                    pub["cpu_temp_c"] = round( int(f.read())*0.001, 1 )
-
-                total, used, free = shutil.disk_usage("/")
-                pub["disk_space_gb"] = round( free/2**30, 2 )
-                for k,v in pub.items():
-                    self.mqtt.publish_value( "pv/"+k, v  )
-
-            except Exception:
-                log.exception( "Sysinfo" )
-
-            await asyncio.sleep(10)
 
     async def log_coroutine( self, title, fut ):
         log.info("Start:"+title )

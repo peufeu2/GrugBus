@@ -22,20 +22,18 @@ log = logging.getLogger(__name__)
 #
 ########################################################################################
 class Solis( grugbus.SlaveDevice ):
-    def __init__( self, modbus, modbus_addr, key, name, local_meter, fake_meter_type, fake_meter_placement, mqtt, mqtt_topic ):
+    def __init__( self, modbus, modbus_addr, key, name, local_meter, fake_meter, mqtt, mqtt_topic ):
         super().__init__( modbus, modbus_addr, key, name, Solis_S5_EH1P_6K_2020_Extras.MakeRegisters() )
 
         self.local_meter = local_meter        # on AC grid port
-        self.fake_meter_type  = fake_meter_type    # meter emulation on meter port
-        self.fake_meter_socket = None
-        self.fake_meter_placement = fake_meter_placement
+        self.fake_meter  = fake_meter    # meter emulation on meter port
         self.mqtt        = mqtt
         self.mqtt_topic  = mqtt_topic
         self.mqtt_written_regs = {}
         mqtt.register_callbacks( self )
 
         # Get fake meter lag from Controller
-        MQTTVariable( self.mqtt_topic+"fakemeter/lag", self, "fake_meter_lag" , float, None, 0 )
+        # MQTTVariable( self.mqtt_topic+"fakemeter/lag", self, "fake_meter_lag" , float, None, 0 )
 
         # For power routing we need to know battery power, in order to steal some of it when we want to.
         # The inverter's report of battery_power is slow and does not account for energy stored
@@ -117,10 +115,10 @@ class Solis( grugbus.SlaveDevice ):
 
     async def read_coroutine( self ):
         # set meter type remotely to make it easy to emulate different fakemeters
-        if   self.fake_meter_type == Acrel_1_Phase:      mt = 1
-        elif self.fake_meter_type == Acrel_ACR10RD16TE4: mt = 2
-        elif self.fake_meter_type == Eastron_SDM120:     mt = 4
-        mt |= {"grid":0x100, "load":0x200}[self.fake_meter_placement]
+        if   self.fake_meter.meter_type == Acrel_1_Phase:      mt = 1
+        elif self.fake_meter.meter_type == Acrel_ACR10RD16TE4: mt = 2
+        elif self.fake_meter.meter_type == Eastron_SDM120:     mt = 4
+        mt |= {"grid":0x100, "load":0x200}[self.fake_meter.meter_placement]
 
         try:
             await self.adjust_time()

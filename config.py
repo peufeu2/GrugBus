@@ -130,7 +130,8 @@ METER = {
 }
 
 #   Fake meter will ignore data from Master process if it is older than this, in seconds
-FAKE_METER_MAX_AGE = 1.5
+FAKE_METER_MAX_AGE_IGNORE = 1.5
+FAKE_METER_MAX_AGE_ABORT  = 2.5
 
 EVSE = {
     "SERIAL": _SERIAL_DEFAULTS | { 
