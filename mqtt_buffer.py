@@ -7,6 +7,7 @@ from xopen import xopen
 from path import Path
 
 import config
+import pv.reload
 from misc import *
 from pv.mqtt_wrapper import MQTTWrapper
 
@@ -28,6 +29,24 @@ from pv.mqtt_wrapper import MQTTWrapper
 
     It also offers a server socket, which supports only one client at a time.
     Connecting to this allows pulling log files and receiving data in real time.
+
+    In addition, it catches JSON-encoded MQTT posts from various devices like
+    Tasmota smart plugs, unwraps the {JSON dicts}, and republishes select values
+    (see config.MQTT_BUFFER_FILTER). For example, Tasmota publishes:
+
+    tele/plugs/tasmota_t2/SENSOR {"Time":"2024-10-03T12:49:13","ENERGY":{"TotalStartTime":"2023-01-29T20:23:40","Total":381.701,"Yesterday":0.140,"Today":0.327,"Period":25,"Power":0,"ApparentPower":0,"ReactivePower":0,"Factor":0.00,"Voltage":239,"Current":0.000}}
+
+    With this configuration:
+
+    ( re.compile( r"^tele/plugs/tasmota_t.*?/SENSOR$" ), {"ENERGY":{"Power": ( float, (10, 10, "avg")) }} ),
+
+    This program drops the record and only republishes the interesting bit on MQTT:
+
+    tele/plugs/tasmota_t2/SENSOR/ENERGY/Power 0.0
+
+    Since it is published, it is then recorded and sent to the database. It is no longer 
+    JSON but a simple float, which works much better.
+
 """
 
 
@@ -77,7 +96,19 @@ class Buffer( MQTTWrapper ):
     async def astart( self ):
         server = await asyncio.start_server( self.handle_client, config.MQTT_BUFFER_IP, config.MQTT_BUFFER_PORT )
         await self.mqtt.connect( config.MQTT_BROKER_LOCAL )
-        await server.serve_forever()
+
+        pv.reload.add_module_to_reload( "config", self.load_rate_limit ) # reload rate limit configuration
+
+        try:
+            async with asyncio.TaskGroup() as tg:
+                tg.create_task( server.serve_forever() )
+                tg.create_task( pv.reload.reload_coroutine() )
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            print("Terminated.")
+        finally:
+            await self.mqtt.disconnect()
+            with open("mqtt_stats/mqtt_buffer.txt","w") as f:
+                self.write_stats( f )
 
     ########################################################
     #   MQTT
@@ -92,9 +123,17 @@ class Buffer( MQTTWrapper ):
 
 
     async def on_message( self, client, topic, payload, qos, properties ):
-        # Do not store high traffic control messages, for example
-        # fakemeter updates
+        # Do not store high traffic interprocess control messages, for example
         if topic.startswith("nolog/"):
+            return
+
+        if payload.startswith(b"{"):
+            try:
+                d = orjson.loads( payload )
+            except Exception as e:
+                log.error( "%s: Topic: %s, value: %r", e, topic, payload )
+            else:
+                self.on_message_dict( topic, d )
             return
 
         # Encode MQTT message into json
@@ -111,6 +150,32 @@ class Buffer( MQTTWrapper ):
         if elapsed := self.msgcount_tick.ticked():
             print("Queue %d ; %f messages/s" % (len(self.queue_socket), self.msgcount/elapsed))
             self.msgcount = 0
+
+    # Unnest and republish Tasmota dictionaries so they can be
+    # compressed properly into clickhouse and plotted in real time
+    def on_message_dict( self, topic, value ):
+        # get finters from configuration
+        for topic_filter, pub_config in config.MQTT_BUFFER_FILTER:
+            if topic_filter.match( topic ):
+                self.on_message_dict2( topic, value, pub_config )
+
+    def on_message_dict2( self, topic, value, pub_config ):
+        topic += "/"
+        for k, k_pub_config in pub_config.items():
+            v = value.get( k )
+            if v != None:
+                if isinstance( v, dict ):
+                    self.on_message_dict2( topic+k, v, k_pub_config )
+                else:
+                    parser, ratelimit = k_pub_config
+                    # rate limit and publish
+                    v = parser(v)
+                    topic2 = topic+k
+                    config.MQTT_RATE_LIMIT[topic2] = ratelimit
+                    if isinstance( v, (int, float)):
+                        self.publish_value( topic2, v )
+                    else:
+                        self.publish( topic2, v )
 
 
     ########################################################

@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 
 import os, time, sys, logging, asyncio, importlib
-
 from path import Path
 import config
 
@@ -16,14 +15,16 @@ log = logging.getLogger(__name__)
 
 # List of modules to reload (this can be updated to add some at runtime)
 # Note CPython dicts are ordered, so they will be loaded in dict order.
-modules_to_reload = {}
+module_names_to_reload = {}
 
 def add_module_to_reload( module_name, callback=None ):
-    modules_to_reload[module_name] = callback
+    module_names_to_reload[module_name] = callback
 
 # modules should contain names, not modules
 async def reload_coroutine( ):
-    old_mtime = None
+    mtimes = { __file__ : Path(__file__).mtime }
+    for module_name in module_names_to_reload:
+        mtimes[ module_name ] = Path( sys.modules[module_name].__file__ ).mtime
 
     while True:
         try:
@@ -33,24 +34,31 @@ async def reload_coroutine( ):
             # check mtime on the CURRENT FILE so we don't reload modules out of order
             # while they are being copied
             mtime = Path( __file__ ).mtime
-            if not old_mtime:
-                old_mtime = mtime
+            if mtime != mtimes[__file__]:
+                mtimes[__file__] = mtime
 
-            elif old_mtime != mtime:
-                old_mtime = mtime
-                for module, callback in list(modules_to_reload.items()):
-                    log.info( "Reloading: %s", module )
-                    
-                    # unload callback
-                    if func := getattr( module, "on_module_unload", None):
-                        func()
+                # check if at least 1 file was updated
+                updated = False
+                for module_name in module_names_to_reload:
+                    mtime = Path( sys.modules[module_name].__file__ ).mtime
+                    if mtime != mtimes[ module_name ]:
+                        updated = True
+                        mtimes[ module_name ] = mtime
 
-                    # reload module
-                    importlib.reload( sys.modules[module] )
+                if updated:
+                    for module, callback in module_names_to_reload.items():
+                        log.info( "Reloading: %s", module )
 
-                    # after reload callback
-                    if callback:
-                        callback()
+                        # unload callback
+                        if func := getattr( module, "on_module_unload", None):
+                            func()
+
+                        # reload module
+                        importlib.reload( sys.modules[module] )
+
+                        # after reload callback
+                        if callback:
+                            callback()
 
         except Exception:
             log.exception("Reload coroutine:")

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-import sys, time, serial, socket, logging, logging.handlers, traceback, shutil, uvloop, asyncio, orjson, importlib
+import sys, time, serial, socket, logging, logging.handlers, traceback, shutil, uvloop, asyncio, orjson
 from path import Path
 from asyncio.exceptions import TimeoutError, CancelledError
 
@@ -14,34 +14,29 @@ from pymodbus.transaction import ModbusRtuFramer
 from pymodbus.exceptions import ModbusException
 
 # Device wrappers and misc local libraries
-import config
 import grugbus
-from grugbus.devices import Eastron_SDM120, Acrel_1_Phase
+from grugbus.devices import Acrel_1_Phase
 import pv.meters
 
 from pv.mqtt_wrapper import MQTTWrapper, MQTTSetting, MQTTVariable
-import pv.reload, pv.controller_coroutines
+import pv.reload, pv.controller
 import pv.solis_s5_eh1p, pv.meters
 
+import config
 from misc import *
+
+###########################################################################################
+#
+#       This file starts and runs the PV controller.
+#       Not much interesting code here, it's all in the classes,
+#       and pv/controller.py which can be reloaded at runtime.
+#
+###########################################################################################
 
 
 """
-    python3.11
-    pymodbus 3.7.x
-
-    This is a fake smartmeter, which will respond to Modbus-RTU queries on a serial port.
-    It listens on a unix socket, and expects to receive the fake smartmeter data it will forward to the inverter.
-
-    Problem:
-
-    Previously, the fake meter was inside the main PV controller python code. Convenient for
-    data sharing, but when stopping the main PV controller to load new code, it also stops the fake meter,
-    which puts the inverter in safe mode, which triggers an error.
-
-    With the fake meter in a separate process, it can keep responding even while the main code restarts,
-    which makes operations much smoother.
-
+    python >3.11
+    pymodbus >3.7.x
 """
 
 logging.basicConfig( encoding='utf-8', 
@@ -169,7 +164,7 @@ class FakeSmartmeter( grugbus.LocalServer ):
                     self.is_online = False
 
         # call reloadable routine to tweak values if necessary
-        return self.is_online and pv.controller_coroutines.fakemeter_on_getvalues( self )
+        return self.is_online and pv.controller.fakemeter_on_getvalues( self )
 
         # If return value is False, pymodbus server will abort the request, which the inverter
         # correctly interprets as the meter being offline
@@ -277,13 +272,13 @@ class Controller:
                     tg.create_task( self.log_coroutine( "%s: Read"                   %v.key, v.read_coroutine() ))
                     tg.create_task( self.log_coroutine( "%s: Read local meter"       %v.key, v.local_meter.read_coroutine() ))
                     tg.create_task( self.log_coroutine( "%s: Fakemeter Modbus server"%v.key, v.fake_meter.start_server() ))
-                    tg.create_task( pv.reload.reloadable_coroutine( "Powersave: %s" % v.key, lambda: pv.controller_coroutines.inverter_powersave_coroutine, self, v ))
+                    tg.create_task( pv.reload.reloadable_coroutine( "Powersave: %s" % v.key, lambda: pv.controller.inverter_powersave_coroutine, self, v ))
 
                 tg.create_task( self.log_coroutine( "Read: main meter",          self.meter.read_coroutine() ))
                 tg.create_task( self.log_coroutine( "Reload python modules",     pv.reload.reload_coroutine() ))
-                tg.create_task( pv.reload.reloadable_coroutine( "Inverter fan control", lambda: pv.controller_coroutines.inverter_fan_coroutine, self ))
-                tg.create_task( pv.reload.reloadable_coroutine( "Power coroutine"     , lambda: pv.controller_coroutines.power_coroutine, self ))
-                tg.create_task( pv.reload.reloadable_coroutine( "Sysinfo"             , lambda: pv.controller_coroutines.sysinfo_coroutine, self ))
+                tg.create_task( pv.reload.reloadable_coroutine( "Inverter fan control", lambda: pv.controller.inverter_fan_coroutine, self ))
+                tg.create_task( pv.reload.reloadable_coroutine( "Power coroutine"     , lambda: pv.controller.power_coroutine, self ))
+                tg.create_task( pv.reload.reloadable_coroutine( "Sysinfo"             , lambda: pv.controller.sysinfo_coroutine, self ))
 
         except (KeyboardInterrupt, CancelledError):
             print("Terminated.")

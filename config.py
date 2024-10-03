@@ -1,6 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
+import re
 from config_secret import *
 
 ##################################################################
@@ -379,14 +380,24 @@ MQTT_RATE_LIMIT = {
     'pv/solis1/rwr_energy_storage_mode'        : (  60,      0.000, ''      ), #  0.019/ 0.273,
     'pv/solis1/rwr_power_on_off'               : (  60,      0.000, ''      ), #  0.019/ 0.273,
 
-
-
-
-
 }
 
 for k,v in tuple(MQTT_RATE_LIMIT.items()):
     if k.startswith("pv/solis1/"):
         MQTT_RATE_LIMIT[k.replace("pv/solis1/","pv/solis2/")] = v
 
+###############################################################
+#
+#   mqtt_buffer.py configuration
+#
+###############################################################
 
+#   When a topic matches and the payload is JSON {dict}, mqtt_buffer
+#   will unwrap the dict and republish only contents specified here:
+#
+MQTT_BUFFER_FILTER = [
+    ( re.compile( r"^tele/plugs/tasmota_t.*?/STATE$" ), {} ),
+    ( re.compile( r"^stat/plugs/tasmota_t.*?/RESULT$" ), {"POWER": ( lambda s:int(s=="ON"), ( 60, 0.000, '' )) } ),
+    ( re.compile( r"^tele/plugs/tasmota_t.*?/SENSOR$" ), {"ENERGY":{"Power": ( float, (10, 10, "avg")) }} ),
+    ( re.compile( r"stat/plugs/tasmota_t.*?/STATUS8$" ), {"StatusSNS":{"ENERGY":{"Power":(float, (0, 0, "")) }}} ),
+]

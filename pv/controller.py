@@ -21,7 +21,7 @@ import pv.reload
 log = logging.getLogger(__name__)
 
 # This module can be reloaded at runtime if the file is modified.
-pv.reload.add_module_to_reload( "pv.controller_coroutines" )
+pv.reload.add_module_to_reload( "pv.controller" )
 def on_module_unload():
     pass
 
@@ -175,6 +175,28 @@ async def power_coroutine( module_updated, first_start, self ):
             self.mqtt.publish_value( "pv/battery_max_charge_power",  self.battery_max_charge_power , int )
             for solis in self.inverters:
                 self.mqtt.publish_reg( solis.mqtt_topic, solis.input_power )
+
+            # publish data for router
+            d = { 
+                "m_total_power"            : int( m.total_power.value ),
+                "m_p1_v"                   : round( m.phase_1_line_to_neutral_volts.value, 1 ),
+                "m_p2_v"                   : round( m.phase_2_line_to_neutral_volts.value, 1 ),
+                "m_p3_v"                   : round( m.phase_3_line_to_neutral_volts.value, 1 ),
+                "m_p1_i"                   : round( m.phase_1_current.value, 1),
+                "m_p2_i"                   : round( m.phase_2_current.value, 1),
+                "m_p3_i"                   : round( m.phase_3_current.value, 1),
+
+                "meter_power_tweaked"      : int( self.meter_power_tweaked ),
+                "house_power"              : int( self.house_power ),
+                "total_pv_power"           : int( self.total_pv_power ),
+                "total_input_power"        : int( self.total_input_power ),
+                "total_grid_port_power"    : int( self.total_grid_port_power ),
+                "total_battery_power"      : int( self.total_battery_power ),
+                "battery_max_charge_power" : int( self.battery_max_charge_power ),
+
+                "data_timestamp"           : m.last_transaction_timestamp
+            }
+            self.mqtt.mqtt.publish( "nolog/pv/router_data", orjson.dumps( d ) )
 
         except Exception:
             log.exception("PowerManager coroutine:")

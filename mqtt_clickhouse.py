@@ -333,11 +333,7 @@ class InsertPooler():
                 if self.notdupe( ts,k,v ):
                     self.insert_floats.append((k,ts,0,v))  
             return
-        elif isinstance( v, dict ):
-            k += "/"
-            for dk,dv in v.items():
-                self._add( ts, k+dk, dv )
-        elif isinstance( v, list ):
+        elif isinstance( v, (dict,list) ):
             pass
             # print("Ignore", k, v )
         else:

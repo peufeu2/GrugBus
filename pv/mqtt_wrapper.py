@@ -70,11 +70,14 @@ class MQTTWrapper:
         for topic, (period, margin, mode) in config.MQTT_RATE_LIMIT.items():
             self._published_data[topic] = RateLimit( margin, period, mode )
 
+    def get_rate_limit( self, topic ):
+        return RateLimit( *config.MQTT_RATE_LIMIT.get( topic, (60, 0, "") ))
+
     def write_stats( self, file ):
         maxlen = 1+max( len(topic) for topic in self._published_data.keys() )
         duration = time.monotonic() - self._startup_time
         for topic, p in sorted( self._published_data.items(), key=lambda kv: kv[1].total_count, reverse=True ):
-            file.write( f"{topic!r:<{maxlen}}: ({p.period:4d}, {p.margin:>10.03f}, {p.mode!r:8s}), # {p.published_count/duration:6.03f}/{p.total_count/duration:6.03f},\n" )
+            file.write( f"{topic!r:<{maxlen}}: ({p.period:4f}, {p.margin:>10.03f}, {p.mode!r:8s}), # {p.published_count/duration:6.03f}/{p.total_count/duration:6.03f},\n" )
 
     def publish_reg( self, topic, reg ):
         self.publish_value( topic+reg.key, reg.value, reg._format_value )
@@ -115,7 +118,7 @@ class MQTTWrapper:
                 p.reset( value )
 
         else:
-            p = self._published_data[topic] = RateLimit( 0, 60, "" )
+            p = self._published_data[topic] = self.get_rate_limit( topic )
             p.reset( value )
             log.info( "MQTT: No ratelimit for %s", topic )
             self.mqtt.publish( topic, format( value ), qos=0 )
@@ -133,7 +136,7 @@ class MQTTWrapper:
             if text == p.text and time.monotonic() < p.start_time + p.period:
                 return
         else:
-            p = self._published_data[topic] = RateLimit( 0, 60, "" )
+            p = self._published_data[topic] = self.get_rate_limit( topic )
             p.total_count = 1
             log.info( "MQTT: No ratelimit for %s", topic )
         p.published_count += 1
@@ -235,10 +238,11 @@ class MQTTVariable:
         self.validation     = validation
         self.value          = self.prev_value = value
         self.data_timestamp = time.monotonic()
+        self.mqtt           = container.mqtt
         if callback:
             self.updated_callback = callback
         self.set_value( value )
-        container.mqtt.subscribe_callback( mqtt_prefix+self.mqtt_topic, self.async_callback )
+        self.mqtt.subscribe_callback( mqtt_prefix+self.mqtt_topic, self.async_callback )
 
     async def async_callback( self, topic, payload, qos=None, properties=None ):
         self.callback( payload, qos, properties )
@@ -291,12 +295,12 @@ class MQTTVariable:
 class MQTTSetting( MQTTVariable ):
     def __init__( self, container, name, datatype, validation, value, callback = None, mqtt_prefix="cmnd/" ):
         super().__init__( container.mqtt_topic+name, container, name, datatype, validation, value, callback, mqtt_prefix )
-        container.mqtt.subscribe_callback( mqtt_prefix+self.container.mqtt_topic+"settings", self.async_publish_callback )  # ask to publish all settings
+        self.mqtt.subscribe_callback( mqtt_prefix+self.container.mqtt_topic+"settings", self.async_publish_callback )  # ask to publish all settings
 
     async def async_publish_callback( self, topic, payload, qos=None, properties=None ):
         self.publish()
 
     def publish( self ):
         log.info( "MQTTSetting: %s = %s", self.mqtt_topic, self.value )
-        self.container.mqtt.publish_value( self.mqtt_topic, self.value )
+        self.mqtt.publish_value( self.mqtt_topic, self.value )
 

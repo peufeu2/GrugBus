@@ -81,7 +81,7 @@ class EVSE( grugbus.SlaveDevice ):
         self.integrator    = BoundedCounter( 0, -160, 160 )    # in Watts
 
         # current limit that will be sent to the EVSE, incremented and decremented depending on available power
-        self.current_limit_counter = BoundedCounter( self.i_start, self.i_start, self.i_max, round )
+        self.current_limit_bounds = BoundedCounter( self.i_start, self.i_start, self.i_max, round )
 
         #   After each command:
         #       The car's charger takes 2-3s to react, but we don't know yet if the charger will decide to use all of the allowed power, or only some.
@@ -207,13 +207,13 @@ class EVSE( grugbus.SlaveDevice ):
             self.stop_counter.to_maximum()
             # set lower bound for charge current to the minimum allowed by force charge
             # it is still allowed to use more power if there is more available
-            self.current_limit_counter.set_minimum( self.force_charge_minimum_A.value )
+            self.current_limit_bounds.set_minimum( self.force_charge_minimum_A.value )
         else:
             # monitor excess power to decide if we can start charge
             # do it before checking the socket state so when we plug in, it starts immediately
             # if power is available
             self.start_counter.addsub( excess >= self.start_excess_threshold_W.value, time_since_last_call )
-            self.current_limit_counter.set_minimum( self.i_start )   # set lower bound at minimum allowed current
+            self.current_limit_bounds.set_minimum( self.i_start )   # set lower bound at minimum allowed current
 
         # Are we connected? If RS485 fails, EVSE will timeout and stop charge.
         if not (self.is_online and self.local_meter.is_online):
@@ -281,7 +281,7 @@ class EVSE( grugbus.SlaveDevice ):
             return await self.pause_charge()
 
         # Soft start
-        self.current_limit_counter.set_maximum( max( self.i_start, min( self.i_max, time.monotonic() - self.soft_start_timestamp )))
+        self.current_limit_bounds.set_maximum( max( self.i_start, min( self.i_max, time.monotonic() - self.soft_start_timestamp )))
 
         # Is EVSE power reading stable?
         if max(self.local_meter.power_history) - min(self.local_meter.power_history) > self.stability_threshold_W.value:
@@ -298,7 +298,7 @@ class EVSE( grugbus.SlaveDevice ):
         self.integrator.add( excess * self.control_gain_i.value * time_since_last_call )
         new_limit = (power + excess + self.integrator.value) * self.control_gain_p.value / voltage
         self.stop_counter.addsub( new_limit >= self.i_start, time_since_last_call ) # stop charge if we're at minimum power and repeatedly try to go lower
-        new_limit = self.current_limit_counter.clip( new_limit )                # clip it so we keep charging until stop_counter says we stop
+        new_limit = self.current_limit_bounds.clip( new_limit )                # clip it so we keep charging until stop_counter says we stop
         delta_i = new_limit - cur_limit
 
         # self.mqtt.publish_value( self.mqtt_topic+"command_interval_small",  round(self.command_interval_small.remain(),1) )
@@ -355,8 +355,7 @@ class EVSE( grugbus.SlaveDevice ):
 
     async def set_current_limit( self, current_limit ):
         current_limit = round(current_limit)
-        self.current_limit_counter.set( current_limit )
-        # print("set limit", current_limit, "minmax", self.current_limit_counter.minimum, self.current_limit_counter.maximum, "value", self.current_limit_counter.value, "reg", self.rwr_current_limit.value )
+        # print("set limit", current_limit, "minmax", self.current_limit_bounds.minimum, self.current_limit_bounds.maximum, "value", self.current_limit_bounds.value, "reg", self.rwr_current_limit.value )
 
         if self.resend_current_limit_tick.ticked():        
             # sometimes the EVSE forgets the current limit, so send it at regular intervals
