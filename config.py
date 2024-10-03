@@ -238,18 +238,16 @@ MQTT_RATE_LIMIT = {
     #   PV Controller
     #
 
-    # This is used by the Master to know if the inverter queries the meter,
-    # do not change this setting
-    'pv/solis1/fakemeter/lag'                       : (  2,       1.000, 'avg'   ), #  0.026/14.297,
+    'pv/solis1/fakemeter/lag'                       : (  10,       1.000, 'avg'   ), #  0.026/14.297,
 
     # Compress/threshold heavily
     'pv/meter/is_online'                            : (  60,      0.000, ''      ), #  0.021/ 5.011,
 
     # Published every minute, do not limit
-    'pv/solis1/fakemeter/req_per_s'                 : (  0,      0.000, ''      ), #  0.021/ 0.021,
+    'pv/solis1/fakemeter/req_per_s'                 : (  30,      0.000, ''      ), #  0.021/ 0.021,
 
     # Master process needs every value, don't limit it, so set margin to -1
-    'pv/meter/total_power'                          : (   0,     -1.000, ''      ), #  4.736/ 4.995,
+    'pv/meter/total_power'                          : (   1,     25.000, 'avg'      ), #  4.736/ 4.995,
 
     # This is for debugging only and generates huge traffic, average it
     'pv/solis1/fakemeter/active_power'              : (   1,     25.000, ''      ), #  4.714/ 4.974,
@@ -398,6 +396,6 @@ for k,v in tuple(MQTT_RATE_LIMIT.items()):
 MQTT_BUFFER_FILTER = [
     ( re.compile( r"^tele/plugs/tasmota_t.*?/STATE$" ), {} ),
     ( re.compile( r"^stat/plugs/tasmota_t.*?/RESULT$" ), {"POWER": ( lambda s:int(s=="ON"), ( 60, 0.000, '' )) } ),
-    ( re.compile( r"^tele/plugs/tasmota_t.*?/SENSOR$" ), {"ENERGY":{"Power": ( float, (10, 10, "avg")) }} ),
-    ( re.compile( r"stat/plugs/tasmota_t.*?/STATUS8$" ), {"StatusSNS":{"ENERGY":{"Power":(float, (0, 0, "")) }}} ),
+    ( re.compile( r"^tele/plugs/tasmota_t.*?/SENSOR$" ), {"ENERGY":{"Power": ( float, (10, 20, "avg")) }} ),
+    ( re.compile( r"^stat/plugs/tasmota_t.*?/STATUS8$" ), {"StatusSNS":{"ENERGY":{"Power":(float, (1, 20, "avg")) }}} ),
 ]
