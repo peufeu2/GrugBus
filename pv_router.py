@@ -19,7 +19,7 @@ from asyncio.exceptions import TimeoutError, CancelledError
 from pv.mqtt_wrapper import MQTTWrapper, MQTTSetting, MQTTVariable
 import grugbus
 import pv.evse_abb_terra
-import pv.reload, pv.router_coroutines
+import pv.reload, pv.router, pv.meters
 import config
 from misc import *
 
@@ -43,7 +43,7 @@ logging.basicConfig( encoding='utf-8',
                      level=logging.INFO,
                      format='[%(asctime)s] %(levelname)s:%(message)s',
                      handlers=[
-                            logging.handlers.RotatingFileHandler(Path(__file__).stem+'.log', mode='a', maxBytes=5*1024*1024, backupCount=2, encoding=None, delay=False),
+                            logging.handlers.RotatingFileHandler(Path(__file__).stem+'.log', mode='a', maxBytes=500*1024*1024, backupCount=2, encoding=None, delay=False),
                             # logging.FileHandler(filename=Path(__file__).stem+'.log'), 
                             logging.StreamHandler(stream=sys.stdout)
                     ])
@@ -73,12 +73,12 @@ class Master():
         await self.mqtt.mqtt.connect( config.MQTT_BROKER_LOCAL )
 
         # Get battery current from BMS
-        # MQTTVariable( "pv/bms/current", self, "bms_current", float, None, 0 )
+        MQTTVariable( "pv/bms/current", self, "bms_current", float, None, 0 )
         # MQTTVariable( "pv/bms/power",   self, "bms_power",   float, None, 0 )
         MQTTVariable( "pv/bms/soc",     self, "bms_soc",     float, None, 0 )
 
         # Get information from Controller
-        MQTTVariable( "nolog/pv/router_data" , self, "router_data" , orjson.loads, None, 0, self.mqtt_update_callback )
+        MQTTVariable( "nolog/pv/router_data" , self, "router_data" , orjson.loads, None, "{}", self.mqtt_update_callback )
 
         #
         #   EVSE and its smartmeter, both on the same modbus port
@@ -99,28 +99,29 @@ class Master():
 
         # add voltage to EVSE meter register poll list
         self.evse.local_meter.reg_sets[0].append( self.evse.local_meter.voltage )
+        self.router = pv.router.Router( mgr = self, mqtt = self.mqtt, mqtt_topic = "pv/router/" )
 
-        self.router = Router( mqtt = self.mqtt, mqtt_topic = "pv/router/" )
-
-        pv.reload.add_module_to_reload( "config", self.mqtt.load_rate_limit ) # reload rate limit configuration
+        pv.reload.add_module_to_reload( "config", lambda: (self.mqtt.load_rate_limit(), self.router.reload_config()) ) # reload rate limit configuration
+        pv.reload.add_module_to_reload( "pv.router", lambda: pv.router.hack_reload_classes() ) # reload rate limit configuration
 
         try:
             async with asyncio.TaskGroup() as tg:
                 tg.create_task( self.log_coroutine( "Read: %s"             %self.evse.key, self.evse.read_coroutine() ))
                 tg.create_task( self.log_coroutine( "Read: %s local meter" %self.evse.key, self.evse.local_meter.read_coroutine() ))
                 tg.create_task( self.log_coroutine( "Reload python modules",     pv.reload.reload_coroutine() ))
-                tg.create_task( pv.reload.reloadable_coroutine( "Router", lambda: pv.router_coroutines.route_coroutines, self ))
+                tg.create_task( pv.reload.reloadable_coroutine( "Router",     lambda: pv.router.route_coroutine, self ))
 
         except (KeyboardInterrupt, CancelledError):
             print("Terminated.")
         finally:
+            await asyncio.sleep(0.5)    # wait for MQTT to finish publishing
             await self.mqtt.mqtt.disconnect()
             with open("mqtt_stats/pv_master.txt","w") as f:
                 self.mqtt.write_stats( f )
 
     ########################################################################################
     #
-    #   Compute power values and fill fake meter fields
+    #   Receive values from controller
     #
     ########################################################################################
 
@@ -130,7 +131,7 @@ class Master():
             "meter_power_tweaked", "house_power", "total_pv_power", "total_input_power", 
             "total_grid_port_power", "total_battery_power", "battery_max_charge_power", 
             "data_timestamp"):
-            setattr( self, k, param[k] )
+            setattr( self, k, param.value[k] )
 
         self.event_power.set()
         self.event_power.clear()

@@ -21,7 +21,6 @@ import pv.reload
 log = logging.getLogger(__name__)
 
 # This module can be reloaded at runtime if the file is modified.
-pv.reload.add_module_to_reload( "pv.controller" )
 def on_module_unload():
     pass
 
@@ -41,11 +40,8 @@ async def power_coroutine( module_updated, first_start, self ):
     boost = 0
 
     chrono = Chrono()
-    while True:
+    while not module_updated(): # Exit if this module was reloaded
         try:
-            if module_updated(): # Exit if this module was reloaded
-                return
-
             await m.event_power.wait()
             time_since_last = chrono.lap()
 
@@ -278,10 +274,7 @@ async def inverter_powersave_coroutine( module_updated, first_start, self, solis
     timeout_power_on  = Timeout( 60, expired=True )
     timeout_power_off = Timeout( 300 )
     power_reg = solis.rwr_power_on_off
-    while True:
-        if module_updated(): # Exit if this module was reloaded
-            return
-
+    while not module_updated(): # Exit if this module was reloaded
         await solis.event_all.wait()
         if not solis.is_online:
             continue
@@ -329,13 +322,10 @@ async def inverter_powersave_coroutine( module_updated, first_start, self, solis
 ########################################################################################
 async def inverter_fan_coroutine( module_updated, first_start, self ):
     timeout_fan_off = Timeout( 60 )
-    bat_power_avg = { _.key: MovingAverage(10) for _ in self.inverters }
+    bat_power_avg = { _.key: MovingAverageSeconds(10) for _ in self.inverters }
     if first_start:
         await asyncio.sleep( 5 )
-    while True:
-        if module_updated(): # Exit if this module was reloaded
-            return
-
+    while not module_updated(): # Exit if this module was reloaded
         await asyncio.sleep( 2 )
         try:
             temps = []
@@ -361,9 +351,7 @@ async def inverter_fan_coroutine( module_updated, first_start, self ):
 ########################################################################################
 async def sysinfo_coroutine( module_updated, first_start, self ):
     prev_cpu_timings = None
-    while True:
-        if module_updated(): # Exit if this module was reloaded
-            return
+    while not module_updated():
         await asyncio.sleep(10)
         with open("/proc/stat") as f:
             cpu_timings = [ int(_) for _ in f.readline().split()[1:] ]

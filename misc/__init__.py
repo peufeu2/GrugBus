@@ -64,7 +64,7 @@ class Timeout:
     """
         Simple class to periodically trigger an event
     """
-    def __init__( self, duration, expired=False ):
+    def __init__( self, duration=1, expired=False ):
         self.duration = duration
         self.reset( duration )
         if expired:
@@ -147,7 +147,7 @@ class BoundedCounter:
 #
 #   Time weighted moving average
 #
-class MovingAverage:
+class MovingAverageSeconds:
     def __init__( self, time_window ):
         self.queue = collections.deque( )
         self.sum_value = 0.0
@@ -155,6 +155,7 @@ class MovingAverage:
         self.time_window = time_window
         self.tick = 0
         self.ncalls = 0
+        self.is_full = False     # True when we have enough data to fill the time window
 
     def append( self, value ):
         # time since last append
@@ -178,9 +179,10 @@ class MovingAverage:
             old_value, old_dt = q.popleft()
             self.sum_value -= old_value
             self.sum_time  -= old_dt
+            self.is_full = True
 
         self.ncalls += 1    # remove rouding error
-        if self.ncalls > 10:
+        if self.ncalls > 10000:
             self.ncalls = 0
             self.sum_value = sum( value for value, dt in q )
             self.sum_time  = sum( dt    for value, dt in q )
@@ -189,6 +191,33 @@ class MovingAverage:
 
         # return None if we don't have enough data yet
 
+#
+#   Time weighted moving average
+#
+class MovingAveragePoints:
+    def __init__( self, points ):
+        self.queue = collections.deque( maxlen=points )
+        self.sum_value = 0.0
+        self.ncalls = 0
+        self.is_full = False
+
+    def append( self, value ):
+        a = self.queue
+        if len(q) == q.maxlen:
+            self.sum_value -= q.popleft()
+            self.is_full = True
+        self.sum_value += value
+        q.append( value )
+
+        # moving average
+        self.ncalls += 1    # remove rouding error
+        if self.ncalls > 10000:
+            self.ncalls = 0
+            self.sum_value = sum( q )
+
+        return self.sum_value / len(q)
+
+        # return None if we don't have enough data yet
 
 def interpolate( xa, ya, xb, yb, x ):
     if x <= xa:

@@ -32,6 +32,13 @@ _nextcolor = _nextcolor()
 def nextcolor():
     return next( _nextcolor )
 
+display_bools_offset = 0
+def display_bools():
+    global display_bools_offset
+    o = display_bools_offset
+    display_bools_offset += 2
+    return lambda y: y+o
+
 colors = {
     "pv"            : ["#00FF00", "#00C000", "#008000"],
     "mppt1"         : [None     , nextcolor(), nextcolor()],
@@ -179,6 +186,16 @@ DATA_STREAMS = [
     ( "$SYS/broker/load/bytes/received/1min"    , "kB/s",  "MQTT received"       , "#00FF00"  , "solid",   1/(60*1024)      , {}, { }),
     ( "$SYS/broker/load/bytes/sent/1min"        , "kB/s",  "MQTT sent"           , "#FF0080"  , "solid",   1/(60*1024)      , {}, { }),
 
+
+    # Router
+    ( "cmnd/plugs/tasmota_t4/Power", "ON", "Tasmota T4 Sèche serviette"     , nextcolor(), "solid", 1, {}, {"func":display_bools()} ),
+    ( "cmnd/plugs/tasmota_t2/Power", "ON", "Tasmota T2 Radiateur PF"        , nextcolor(), "solid", 1, {}, {"func":display_bools()} ),
+    ( "cmnd/plugs/tasmota_t1/Power", "ON", "Tasmota T1 Radiateur bureau"    , nextcolor(), "solid", 1, {}, {"func":display_bools()} ),
+
+    ( "tele/plugs/tasmota_t4/SENSOR/ENERGY/Power", "W", "Tasmota T4 Sèche serviette"     , nextcolor(), "solid", 1, {}, {} ),
+    ( "tele/plugs/tasmota_t2/SENSOR/ENERGY/Power", "W", "Tasmota T2 Radiateur PF"        , nextcolor(), "solid", 1, {}, {} ),
+    ( "tele/plugs/tasmota_t1/SENSOR/ENERGY/Power", "W", "Tasmota T1 Radiateur bureau"    , nextcolor(), "solid", 1, {}, {} ),
+
     # SQL
     # ( 
     # SQLtopic( 
@@ -221,15 +238,23 @@ PLOT_LAYOUTS = [
                 "pv/meter/total_power"                           ,
                 "pv/total_input_power"                           ,
                 "pv/total_battery_power"                           ,
-                # "pv/battery_max_charge_power"                           ,
+                "pv/total_grid_port_power"                       ,
+                "pv/battery_max_charge_power"                           ,
                 # "pv/bms/max_charge_power"                        ,
                 "pv/router/battery_min_charge_power"             ,
                 "pv/evse/meter/active_power"                     ,
                 "pv/evse/rwr_current_limit"                      ,
                 "pv/router/excess_avg"                           ,
                 # "pv/router/excess_avg_nobat"                     ,
+
+"tele/plugs/tasmota_t4/SENSOR/ENERGY/Power",
+"tele/plugs/tasmota_t2/SENSOR/ENERGY/Power",
+"tele/plugs/tasmota_t1/SENSOR/ENERGY/Power",
             ],
             [
+                "cmnd/plugs/tasmota_t4/Power", 
+                "cmnd/plugs/tasmota_t2/Power", 
+                "cmnd/plugs/tasmota_t1/Power", 
                 "pv/evse/state",
             ]
         ]
@@ -461,6 +486,8 @@ class DataStream( object ):
     # add value from MQTT (streaming mode only)
     def add( self, y ):
         y*=self.scale
+        if f := self.attrs.get("func"):
+            y = f(y)
         t = np.datetime64(datetime.datetime.now(), "ms")
         if self.x:
             self.x.append( t )

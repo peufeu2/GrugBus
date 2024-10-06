@@ -80,7 +80,7 @@ async def reloadable_coroutine( title, getfunc, *args, **kwargs ):
     try:
         while True:
             try:
-                log.info(text+title )
+                log.info( text+title )
                 func = getfunc()                # look up func in reloadable module
                 def module_updated():
                     return func != getfunc()      # look it up again to see if it was reloaded

@@ -71,7 +71,7 @@ class MQTTWrapper:
             self._published_data[topic] = RateLimit( margin, period, mode )
 
     def get_rate_limit( self, topic ):
-        return RateLimit( *config.MQTT_RATE_LIMIT.get( topic, (60, 0, "") ))
+        return RateLimit( *config.MQTT_RATE_LIMIT.get( topic, (0, 60, "") ))
 
     def write_stats( self, file ):
         maxlen = 1+max( len(topic) for topic in self._published_data.keys() )
@@ -94,6 +94,7 @@ class MQTTWrapper:
 
         # rate limit
         if p := self._published_data.get(topic):
+
             # If value moved more than p.margin, we must publish. 
             # Previous unpublished values within p.margin are discarded.
             if abs(value - p.last_pub)>p.margin:

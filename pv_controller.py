@@ -263,6 +263,7 @@ class Controller:
             setattr( self, v.key, v )
 
         pv.reload.add_module_to_reload( "config", self.mqtt.load_rate_limit ) # reload rate limit configuration
+        pv.reload.add_module_to_reload( "pv.controller" )
 
         #   Launch it
         #

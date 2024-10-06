@@ -2,7 +2,19 @@
 # -*- coding: utf-8 -*-
 
 import re
+
 from config_secret import *
+# config_secret.py is not included on github and should contain:
+"""
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+
+# Fill in the blanks
+MQTT_USER       = 
+MQTT_PASSWORD   = 
+CLICKHOUSE_USER = 
+CLICKHOUSE_PASSWORD = 
+"""
 
 ##################################################################
 # debugging tools
@@ -13,9 +25,7 @@ LOG_MODBUS_REQUEST_TIME_SDM630 = False
 LOG_MODBUS_REQUEST_TIME_SDM120 = False
 LOG_MODBUS_REQUEST_TIME_ABB    = False
 LOG_MODBUS_WRITE_REQUEST_TIME  = False
-
 LOG_MODBUS_REQUEST_TIME_SOLIS  = False
-
 LOG_MODBUS_REGISTER_CHUNKS     = False
 
 ##################################################################
@@ -30,16 +40,13 @@ MQTT_BROKER_LOCAL   = "127.0.0.1"
 # Clickhouse
 ##################################################################
 
-# Clickhouse
-CLICKHOUSE_USER 	= "default"
-CLICKHOUSE_PASSWORD = "shush"
 CLICKHOUSE_INSERT_PERIOD_SECONDS = 5    # pool mqtt data and bulk insert into database every ... seconds
 
 ##################################################################
 # MQTT Buffer
 ##################################################################
 
-# MQTT Buffer server
+# MQTT Buffer/logger server
 MQTT_BUFFER_IP   = SOLARPI_IP
 MQTT_BUFFER_PORT = 15555
 MQTT_BUFFER_RETENTION = 24*3600*365 # how long to keep log files
@@ -47,7 +54,7 @@ MQTT_BUFFER_FILE_DURATION = 3600	# number of seconds before new log file is crea
 
 # path on solarpi for storage of mqtt compressed log
 MQTT_BUFFER_PATH = "/home/peufeu/mqtt_buffer"
-# temporary path on computer with clickhouse to copy logs and insert into database
+# temporary path on PC with clickhouse to copy logs and insert into database
 MQTT_BUFFER_TEMP = "/mnt/ssd/temp/solarpi/mqtt"
 
 ##################################################################
@@ -130,8 +137,8 @@ METER = {
     }
 }
 
-#   Fake meter will ignore data from Master process if it is older than this, in seconds
-FAKE_METER_MAX_AGE_IGNORE = 1.5
+# Fake meter safe mode: ignore or abort if data has not been updated since ... seconds
+FAKE_METER_MAX_AGE_IGNORE = 1.5     
 FAKE_METER_MAX_AGE_ABORT  = 2.5
 
 EVSE = {
@@ -154,23 +161,19 @@ EVSE = {
     }
 }
 
+##################################################################
+# CAN
+##################################################################
+
 CAN_PORT_BATTERY  = 'can_bat'
 
-# not used
-# COM_PORT_METER       = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_54D2042261-if00"
-
-# How often we modbus these devices
-#   Tuples: (period, starting point in period)
+# How often we send modbus requests to these devices, in seconds
 #
 POLL_PERIOD_METER       = 0.2
 POLL_PERIOD_SOLIS_METER = 0.2
 POLL_PERIOD_EVSE_METER  = 0.2
 POLL_PERIOD_SOLIS       = 0.2
 POLL_PERIOD_EVSE        = 1
-
-# This overwrites some of the above parameters, like passwords.
-# You have to create this file yourself.
-from config_secret import *
 
 ##################################################################
 # Measurement offset correction
@@ -183,7 +186,6 @@ def solis2_calibrate_ibat( ibat ):
             ibat *= 0.97
     return ibat
 
-
 CALIBRATION = {
     # Inverter internal current measurement offset
     # If measured value is exactly zero, keep it, otherwise add offset
@@ -191,15 +193,8 @@ CALIBRATION = {
 }
 
 ##################################################################
-# Various config
+# Power saving mode (turn off invertes) in pv_controller.py
 ##################################################################
-
-# Along with other conditions on SOC, if battery current is zero during this time,
-# we decide the inverter has finished charging it.
-SOLIS_BATTERY_DCDC_DETECTION_TIME = 10
-
-# Battery Full detection
-SOLIS_BATTERY_FULL_SOC = 98
 
 # Inverter auto turn on/off settings
 SOLIS_POWERSAVE_CONFIG = {
@@ -219,6 +214,95 @@ SOLIS_POWERSAVE_CONFIG = {
     }    
 }
 
+##################################################################
+# Power Router configuration
+##################################################################
+
+class Router:
+    # Set target export power for router
+    @classmethod
+    def p_export_target( cls, soc ):
+        return 100 + soc*1.0
+
+    # For smartplugs: try to not wear out relays
+    # minimum on time and minimum off time
+    plugs_min_on_time_s             = 5
+    plugs_min_off_time_s            = 20
+
+    # When battery is inactive, we pretend its current is zero,
+    # which removes BMS offset error
+    @classmethod
+    def battery_active( cls, mgr ):
+        return not (-2.0 < mgr.bms_current.value < 1.0)
+
+    # Result of previous function is averaged then compared to this
+    battery_active_threshold = 0.1
+
+    #   Detect when the inverter won't charge, even when it reports
+    #   battery max charge current not being zero
+    @classmethod
+    def battery_full( cls, mgr, battery_active ):
+        if mgr.battery_max_charge_power==0:
+            return True
+        if mgr.meter_power_tweaked < -20:
+            return True
+        if mgr.bms_soc.value > 98 and not battery_active:
+            return True
+        return False
+
+    # Result of previous function is averaged then compared to this
+    battery_full_threshold = 0.9
+
+# Plugs config: 
+#   "estimated_power"   : estimation of power before it is measured at first turn on
+#   "min_power"         : ignore power measurements below this value
+#   "hysteresis"        : on/off power hysteresis
+# Battery config:
+#   At min_soc, allocate max_power to battery.
+#   At max_soc, allocate min_power to battery.
+#   Interpolate in between.
+#
+ROUTER_CONFIG_DEFAULTS = {
+    # High priority EVSE slice, used for Force Charge
+    "evse_high" : { "priority": 6, "max_power": 0, "name": "Voiture" },
+
+    # High priority Battery slice
+    "bat_high"  : { "priority": 5, "min_soc": 90, "max_power": 10000, "max_soc":  95, "min_power":  000 , "name": "Battery high priority" },
+
+    # Rest of EVSE
+    "evse"      : { "priority": 4, "name": "Voiture"},
+
+    # Low priority Battery slice
+    "bat_low"   : { "priority": 3, "min_soc": 90, "max_power": 10000, "max_soc": 100, "min_power": 0    , "name": "Battery low priority"  },
+
+
+    "tasmota_t4": { "priority": 2, "estimated_power": 1000 , "min_power": 500, "hysteresis": 50, "plug_topic": "plugs/tasmota_t4/", "name": "Tasmota T4 Sèche serviette"  },
+    "tasmota_t2": { "priority": 1, "estimated_power":  800 , "min_power": 500, "hysteresis": 50, "plug_topic": "plugs/tasmota_t2/", "name": "Tasmota T2 Radiateur PF"     },
+    "tasmota_t1": { "priority": 0, "estimated_power":  800 , "min_power": 500, "hysteresis": 50, "plug_topic": "plugs/tasmota_t1/", "name": "Tasmota T1 Radiateur bureau" },
+}
+
+# Defaults above are applied, then updated with the runtime-selected configuration below 
+# Note EVSE force charge will override
+ROUTER_CONFIG = {
+    "default": {},
+    #   Charge the car and battery at the same time to maximize self consumption
+    "max_solar_charge":  {
+        # Highest priority:  keep charging, so if we have the minimum charge power, put it in the car not in the inverter battery
+        "evse_high" : { "max_power": 2000 },
+        "bat_high"  : { "min_soc": 80, "max_power": 6000, "max_soc":  95, "min_power":  0 },
+        "evse"      : { },
+        "bat_low"   : { "min_soc": 95, "max_power": 10000, "max_soc": 99, "min_power": 0  },
+    },
+    #   Charge the battery first, then the car, this will clip production as the car can't take all the PV power
+    "free_solar_charge":  {
+        "evse_high" : { "max_power": 0 },   # disable
+        "bat_high"  : { "min_soc": 90, "max_power": 10000, "max_soc":  95, "min_power":  0 },
+        "evse"      : { },
+        "bat_low"   : { "min_soc": 95, "max_power": 10000, "max_soc": 99, "min_power": 0  },
+    }    
+
+
+}
 
 
 
