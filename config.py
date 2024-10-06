@@ -253,26 +253,41 @@ class Router:
     # Result of previous function is averaged then compared to this
     battery_full_threshold = 0.9
 
+
+ROUTER_CONFIG_DEFAULTS = {
+    #
+    #   EVSE must always have higher priority than battery.
+    #   EVSE decides how much it leaves to the battery via "battery_interp" setting.
+    "evse"      : { 
+        "priority"                  : 4, 
+        "name"                      : "EVSE", 
+        "high_priority_power"       : 0, 
+        "battery_interp"            : (90, 10000, 95, 0), # (min_soc, max_power, max_soc, min_power)
+        "start_excess_threshold_W"  : 1400,     # minimum excess power to start charging
+        "charge_detect_threshold_W" : 1200,     # detect beginning of charge
+
+        "command_interval_s"        : 1       ,
+        "command_interval_small_s"  : 10      ,
+        "up_timeout_s"              : 15      ,
+        "end_of_charge_timeout_s"   : 240     ,
+        "power_report_timeout_s"    : 5       ,
+        "dead_band_W"               : 0.5*240 ,
+        "stability_threshold_W"     : 250     ,
+        "small_current_step_A"      : 1       ,
+        "control_gain_p"            : 0.96    ,
+        "control_gain_i"            : 0.05    ,
+        },
+
+# Battery config: interp = (min_soc, max_power, max_soc, min_power)
+#   At min_soc, allocate max_power to battery.
+#   At max_soc, allocate min_power to battery.
+#   Interpolate in between.
+    "bat"       : { "priority": 3, "name": "Battery", "interp": (90,10000,100,1000) },
+
 # Plugs config: 
 #   "estimated_power"   : estimation of power before it is measured at first turn on
 #   "min_power"         : ignore power measurements below this value
 #   "hysteresis"        : on/off power hysteresis
-# Battery config:
-#   At min_soc, allocate max_power to battery.
-#   At max_soc, allocate min_power to battery.
-#   Interpolate in between.
-#
-ROUTER_CONFIG_DEFAULTS = {
-    # High priority Battery slice
-    "bat_high"  : { "priority": 5, "min_soc": 90, "max_power": 10000, "max_soc":  95, "min_power": 0 , "name": "Battery high priority" },
-
-    # Rest of EVSE
-    "evse"      : { "priority": 4, "name": "Voiture", "steal_from_bat_high": 0},
-
-    # Low priority Battery slice
-    "bat_low"   : { "priority": 3, "min_soc": 90, "max_power": 10000, "max_soc": 100, "min_power": 0    , "name": "Battery low priority"  },
-
-
     "tasmota_t4": { "priority": 2, "estimated_power": 1000 , "min_power": 500, "hysteresis": 50, "plug_topic": "plugs/tasmota_t4/", "name": "Tasmota T4 Sèche serviette"  },
     "tasmota_t2": { "priority": 1, "estimated_power":  800 , "min_power": 500, "hysteresis": 50, "plug_topic": "plugs/tasmota_t2/", "name": "Tasmota T2 Radiateur PF"     },
     "tasmota_t1": { "priority": 0, "estimated_power":  800 , "min_power": 500, "hysteresis": 50, "plug_topic": "plugs/tasmota_t1/", "name": "Tasmota T1 Radiateur bureau" },
@@ -284,24 +299,12 @@ ROUTER_CONFIG = {
     "default": {},
     #   Charge the car and battery at the same time to maximize self consumption
     "max_solar_charge":  {
-        # First setup a high priority battery slice with limited power
-        "bat_high"  : { "min_soc": 80, "max_power": 6000, "max_soc":  95, "min_power":  0 },
-
-        # EVSE is allowed to steal some power (up to the limit specified) from the high priority battery slice
-        # this ensures it will not stop charging due to a cloud. It avoids blending the charge start/stop
-        # logic with the power management logic.
-        "evse"      : { "steal_from_bat_high": 2000 },
-        "bat_low"   : { "min_soc": 95, "max_power": 10000, "max_soc": 99, "min_power": 0  },
+        "evse"      : {
+            "high_priority_power"       : 2000, 
+            "start_excess_threshold_W"  : 2000,     # minimum excess power to start charging
+            "battery_interp"            : (50, 6000, 95, 0),
+        }
     },
-    #   Charge the battery first, then the car. This will clip production when battery is full, 
-    #   as the car can't take all the PV power...
-    "free_solar_charge":  {
-        "bat_high"  : { "min_soc": 90, "max_power": 10000, "max_soc":  95, "min_power":  0 },
-        "evse"      : { },
-        "bat_low"   : { "min_soc": 95, "max_power": 10000, "max_soc": 99, "min_power": 0  },
-    }    
-
-
 }
 
 

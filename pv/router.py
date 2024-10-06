@@ -134,7 +134,7 @@ class Routable():
         For an adjustable device, it takes power steps into account if the device has steps.
 
     """
-    async def take_power( self, power, ctx ):
+    async def take_power( self, ctx ):
         pass
 
     """
@@ -221,15 +221,15 @@ class TasmotaPlug( Routable ):
     def get_releaseable_power( self ):
         return self.get_power()
 
-    async def take_power( self, power, ctx ):
+    async def take_power( self, ctx ):
         if self.can_switch:
             if self.is_on:
-                if power <= self.current_power - self.hysteresis:
+                if ctx.power <= self.current_power - self.hysteresis:
                     ctx.changes.append( self.off )
                     return 0
             else:
                 # It is off.
-                if power >= self.last_power_when_on + self.hysteresis:
+                if ctx.power >= self.last_power_when_on + self.hysteresis:
                     ctx.changes.append( self.on )
                     return self.last_power_when_on
         return self.get_power()
@@ -251,18 +251,7 @@ class Battery( Routable ):
         super().__init__( router, key )
         self.current_power = 0
 
-    #   Split inverter's battery_max_charge_power between battery slices according to SOC.
-    #   Set max power of this slice to the lower of:
-    #       bp_max, since the inverter won't charge more than this anyway
-    #       max_power if soc<min_soc, zero if soc>ma_soc, with interpolation
-    def set_power( self, soc, bp_max ):
-        # get max charge power for this slice
-        p = interpolate( self.min_soc, self.max_power, self.max_soc, self.min_power, soc )
-        self.max_power_from_soc = min( bp_max, p )
-        return bp_max - self.max_power_from_soc
-
     # Routable class overrides
-
     async def stop( self ):
         pass
     
@@ -277,10 +266,12 @@ class Battery( Routable ):
         # so there's no need to add it again here.
         return 0
 
-    async def take_power( self, power, ctx ):
+    async def take_power( self, ctx ):
         # in phase 2, take max charging power, to ensure
         # total excess is well into the negative when it needs to be
-        self.current_power = min( power, self.max_power_from_soc )
+        p = interpolate( *self.interp, ctx.soc )
+        self.max_power_from_soc = min( ctx.bp_max, p )
+        self.current_power = min( ctx.power, self.max_power_from_soc )
         return self.max_power_from_soc
 
 
@@ -300,25 +291,9 @@ class EVSEController( Routable ):
         #   Parameters
         #   Note force charge and energy limit settings are reset once the car is unplugged.
         #
-        MQTTSetting( self, "start_excess_threshold_W"   , int  , range( 0, 2001 )            , 1400 )  # minimum excess power to start charging, unless overriden by:    
-        MQTTSetting( self, "charge_detect_threshold_W"  , int  , range( 0, 2001 )            , 1200 )  # minimum excess power to start charging, unless overriden by:    
-
-        MQTTSetting( self, "force_charge_minimum_A"     , int  , range( 6, 32 )              , 10   )  # guarantee this charge minimum current    
-        MQTTSetting( self, "force_charge_until_kWh"     , int  , range( 0, 81 )              , 0        , self.setting_updated )  # until this energy has been delivered (0 to disable force charge)
-        MQTTSetting( self, "stop_charge_after_kWh"      , int  , range( 0, 81 )              , 6        , self.setting_updated )
-
-        # MQTTSetting( self, "settle_timeout_s"           , float, (lambda x: 0.1<=x<=10)     , 1.0   , self.setting_updated )
-        MQTTSetting( self, "command_interval_s"         , float, (lambda x: 0.1<=x<=10)     , 1    )
-        MQTTSetting( self, "command_interval_small_s"   , float, (lambda x: 1<=x<=10)       , 10      )
-        MQTTSetting( self, "up_timeout_s"               , float, (lambda x: 0.1<=x<=20)     , 15     )
-        MQTTSetting( self, "end_of_charge_timeout_s"    , float, (lambda x: 0.1<=x<=320)    , 240    )
-        MQTTSetting( self, "power_report_timeout_s"     , float, (lambda x: 1<=x<=10)       , 5      )
-
-        MQTTSetting( self, "dead_band_W"                , int  , range( 0, 501 )             ,  0.5*240 )        # dead band for power routing
-        MQTTSetting( self, "stability_threshold_W"      , int  , range( 50, 301 )            ,  250     )
-        MQTTSetting( self, "small_current_step_A"       , int  , ( 1, 2 )                    ,  1       )
-        MQTTSetting( self, "control_gain_p"             , float, (lambda x: 0.1 <= x <= 0.99),  0.96    )
-        MQTTSetting( self, "control_gain_i"             , float, (lambda x: 0 <= x <= 0.1)   ,  0.05    )
+        MQTTSetting( self, "force_charge_minimum_A"     , int  , range( 6, 32 ) , 10 )  # guarantee this charge minimum current    
+        MQTTSetting( self, "force_charge_until_kWh"     , int  , range( 0, 81 ) , 0  , self.setting_updated )  # until this energy has been delivered (0 to disable force charge)
+        MQTTSetting( self, "stop_charge_after_kWh"      , int  , range( 0, 81 ) , 10 , self.setting_updated )
 
         # settings, DO NOT CHANGE as these are set in the ISO standard
         self.i_pause = 5.0          # current limit in pause mode
@@ -408,7 +383,7 @@ class EVSEController( Routable ):
     async def resume_charge( self, state ):
         if self.is_charge_paused():
             log.info("EVSE: Resume charge")
-            self.end_of_charge_timeout.reset( self.end_of_charge_timeout_s.value )
+            self.end_of_charge_timeout.reset( self.end_of_charge_timeout_s )
         self.local_meter.tick.set( config.POLL_PERIOD_EVSE_METER ) # poll meter more often
         self.start_counter.to_maximum()
         self.stop_counter.to_maximum()
@@ -443,7 +418,7 @@ class EVSEController( Routable ):
 
     def is_meter_stable( self ):
         h = self.local_meter.power_history
-        return max(h) - min(h) < self.stability_threshold_W.value        
+        return max(h) - min(h) < self.stability_threshold_W        
 
     def get_power( self ):
         # take recent command into account, in case we just increased power
@@ -455,15 +430,24 @@ class EVSEController( Routable ):
             return self._get_power()
 
     # This function is overwritten when changing the current limit
-    def _get_power():
+    def _get_power( self ):
         return self.local_meter.active_power.value
 
     def get_releaseable_power( self ):
         return self.get_power()
 
-    async def take_power( self, excess, ctx ):
-        # also take power allocated in the high priority slice
-        p = await self._take_power( excess, ctx )
+    async def take_power( self, ctx ):
+        # First take our minimum power (if any)
+        min_ev_power = min( ctx.power, self.high_priority_power )
+        remain = ctx.power - min_ev_power
+
+        # Leave some for the battery
+        bat     = min( remain, ctx.bp_max, interpolate( *self.battery_interp, ctx.soc ))
+
+        # Take everything else
+        avail_power = ctx.power - bat
+
+        p = await self._take_power( avail_power, ctx )
         if p == None:
             return self.get_power()
         return p
@@ -486,7 +470,7 @@ class EVSEController( Routable ):
             # monitor excess power to decide if we can start charge
             # do it before checking the socket state so when we plug in, it starts immediately
             # if power is available
-            self.start_counter.addsub( avail_power >= self.start_excess_threshold_W.value, time_since_last_call )
+            self.start_counter.addsub( avail_power >= self.start_excess_threshold_W, time_since_last_call )
             self.current_limit_bounds.set_minimum( self.i_start )   # set lower bound at minimum allowed current
 
         # Are we connected? If RS485 fails, EVSE will timeout and stop charge.
@@ -531,7 +515,7 @@ class EVSEController( Routable ):
         # now we're in charge mode, not paused
         ev_power   = self.local_meter.active_power.value
         voltage = self.local_meter.voltage.value            # Use car's actual power use
-        if ev_power < self.charge_detect_threshold_W.value:
+        if ev_power < self.charge_detect_threshold_W:
             # Current is low. This either means:
             # - Charge hasn't started yet, so we shouldn't issue new current adjustments and whack the current limit 
             # into the maximum and then charging would start with a big current spike.
@@ -548,7 +532,7 @@ class EVSEController( Routable ):
             self.soft_start_timestamp = time.monotonic()
             return
 
-        self.end_of_charge_timeout.reset( self.end_of_charge_timeout_s.value )
+        self.end_of_charge_timeout.reset( self.end_of_charge_timeout_s )
 
         # Should we stop charge ? Do not move this check earlier as that would interrupt the final balancing stage
         if self.stop_counter.at_minimum():
@@ -565,15 +549,15 @@ class EVSEController( Routable ):
         # Finally... adjust current.
         # Since the car imposes 1A steps, don't bother with changes smaller than this.
         excess = avail_power - ev_power
-        if abs(excess) < self.dead_band_W.value:
+        if abs(excess) < self.dead_band_W:
             self.integrator.value = 0.
             return
 
         # calculate new limit
         # TODO: redo integrator using local meter instead
         cur_limit = self.evse.rwr_current_limit.value
-        self.integrator.add( excess * self.control_gain_i.value * time_since_last_call )
-        new_limit = (avail_power + self.integrator.value) * self.control_gain_p.value / voltage
+        self.integrator.add( excess * self.control_gain_i * time_since_last_call )
+        new_limit = (avail_power + self.integrator.value) * self.control_gain_p / voltage
         self.stop_counter.addsub( new_limit >= self.i_start, time_since_last_call ) # stop charge if we're at minimum power and repeatedly try to go lower
         new_limit = self.current_limit_bounds.clip( new_limit )                # clip it so we keep charging until stop_counter says we stop
         delta_i = new_limit - cur_limit
@@ -589,7 +573,7 @@ class EVSEController( Routable ):
             return
 
         # do not constantly send small changes
-        if abs( delta_i ) <= self.small_current_step_A.value:
+        if abs( delta_i ) <= self.small_current_step_A:
             if not self.command_interval_small.expired():
                 return
 
@@ -606,7 +590,7 @@ class EVSEController( Routable ):
         # to stabilize.  This avoids sending a small change at the beginning of a step, then having to wait for
         # the car to update to proces the rest of the step.
         # if not self.settle_timeout.expiry:      # Timeout is not set
-            # self.settle_timeout.reset( self.settle_timeout_s.value )   # Set timeout, when it expires we end up at the next line
+            # self.settle_timeout.reset( self.settle_timeout_s )   # Set timeout, when it expires we end up at the next line
 
         # if not self.settle_timeout.expired():
             # return
@@ -614,19 +598,19 @@ class EVSEController( Routable ):
         async def execute():
             # after reducing current, wait until bringing it back up
             if delta_i<0:
-                self.up_timeout.reset( self.up_timeout_s.value )
+                self.up_timeout.reset( self.up_timeout_s )
 
             # reset integrator on large steps
-            if abs( delta_i ) > self.small_current_step_A.value:
+            if abs( delta_i ) > self.small_current_step_A:
                 self.integrator.value = 0.
 
             # Execute current limit change
             await self.evse.set_current_limit( new_limit )
-            self.command_interval.reset( self.command_interval_s.value )
-            self.command_interval_small.reset( self.command_interval_small_s.value )  # prevent frequent small updates
+            self.command_interval.reset( self.command_interval_s )
+            self.command_interval_small.reset( self.command_interval_small_s )  # prevent frequent small updates
 
             # alter power reporting function
-            self.power_report_timeout.reset( self.power_report_timeout_s.value )
+            self.power_report_timeout.reset( self.power_report_timeout_s )
             # if delta_i>0:
             self._get_power = lambda: max( new_power, self.local_meter.active_power.value ) 
             # else:
@@ -656,25 +640,21 @@ class Router( ):
         # individual settings are not available, as that would complicate the HA GUI too much
         MQTTSetting( self, "active_config"      , str, False, "default", self.mqtt_config_updated_callback ) #
 
-        self.devices_onoff = [ 
-                         TasmotaPlug( self, key="tasmota_t4" ),
-                         TasmotaPlug( self, key="tasmota_t2" ),
-                         TasmotaPlug( self, key="tasmota_t1" ),
-                        ] 
-        self.devices_battery = [
-            Battery( self, key="bat_high" ),
-            Battery( self, key="bat_low"  ),
-        ]
-
         self.evse = EVSEController( self, mgr.evse )
+        self.battery = Battery( self, key="bat" )
+        self.devices = [ 
+            TasmotaPlug( self, key="tasmota_t4" ),
+            TasmotaPlug( self, key="tasmota_t2" ),
+            TasmotaPlug( self, key="tasmota_t1" ),
+            self.battery,
+            self.evse,
+        ] 
 
-        # Device list must be highest priority first
-        self.devices = self.devices_battery + self.devices_onoff + [ self.evse ]
+        # This also sorts devices by priority
         self.reload_config()
 
         # queues to smooth measured power
         self.smooth_export = MovingAverageSeconds( 1 )
-        self.smooth_p      = MovingAverageSeconds( 1 )
         self.smooth_bp     = MovingAverageSeconds( 1 )
         self.battery_active_avg = MovingAverageSeconds( 20 )
         self.battery_full_avg   = MovingAverageSeconds( 20 )
@@ -751,15 +731,16 @@ class Router( ):
 
         # Get export power from smartmeter, set it to positive when exporting (invert sign), makes the algo below easier to understand.
         # Also smooth it, to avoid jerky behavior on power spikes
-        export_avg = self.smooth_export.append( -mgr.meter_power_tweaked )
-        bp_avg     = self.smooth_bp    .append( bp_proxy )
+        # export_avg = self.smooth_export.append( -mgr.meter_power_tweaked )
+        # bp_avg     = self.smooth_bp    .append( bp_proxy )
 
-        # Wait for moving average to fill
-        if not (self.smooth_export.is_full and self.smooth_bp.is_full):
-            return
+        # # Wait for moving average to fill
+        # if not (self.smooth_export.is_full and self.smooth_bp.is_full):
+        #     return
 
         # TODO: check if export smoothing is necessary, holdoff time should be enough
         export_avg = -mgr.meter_power_tweaked
+        bp_avg     = bp_proxy
 
         # compute excess power, including battery power
         # and tweak it a bit to keep a little bit of extra power
@@ -779,32 +760,31 @@ class Router( ):
             if w:= await device.run():
                 wait.append( device.name + ": " + w )
 
-        # distribute bp_max and bp_avg among battery slices, each will pick a share according to SOC
-        _bp_max = bp_max
-        for battery_slice in self.devices_battery:
-            _bp_max = battery_slice.set_power( soc, _bp_max )
-
-        # put any non distributed power into excess
-        # excess_avg += _bp
-
-        # calculate excess power as if all routable devices were off, this is needed to let
+        # calculate excess power as if all routable devices were off, to let
         # higher priority devices take that power from lower priority devices
         excess = excess_avg
         log.debug( "excess %5d bp %5d %s %s", excess, bp_avg, "prep", datetime.datetime.now().isoformat())
         for device in self.devices:
             excess += device.get_releaseable_power( )
 
+        # create routing context
+        ctx = RouterCtx()
+        ctx.soc    = soc
+        ctx.power  = excess_avg
+        ctx.total  = excess_avg
+        ctx.bp_max = bp_max
+
         # avoid reacting on spikes: this requires several iterations wanting to 
         # change something before we commit to it
-        ctx = RouterCtx()
 
         # Scan from highest to lowest priority and let devices take power calculated above.
-        log.debug( "%5d %s %s", excess, "start", self.confirm_change_counter.value )
+        log.debug( "%5d %s %s", ctx.power, "start", self.confirm_change_counter.value )
         for device in self.devices:
-            p = await device.take_power( excess, ctx )
-            log.debug( "%-6d take %5d for %s", excess, p, device.dump())
-            excess -= p
-        log.debug( "%5d %s", excess, "end")
+            p = await device.take_power( ctx )
+            log.debug( "%-6d take %5d for %s", ctx.power, p, device.dump())
+            ctx.power -= p
+
+        log.debug( "%5d %s", ctx.power, "end")
 
         if wait:
             log.debug("waitlist %s", wait)
