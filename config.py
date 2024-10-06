@@ -263,14 +263,11 @@ class Router:
 #   Interpolate in between.
 #
 ROUTER_CONFIG_DEFAULTS = {
-    # High priority EVSE slice, used for Force Charge
-    "evse_high" : { "priority": 6, "max_power": 0, "name": "Voiture" },
-
     # High priority Battery slice
-    "bat_high"  : { "priority": 5, "min_soc": 90, "max_power": 10000, "max_soc":  95, "min_power":  000 , "name": "Battery high priority" },
+    "bat_high"  : { "priority": 5, "min_soc": 90, "max_power": 10000, "max_soc":  95, "min_power": 0 , "name": "Battery high priority" },
 
     # Rest of EVSE
-    "evse"      : { "priority": 4, "name": "Voiture"},
+    "evse"      : { "priority": 4, "name": "Voiture", "steal_from_bat_high": 0},
 
     # Low priority Battery slice
     "bat_low"   : { "priority": 3, "min_soc": 90, "max_power": 10000, "max_soc": 100, "min_power": 0    , "name": "Battery low priority"  },
@@ -287,15 +284,18 @@ ROUTER_CONFIG = {
     "default": {},
     #   Charge the car and battery at the same time to maximize self consumption
     "max_solar_charge":  {
-        # Highest priority:  keep charging, so if we have the minimum charge power, put it in the car not in the inverter battery
-        "evse_high" : { "max_power": 2000 },
+        # First setup a high priority battery slice with limited power
         "bat_high"  : { "min_soc": 80, "max_power": 6000, "max_soc":  95, "min_power":  0 },
-        "evse"      : { },
+
+        # EVSE is allowed to steal some power (up to the limit specified) from the high priority battery slice
+        # this ensures it will not stop charging due to a cloud. It avoids blending the charge start/stop
+        # logic with the power management logic.
+        "evse"      : { "steal_from_bat_high": 2000 },
         "bat_low"   : { "min_soc": 95, "max_power": 10000, "max_soc": 99, "min_power": 0  },
     },
-    #   Charge the battery first, then the car, this will clip production as the car can't take all the PV power
+    #   Charge the battery first, then the car. This will clip production when battery is full, 
+    #   as the car can't take all the PV power...
     "free_solar_charge":  {
-        "evse_high" : { "max_power": 0 },   # disable
         "bat_high"  : { "min_soc": 90, "max_power": 10000, "max_soc":  95, "min_power":  0 },
         "evse"      : { },
         "bat_low"   : { "min_soc": 95, "max_power": 10000, "max_soc": 99, "min_power": 0  },

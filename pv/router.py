@@ -283,29 +283,6 @@ class Battery( Routable ):
         self.current_power = min( power, self.max_power_from_soc )
         return self.max_power_from_soc
 
-#################################################################################
-#
-#   Generic slice, used to cut EVSE into high and low priorities
-#
-#################################################################################
-class Slice( Routable ):
-    def __init__( self, router, key ):
-        super().__init__( router, key )
-        self.current_power = 0
-        self.current_max_power = 0
-
-    def dump( self ):
-        return "%30s prio %d cur %5d max %5d" % (self.name, self.priority, self.get_power(), self.max_power )
-
-    def get_power( self ):
-        return self.current_power
-
-    def get_releaseable_power( self ):
-        return self.current_power
-
-    async def take_power( self, power, ctx ):
-        self.current_power = min( power, self.current_max_power )
-        return self.current_power
 
 #################################################################################################
 #
@@ -387,8 +364,6 @@ class EVSEController( Routable ):
         # State of this softwate (not the charger)
         self.set_state( self.STATE_UNPLUGGED )
 
-        self.high_piority_slice = Slice( self.router, self.key+"_high" )
-
     STATE_UNPLUGGED = 0 # Car is not plugged
     STATE_PLUGGED   = 1 # Car is plugged, waiting for enough excess PV or force charge
     STATE_CHARGE_STARTED  = 2 # Charge command has been sent, but the car isn't drawing current yet.
@@ -427,7 +402,6 @@ class EVSEController( Routable ):
         self.local_meter.tick.set( config.POLL_PERIOD_EVSE_METER* 10 )   # less MQTT traffic when not charging
         self.start_counter.to_minimum() # reset counters 
         self.stop_counter.to_minimum()
-        self.high_piority_slice.current_max_power = 0
         self.set_state( state )
         await self.evse.set_current_limit( self.i_pause )
 
@@ -463,8 +437,6 @@ class EVSEController( Routable ):
         if not self.is_online or self.is_charge_paused():
             return     # we're inactive, do not block routing
 
-        # self.high_piority_slice.max_power = 100
-
         # Enable routing?
         if not self.is_meter_stable():
             return "wait meter"
@@ -491,11 +463,10 @@ class EVSEController( Routable ):
 
     async def take_power( self, excess, ctx ):
         # also take power allocated in the high priority slice
-        hp = self.high_piority_slice.get_power()
-        p = await self._take_power( excess + hp, ctx )
+        p = await self._take_power( excess, ctx )
         if p == None:
-            return self.get_power() - hp
-        return p - hp
+            return self.get_power()
+        return p
 
     async def _take_power( self, avail_power, ctx ):
         time_since_last_call = min( 1, self.last_call.lap() )
@@ -698,7 +669,7 @@ class Router( ):
         self.evse = EVSEController( self, mgr.evse )
 
         # Device list must be highest priority first
-        self.devices = self.devices_battery + self.devices_onoff + [ self.evse, self.evse.high_piority_slice ]
+        self.devices = self.devices_battery + self.devices_onoff + [ self.evse ]
         self.reload_config()
 
         # queues to smooth measured power
