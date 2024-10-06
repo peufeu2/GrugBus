@@ -13,6 +13,8 @@ import config
 
 log = logging.getLogger(__name__)
 
+logging.getLogger("gmqtt").setLevel(logging.ERROR)
+
 class RateLimit:
     __slots__ = "text","value","last_pub","margin","start_time","period","sum","count","mode","total_count","published_count","is_constant"
     def __init__( self, margin, period, mode ):
@@ -53,7 +55,7 @@ class MQTTWrapper:
     _callbacks_generated = set()
 
     def __init__( self, identifier ):
-        self.mqtt = gmqtt.Client( identifier, clean_session=False )
+        self.mqtt = gmqtt.Client( identifier, clean_session=False  )
         self.mqtt.on_connect    = self.on_connect
         self.mqtt.on_message    = self.on_message
         self.mqtt.on_disconnect = self.on_disconnect
@@ -164,7 +166,7 @@ class MQTTWrapper:
             self.mqtt.subscribe( topic )                # if it's not in there already, we have to subscribe
         if callback not in l:
             l.append( callback )
-        print( "MQTT: registered callback for %s on %s" % (topic, callback.__name__) )
+        logging.debug( "MQTT: registered callback for %s on %s", topic, callback.__name__ )
 
     async def on_message(self, client, topic, payload, qos, properties):
         async def try_topic( t ):

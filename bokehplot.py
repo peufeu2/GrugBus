@@ -239,7 +239,7 @@ PLOT_LAYOUTS = [
                 "pv/total_input_power"                           ,
                 "pv/total_battery_power"                           ,
                 "pv/total_grid_port_power"                       ,
-                "pv/battery_max_charge_power"                           ,
+                # "pv/battery_max_charge_power"                           ,
                 # "pv/bms/max_charge_power"                        ,
                 "pv/router/battery_min_charge_power"             ,
                 "pv/evse/meter/active_power"                     ,

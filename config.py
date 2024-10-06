@@ -218,65 +218,75 @@ SOLIS_POWERSAVE_CONFIG = {
 # Power Router configuration
 ##################################################################
 
-class Router:
-    # Set target export power for router
-    @classmethod
-    def p_export_target( cls, soc ):
-        return 100 + soc*1.0
-
+ROUTER_CONFIG = {
     # For smartplugs: try to not wear out relays
     # minimum on time and minimum off time
-    plugs_min_on_time_s             = 5
-    plugs_min_off_time_s            = 20
+    "plugs_min_on_time_s"   : 5     ,
+    "plugs_min_off_time_s"  : 20    ,
+
+    # Set target export power for router
+    "p_export_target"       : lambda soc: 100 + soc*1.0,
 
     # When battery is inactive, we pretend its current is zero,
     # which removes BMS offset error
-    @classmethod
-    def battery_active( cls, mgr ):
-        return not (-2.0 < mgr.bms_current.value < 1.0)
+    "battery_active"        : lambda mgr:  not (-2.0 < mgr.bms_current.value < 1.0),
 
     # Result of previous function is averaged then compared to this
-    battery_active_threshold = 0.1
+    "battery_active_threshold" : 0.1,
 
     #   Detect when the inverter won't charge, even when it reports
     #   battery max charge current not being zero
-    @classmethod
-    def battery_full( cls, mgr, battery_active ):
-        if mgr.battery_max_charge_power==0:
-            return True
-        if mgr.meter_power_tweaked < -20:
-            return True
-        if mgr.bms_soc.value > 98 and not battery_active:
-            return True
-        return False
+    "battery_full"          : lambda mgr, battery_active: (
+           mgr.battery_max_charge_power==0 
+        or mgr.meter_power_tweaked < -20 
+        or (mgr.bms_soc.value > 98 and not battery_active)
+    ),
 
     # Result of previous function is averaged then compared to this
-    battery_full_threshold = 0.9
+    "battery_full_threshold" : 0.9,
+    
+    # Moving averages length (seconds)
+    "smooth_export_time_window"      : 1,    
+    "smooth_bp_time_window"          : 1,
+    "battery_active_avg_time_window" : 20,            
+    "battery_full_avg_time_window"   : 20,        
 
+    # Changes are commited if they are confirmed for this long,
+    # to avoid triggering on spikes
+    "confirm_change_time"            : 1.5,
 
-ROUTER_CONFIG_DEFAULTS = {
+}
+
+ROUTER_DEVICES_CONFIG_DEFAULTS = {
     #
     #   EVSE must always have higher priority than battery.
     #   EVSE decides how much it leaves to the battery via "battery_interp" setting.
     "evse"      : { 
         "priority"                  : 4, 
         "name"                      : "EVSE", 
-        "high_priority_power"       : 0, 
-        "battery_interp"            : (90, 10000, 95, 0), # (min_soc, max_power, max_soc, min_power)
-        "start_excess_threshold_W"  : 1400,     # minimum excess power to start charging
-        "charge_detect_threshold_W" : 1200,     # detect beginning of charge
 
-        "command_interval_s"        : 1       ,
-        "command_interval_small_s"  : 10      ,
-        "up_timeout_s"              : 15      ,
-        "end_of_charge_timeout_s"   : 240     ,
-        "power_report_timeout_s"    : 5       ,
-        "dead_band_W"               : 0.5*240 ,
-        "stability_threshold_W"     : 250     ,
-        "small_current_step_A"      : 1       ,
-        "control_gain_p"            : 0.96    ,
-        "control_gain_i"            : 0.05    ,
-        },
+        "high_priority_power"       : 0, 
+        "battery_interp"            : (90, 10000, 95, 0), # (min_soc, max_power, max_soc, min_power) note this is how much power this lets the battery take, not the EVSE
+
+        "start_excess_threshold_W"  : 1400,     # minimum excess power to start charging
+        "start_time_s"              : 120,      # how long above minimum excess power before starting
+        "stop_time_s"               : 120,      # how long before stopping when we don't have enough power
+
+        "charge_detect_threshold_W" : 1200,     # detect beginning and end of charge
+
+        "command_interval_s"        : 1       ,     # minimum time to wait between current adjustments
+        "command_interval_small_s"  : 10      ,     # minimum time to wait between small current adjustments
+        "small_current_step_A"      : 1       ,     # any adjustment lower than this is small
+
+        "up_timeout_s"              : 15      ,     # after lowering current, wait before raising it
+        "end_of_charge_timeout_s"   : 240     ,     # time spent with current lower than charge_detect before we decide it's finished
+        "power_report_timeout_s"    : 5       ,     # after making a change, report power according to the change during this interval, then switch to meter reading
+        "dead_band_W"               : 0.5*240 ,     # power dead band where no adjustments are made
+        "stability_threshold_W"     : 250     ,     # consider meter readings stable if they fluctuate less than this
+
+        "control_gain_p"            : 0.96    ,     # control loop gain, must be <1
+        "control_gain_i"            : 0.05    ,     # gain for the integrator in the PI loop
+    },
 
 # Battery config: interp = (min_soc, max_power, max_soc, min_power)
 #   At min_soc, allocate max_power to battery.
@@ -293,16 +303,15 @@ ROUTER_CONFIG_DEFAULTS = {
     "tasmota_t1": { "priority": 0, "estimated_power":  800 , "min_power": 500, "hysteresis": 50, "plug_topic": "plugs/tasmota_t1/", "name": "Tasmota T1 Radiateur bureau" },
 }
 
-# Defaults above are applied, then updated with the runtime-selected configuration below 
-# Note EVSE force charge will override
-ROUTER_CONFIG = {
-    "default": {},
+# Defaults above are automatically added to  the runtime-selected configuration below, no need to copy them
+# Note EVSE force charge will override these settings
+ROUTER_DEVICES_CONFIG = {
     #   Charge the car and battery at the same time to maximize self consumption
-    "max_solar_charge":  {
-        "evse"      : {
+    "default": { 
+        "evse": {
             "high_priority_power"       : 2000, 
             "start_excess_threshold_W"  : 2000,     # minimum excess power to start charging
-            "battery_interp"            : (50, 6000, 95, 0),
+            "battery_interp"            : (50, 6000, 95, 1000),
         }
     },
 }

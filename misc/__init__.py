@@ -100,6 +100,21 @@ class Timeout:
     def elapsed( self ):
         return time.monotonic() - self.start_time
 
+class Interval:
+    def __init__( self, minimum, maximum, func=float ):
+        self._func = func
+        self.minimum = func( minimum )
+        self.maximum = func( maximum )
+
+    def clip( self, value ):
+        return min( self.maximum, max( self.minimum, self._func( value )))
+
+    def set_maximum( self, maximum ):
+        self.maximum = maximum
+
+    def set_minimum( self, minimum ):
+        self.minimum = minimum
+
 class BoundedCounter:
     def __init__( self, value, minimum, maximum, func=float ):
         self._func = func
