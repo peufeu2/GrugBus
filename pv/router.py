@@ -663,7 +663,7 @@ class Router( ):
         # When it wants to make a change, start the timeout.
         # Check again when it expires, and if we still want to make the change, then
         # do it. This avoids reacting on spikes and other noise.
-        self.confirm_change_counter = BoundedCounter( 0, 0, 1.5 )
+        self.confirm_timeout = Timeout( 1.5 )
         self.last_call = Chrono()
         self.hair_trigger_timeout = Timeout( expired = True )
 
@@ -684,7 +684,7 @@ class Router( ):
         self.smooth_bp          .time_window = self.smooth_bp_time_window
         self.battery_active_avg .time_window = self.battery_active_avg_time_window
         self.battery_full_avg   .time_window = self.battery_full_avg_time_window
-        self.confirm_change_counter.set_maximum( self.confirm_change_time )
+        self.confirm_timeout.set_duration( self.confirm_change_time )
 
         for device in self.devices:
             device.reload_config()
@@ -704,6 +704,9 @@ class Router( ):
     def hair_trigger( self, duration ):
         self.hair_trigger_timeout.reset( duration )
 
+    #
+    #   Allocate excess power to devices
+    #
     async def route( self ):
         mgr = self.mgr
         time_since_last_call = min( 1, self.last_call.lap() )
@@ -712,50 +715,52 @@ class Router( ):
         # around zero but with spikes in import/export and we don't want that to trigger loads.
         # Likewise when charging during the day, if a load turns on it can steal all the power 
         # from battery charging. We don't want that. Solution:
-        # The inverter already does all the work: excess production is (meter export) + (solar battery charging power)
+        # The inverter already does all the work: excess production is (meter export) + (battery charging power)
         # so, by using battery charging power, this behaves correctly in all cases.
 
         # Get battery info
         bp_proxy  = mgr.total_input_power  # Battery charging power (fast proxy from smartmeter). Positive if charging, negative if discharging.
         soc = mgr.bms_soc.value            # battery SOC, 0-100
 
-        # We need to know if the inverter will actually use the power we allocate to battery charging.
-        # If battery_max_charge_power == 0, then we're sure it won't charge and can use all the power.
-        # But when battery_max_charge_power > 0 and soc < 100, sometimes it doesn't charge, and exports instead.
-        # So we detect if the inverter is charging. "bat_full" variable really means "inverter doesn't want to charge it"
+        # detect if battery is active
+        # self.battery_active is in config.py, returns bool, which goes through moving average, and compared with threshold.
+        # result: true if self.battery_active() returns true more often than self.battery_active_threshold on average
         bat_active  = (self.battery_active_avg.append( self.battery_active( mgr )) or 1) > self.battery_active_threshold
 
         # remove battery power measurement error when battery is inactive
         if not bat_active:
             bp_proxy = 0    
 
+        # We need to know if the inverter will actually use the power we allocate to battery charging.
+        # If register battery_max_charge_power == 0, then we're sure it won't charge and can use all the power.
+        # But when battery_max_charge_power > 0 and soc < 100, sometimes it doesn't charge, and exports instead.
+        # self.battery_full() is in config.py
         bat_full = (self.battery_full_avg.append( self.battery_full( mgr, bat_active )) or 0) > self.battery_full_threshold
 
         # mgr.battery_max_charge_power is the maximum charging power the battery can take, as determined by inverter, according to BMS info
         # bp_max is the max power the inverter will actually charge at, it feels like it
         if bat_full:
-            bp_max  = 0
+            bp_max  = 0 # we think the inverter doesn't feel like charging, so ignore battery_max_charge_power
         else:
             bp_max = mgr.battery_max_charge_power
 
         # Get export power from smartmeter, set it to positive when exporting (invert sign), makes the algo below easier to understand.
         # Also smooth it, to avoid jerky behavior on power spikes
+        # strike that, don't smooth it, there's a better algo below
         # export_avg = self.smooth_export.append( -mgr.meter_power_tweaked )
         # bp_avg     = self.smooth_bp    .append( bp_proxy )
-
         # # Wait for moving average to fill
         # if not (self.smooth_export.is_full and self.smooth_bp.is_full):
         #     return
-
-        # TODO: check if export smoothing is necessary, holdoff time should be enough
+        # TODO: check if export smoothing is necessary, holdoff time (below: execute) should be enough
         export_avg = -mgr.meter_power_tweaked
         bp_avg     = bp_proxy
 
         # compute excess power, including battery power
         # and tweak it a bit to keep a little bit of extra power
-        excess_avg = self.offset.value + export_avg + bp_avg - self.p_export_target( soc )
+        excess_avg = self.offset.value + export_avg + bp_avg - self.p_export_target( soc ) # p_export_target from config
 
-        # Hack: If EV charging has begun, pretend we have more SOC than we have to avoid start/stop cycles
+        # Hack: If EV charging has begun, pretend SOC is higher to avoid start/stop cycles
         if self.evse.is_charge_unpaused():
             soc += 5
 
@@ -783,10 +788,12 @@ class Router( ):
         ctx.bp_max = bp_max
 
         # Scan from highest to lowest priority and let devices take power calculated above.
+        # If no changes occur, each device takes back the power it released at the previous step.
+        # If a high priority device takes more power, then a low priority device will have to take less.
         logs = []
-        logs.append(( "%5d %s %s", ctx.power, "start", self.confirm_change_counter.value ))
+        logs.append(( "%5d start", ctx.power ))
         for device in self.devices:
-            p = await device.take_power( ctx )
+            p = await device.take_power( ctx )  # if the device wants to make a change, it is added to ctx.changes
             logs.append(( "%-6d take %5d for %s", ctx.power, p, device.dump()))
             ctx.power -= p
 
@@ -794,19 +801,25 @@ class Router( ):
 
         logs.append(( "%5d %s", ctx.power, "end" ))
         if ctx.changes: # execute changes if confirmed
-            self.confirm_change_counter.add( time_since_last_call )
-            # avoid reacting on spikes: this requires several iterations wanting to 
-            # change something before we commit to it
-            if (self.confirm_change_counter.at_maximum() and not wait) or (not self.hair_trigger_timeout.expired()):
+            #   If devices want to make a change, ctx.changes will not be empty.
+            #   When that occurs, we don't make the change immediately, as it could be the result
+            #   of a transient power spike. Instead we wait for confirm_timeout to expire.
+
+            # So changes have to be confirmed several times (several iterations of this function) before committing, 
+            # which avoids switching on power spikes, and ensures power measurement has settled before acting.
+            # Exception: if we are in hair trigger mode, commit immediately. This mode is activated by a device like EVSE
+            # when it is about to take/release power, but doesn't know when exactly it will occur. When hair_trigger is active,
+            # the router reacts immediately. So when the car takes power, the router reacts shuts off a radiator without delay, for example.
+            if (self.confirm_timeout.expired() and not wait) or (not self.hair_trigger_timeout.expired()):
                 logs.append(("execute",))
-                for func in ctx.changes:    # execute changes
+                for func in ctx.changes:                    # ctx.changes contains fuctions, so we just execute them
                     await func()
-                self.confirm_change_counter.to_minimum()
+                self.confirm_timeout.reset()    # reset counter so meter can settle after this change
             else:
-                logs.append(( "confirm_change_counter %.02f/%.02f", self.confirm_change_counter.value, self.confirm_change_counter.maximum ))
+                logs.append(( "confirm_timeout %.02f", self.confirm_timeout.remain() ))
         else:
             logs.append(( "no change", ))
-            self.confirm_change_counter.to_minimum()
+            self.confirm_timeout.reset()
 
         for fmt in logs:
             if ctx.changes:
@@ -831,7 +844,7 @@ def hack_reload_classes( ):
             print( "Install new class for", prev_module_name, obj )
             mod = sys.modules.get( prev_module_name )
             newclass = getattr( mod, obj.__class__.__name__ )
-            obj.__class__ = newclass
+            obj.__class__ = newclass # set object's class to new version so it gets new version of all methods
 
 def on_module_unload():
     pass

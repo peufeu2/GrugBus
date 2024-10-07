@@ -73,6 +73,9 @@ class Timeout:
         if expired:
             self.expiry = 0.
 
+    def set_duration( self, duration ):
+        self.duration = duration
+
     def reset( self, duration=None ):
         self.start_time = st = time.monotonic()
         self.expiry     = st + (duration or self.duration)
