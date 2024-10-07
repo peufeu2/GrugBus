@@ -15,10 +15,13 @@ class Metronome:
 
     # set tick period
     def set( self, tick ):
-        if self.tick != tick:
-            # cancel previous tick and replace it with new one
+        if tick < self.tick:
+            # asking for shorter tick interval: cancel previous tick and replace it with new one
+            # so it triggers as soon as it should
             self.next_tick += tick - self.tick
-            self.tick = tick
+        # if asking for a longer tick interval, let next tick happen with the previous interval
+        self.tick = tick
+
 
     # realign ticks to current time
     def reset( self ):
@@ -233,14 +236,6 @@ class MovingAveragePoints:
         return self.sum_value / len(q)
 
         # return None if we don't have enough data yet
-
-def interpolate( xa, ya, xb, yb, x ):
-    if x <= xa:
-        return ya
-    elif x >= xb:
-        return yb
-    else:
-        return ya + (yb-ya)*(x-xa)/(xb-xa)
 
 def average( l ):
     if l:

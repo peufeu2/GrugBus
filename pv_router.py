@@ -116,7 +116,7 @@ class Master():
         finally:
             await asyncio.sleep(0.5)    # wait for MQTT to finish publishing
             await self.mqtt.mqtt.disconnect()
-            with open("mqtt_stats/pv_master.txt","w") as f:
+            with open("mqtt_stats/pv_router.txt","w") as f:
                 self.mqtt.write_stats( f )
 
     ########################################################################################
@@ -150,6 +150,7 @@ class Master():
 
 if 1:
     try:
+        log.info("######################### START #########################")
         mgr = Master()
         mgr.start()
     finally:

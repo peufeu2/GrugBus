@@ -296,6 +296,7 @@ class Controller:
 
 if 1:
     try:
+        log.info("######################### START #########################")
         mgr = Controller()
         mgr.start()
     finally:

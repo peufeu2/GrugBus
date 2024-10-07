@@ -185,17 +185,17 @@ class TasmotaPlug( Routable ):
     async def on( self ):
         if not self.is_on:
             log.info( "Route ON  %s %s", self.name, self.plug_topic )
-            self.is_on = True
             self.current_power = self.last_power_when_on
-            self.switch_timeout.reset( self.plugs_min_on_time_s ) # stay on during minimum time
+            self.switch_timeout.reset( self.router.plugs_min_on_time_s ) # stay on during minimum time
+            self.is_on = True
             self.publish_power()
 
     async def off( self ):
         if self.is_on:
             log.info( "Route OFF %s %s", self.name, self.plug_topic )
-            self.is_on = False
             self.current_power = 0
-            self.switch_timeout.reset( self.plugs_min_off_time_s ) # stay off during minimum time
+            self.switch_timeout.reset( self.router.plugs_min_off_time_s ) # stay off during minimum time
+            self.is_on = False
             self.publish_power()
 
     # turn it on or off
@@ -266,8 +266,8 @@ class Battery( Routable ):
     async def take_power( self, ctx ):
         # Take max charging power regardless of available power, to ensure lower priority loads will shut down
         # and let the battery get its desired charging power
-        p = interpolate( *self.interp, ctx.soc )        # soc -> power from configuration
-        self.max_power_from_soc = min( ctx.bp_max, p )  # limit to inverter's max battery power
+        self.max_power_from_soc = min( ctx.bp_max, self.power_func( ctx ) )  # soc -> power from configuration, then limit to inverter's max battery power
+        self.mqtt.publish_value( self.mqtt_topic+"max_power", self.max_power_from_soc, int )
         self.current_power = min( ctx.power, self.max_power_from_soc )
         return self.max_power_from_soc
 
@@ -372,7 +372,7 @@ class EVSEController( Routable ):
             log.info("EVSE: Pause charge")
             self.router.hair_trigger( 3 ) # let other devices take power released by the car immediately
             self.power_report_timeout.expire()
-        self.local_meter.tick.set( config.POLL_PERIOD_EVSE_METER*10 )   # less  traffic when not charging
+        self.local_meter.tick.set( 10 )   # less  traffic when not charging
         self.start_counter.to_minimum() # reset counters so it has to wait before starting
         self.stop_counter.to_minimum()
         self.set_state( state )
@@ -434,15 +434,26 @@ class EVSEController( Routable ):
         return self.get_power()
 
     async def take_power( self, ctx ):
+        hpp  = self.high_priority_power(ctx)
+        resb = self.reserve_for_battery( ctx )
+        self.start_threshold_W_value = self.start_threshold_W(ctx)
+        self.stop_threshold_W_value  = self.stop_threshold_W(ctx)
+
+        self.mqtt.publish_value( self.mqtt_topic+"high_priority_power" , hpp , int )
+        self.mqtt.publish_value( self.mqtt_topic+"reserve_for_battery" , resb, int )
+        self.mqtt.publish_value( self.mqtt_topic+"start_threshold_W"   , self.start_threshold_W_value, int )
+        self.mqtt.publish_value( self.mqtt_topic+"stop_threshold_W"    , self.stop_threshold_W_value , int )
+
         # First take our minimum power (if any)
-        min_ev_power = min( ctx.power, self.high_priority_power )
+        min_ev_power = min( ctx.power, hpp )
         remain = ctx.power - min_ev_power
 
         # Leave some for the battery
-        bat     = min( remain, ctx.bp_max, interpolate( *self.battery_interp, ctx.soc ))
+        bat     = min( remain, ctx.bp_max, resb )
 
         # Take everything else
         avail_power = ctx.power - bat
+        # log.debug( "EVSE: hp %d min %d remain %d resbat %d start %d stop %d", self.high_priority_power(ctx), min_ev_power, remain, self.reserve_for_battery(ctx), self.start_threshold_W(ctx), self.stop_threshold_W(ctx) )
 
         p = await self._take_power( avail_power, ctx )
         if p == None:
@@ -451,7 +462,7 @@ class EVSEController( Routable ):
 
     async def _take_power( self, avail_power, ctx ):
         time_since_last_call = min( 1, self.last_call.lap() )
-        log.debug( "evse: start %-2d stop %-2d power %d avail %d", self.start_counter.value, self.stop_counter.value, self.local_meter.active_power.value, avail_power )
+        # log.debug( "evse: start %-2d stop %-2d power %d avail %d", self.start_counter.value, self.stop_counter.value, self.local_meter.active_power.value, avail_power )
 
         # TODO: do not trip breaker     mgr.meter.phase_1_current
 
@@ -467,7 +478,7 @@ class EVSEController( Routable ):
             # monitor excess power to decide if we can start charge
             # do it before checking the socket state so when we plug in, it starts immediately
             # if power is available
-            self.start_counter.addsub( avail_power >= self.start_excess_threshold_W, time_since_last_call )
+            self.start_counter.addsub( avail_power >= self.start_threshold_W_value, time_since_last_call )
             self.current_limit_bounds.set_minimum( self.i_start )   # set lower bound at minimum allowed current
 
         # Are we connected? If RS485 fails, EVSE will timeout and stop charge.
@@ -531,6 +542,9 @@ class EVSEController( Routable ):
 
         self.end_of_charge_timeout.reset( self.end_of_charge_timeout_s )
 
+        # If power stays below threshold for long enough, stop charge
+        self.stop_counter.addsub( avail_power >= self.stop_threshold_W_value, time_since_last_call )
+
         # Should we stop charge ? Do not move this check earlier as that would interrupt the final balancing stage
         if self.stop_counter.at_minimum():
             await self.pause_charge( self.STATE_PLUGGED )
@@ -555,7 +569,6 @@ class EVSEController( Routable ):
         cur_limit = self.evse.rwr_current_limit.value
         self.integrator.add( excess * self.control_gain_i * time_since_last_call )
         new_limit = (avail_power + self.integrator.value) * self.control_gain_p / voltage
-        self.stop_counter.addsub( new_limit >= self.i_start, time_since_last_call ) # stop charge eventually if we're at minimum power and repeatedly try to go lower
         new_limit = self.current_limit_bounds.clip( new_limit )                # clip it so we keep charging until stop_counter says we stop
         delta_i = new_limit - cur_limit
         new_power = ev_power + delta_i * voltage
@@ -583,6 +596,7 @@ class EVSEController( Routable ):
 
         # prepare command execution
         async def execute():
+            log.debug( "EVSE: execute current_limit %s -> %s", cur_limit, new_limit )
             # after lowering current, wait a bit before raising it
             if delta_i<0:
                 self.up_timeout.reset( self.up_timeout_s )
@@ -627,7 +641,7 @@ class Router( ):
 
         # complete configurations (in config.py) can be loaded by MQTT command
         # individual settings are not available, as that would complicate the HA GUI too much
-        MQTTSetting( self, "active_config"      , str, False, "default", self.mqtt_config_updated_callback ) #
+        MQTTSetting( self, "active_config"      , lambda v:v.decode(), config.ROUTER_DEVICES_CONFIG.__contains__, b"default", self.mqtt_config_updated_callback ) #
         MQTTSetting( self, "offset", float, None, 0 )
 
         self.evse = EVSEController( self, mgr.evse )
@@ -758,43 +772,47 @@ class Router( ):
         # calculate excess power as if all routable devices were off, to let
         # higher priority devices take that power from lower priority devices
         excess = excess_avg
-        log.debug( "excess %5d bp %5d %s %s", excess, bp_avg, "prep", datetime.datetime.now().isoformat())
         for device in self.devices:
             excess += device.get_releaseable_power( )
 
         # create routing context
         ctx = RouterCtx()
         ctx.soc    = soc
-        ctx.power  = excess_avg
-        ctx.total  = excess_avg
+        ctx.power  = excess
+        ctx.total  = excess
         ctx.bp_max = bp_max
 
         # Scan from highest to lowest priority and let devices take power calculated above.
-        log.debug( "%5d %s %s", ctx.power, "start", self.confirm_change_counter.value )
+        logs = []
+        logs.append(( "%5d %s %s", ctx.power, "start", self.confirm_change_counter.value ))
         for device in self.devices:
             p = await device.take_power( ctx )
-            log.debug( "%-6d take %5d for %s", ctx.power, p, device.dump())
+            logs.append(( "%-6d take %5d for %s", ctx.power, p, device.dump()))
             ctx.power -= p
 
-        log.debug( "%5d %s", ctx.power, "end")
+        # self.mqtt.publish_value( self.mqtt_topic+"excess", ctx.power, int )
 
-        if wait:
-            log.debug("waitlist %s", wait)
-
+        logs.append(( "%5d %s", ctx.power, "end" ))
         if ctx.changes: # execute changes if confirmed
             self.confirm_change_counter.add( time_since_last_call )
             # avoid reacting on spikes: this requires several iterations wanting to 
             # change something before we commit to it
             if (self.confirm_change_counter.at_maximum() and not wait) or (not self.hair_trigger_timeout.expired()):
-                log.debug("execute")
+                logs.append(("execute",))
                 for func in ctx.changes:    # execute changes
                     await func()
                 self.confirm_change_counter.to_minimum()
             else:
-                log.debug( "confirm_change_counter %.02f/%.02f", self.confirm_change_counter.value, self.confirm_change_counter.maximum )
+                logs.append(( "confirm_change_counter %.02f/%.02f", self.confirm_change_counter.value, self.confirm_change_counter.maximum ))
         else:
-            log.debug( "no change" )
+            logs.append(( "no change", ))
             self.confirm_change_counter.to_minimum()
+
+        for fmt in logs:
+            if ctx.changes:
+                log.debug( *fmt )
+            else:
+                print( fmt[0] % fmt[1:] )
 
         # publish results
         for device in self.devices:
@@ -825,6 +843,8 @@ async def route_coroutine( module_updated, first_start, mgr ):
     try:
         # wait for startup transient to pass
         # await asyncio.sleep(5)
+        if first_start:
+            await mgr.router.stop()
         await mgr.event_power.wait()
         log.info("Routing enabled.")
 

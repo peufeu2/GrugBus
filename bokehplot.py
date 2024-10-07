@@ -104,13 +104,12 @@ DATA_STREAMS = [
   # ( "pv/solis%d/dc_bus_voltage"                        , "V"   , "S%d DC Bus"                  , (cat20,8)       , "solid",    1.0 , {}                 , {} ),
     ( "pv/solis%d/temperature"                           , "°C"  , "S%d Temperature"             , "temperature"   , "solid",    1.0 , {}                 , {} ),
     # ( "pv/solis%d/energy_generated_today"                , "kWh" , "S%d Energy generated"        , "pv"            , "solid",    1.0 , {}                 , {"mode":"delta"} ),
-    ( "pv/evse/meter/import_active_energy"               , "kWh" , "EVSE meter"                  , "#FFC0FF"       , "solid",    1.0 , {}                 , {"mode":"delta"} ),
-    ( "pv/solis%d/meter/import_active_energy"            , "kWh" , "S%d Import"                  , "input"         , "solid",    1.0 , {}                 , {"mode":"delta"} ),
-    ( "pv/solis%d/meter/export_active_energy"            , "kWh" , "S%d Export"                  , "grid_port"     , "solid",    1.0 , {}                 , {"mode":"delta"} ),
+    ( "pv/evse/meter/import_active_energy"               , "kWh" , "EVSE meter"                  , "#FFC0FF"       , "solid",    1.0 , {"visible":False}  , {"mode":"delta"} ),
+    ( "pv/solis%d/meter/import_active_energy"            , "kWh" , "S%d Import"                  , "input"         , "solid",    1.0 , {"visible":False}  , {"mode":"delta"} ),
+    ( "pv/solis%d/meter/export_active_energy"            , "kWh" , "S%d Export"                  , "grid_port"     , "solid",    1.0 , {"visible":False}  , {"mode":"delta"} ),
 
     # Router
-    ( "pv/router/excess_avg"                             , "W"   , "Route excess"                , "#FF00FF"       , "solid",   -1.0 , {"visible":False}  , {} ),
-    ( "pv/router/excess_avg_nobat"                       , "W"   , "Route excess nobat"          , "#FF00FF"       , "solid",   -1.0 , {"visible":False}  , {} ),
+    ( "pv/router/excess"                             , "W"   , "Route excess"                , "#FF00FF"       , "solid",   -1.0 , {"visible":False}  , {} ),
 
     # Battery (inverter side)
     ( "pv/solis%d/battery_power"                         , "W"   , "S%d Battery"                 , "battery"       , "solid"    , 1.0 , {"visible":False}  , {} ),
@@ -143,7 +142,7 @@ DATA_STREAMS = [
     ( "pv/router/battery_min_charge_power"               , "W"   , "Battery Min Charge"          , "battery"       , "dashed",   1.0 , {}                 , {} ),
 
     # EVSE
-    ( "pv/evse/energy"                                   , "kWh" , "EVSE"                        , "#FF80FF"       , "solid",    1.0 , {"visible":False}  , {} ),
+    ( "pv/evse/energy"                                   , "kWh" , "EVSE"                        , "#FF80FF"       , "solid",    1.0 , {}  , {} ),
     ( "pv/evse/meter/active_power"                       , "W"   , "EVSE"                        , "#FF80FF"       , "solid",    1.0 , {}                 , {} ),
     ( "pv/evse/rwr_current_limit"                        , "W"   , "EVSE ILim"                   , "#FFFFFF"       , "solid",  235.0 , {"visible":False}  , {} ),
     ( "pv/evse/state"                                    , ""    , "EVSE State"                  , "#FF80FF"       , "solid",    1.0 , {"visible":False}  , {} ),
@@ -244,7 +243,7 @@ PLOT_LAYOUTS = [
                 "pv/router/battery_min_charge_power"             ,
                 "pv/evse/meter/active_power"                     ,
                 "pv/evse/rwr_current_limit"                      ,
-                "pv/router/excess_avg"                           ,
+                "pv/router/excess"                           ,
                 # "pv/router/excess_avg_nobat"                     ,
 
 "tele/plugs/tasmota_t4/SENSOR/ENERGY/Power",
@@ -690,7 +689,7 @@ class PVDashboard():
                 "pv/meter/house_power"                           ,
                 "pv/evse/meter/active_power"                     ,
                 "pv/meter/total_power"                           ,
-                "pv/router/excess_avg"                           ,
+                "pv/router/excess"                               ,
             )
         self.gauge_tab_power_gauge_datastreams = [ self.app.data_streams[k] for k in power_gauge_topics ]
         power_gauge_labels = [ ds.label for ds in self.gauge_tab_power_gauge_datastreams ]

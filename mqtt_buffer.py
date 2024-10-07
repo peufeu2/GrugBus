@@ -305,7 +305,7 @@ class Buffer( MQTTWrapper ):
 
 if __name__ == '__main__':
     try:
-        log.info("MQTT logger starting.")
+        log.info("######################### START #########################")
         with Buffer( config.MQTT_BUFFER_PATH ) as buf:
             buf.start()
     finally:

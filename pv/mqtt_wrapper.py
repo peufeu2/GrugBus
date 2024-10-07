@@ -16,8 +16,8 @@ log = logging.getLogger(__name__)
 logging.getLogger("gmqtt").setLevel(logging.ERROR)
 
 class RateLimit:
-    __slots__ = "text","value","last_pub","margin","start_time","period","sum","count","mode","total_count","published_count","is_constant"
-    def __init__( self, margin, period, mode ):
+    __slots__ = "text","value","last_pub","margin","start_time","period","sum","count","mode","total_count","published_count","is_constant","from_config"
+    def __init__( self, margin, period, mode, from_config=False):
         self.margin    = margin or 0
         self.start_time = time.monotonic()
         self.period    = period
@@ -30,6 +30,7 @@ class RateLimit:
         self.total_count = 0
         self.published_count = 0
         self.is_constant  = False
+        self.from_config = from_config
 
     def reset( self, value, last_pub=None ):
         self.value = value
@@ -70,7 +71,7 @@ class MQTTWrapper:
     def load_rate_limit( self ):
         log.info("MQTT: Load rate limits")
         for topic, (period, margin, mode) in config.MQTT_RATE_LIMIT.items():
-            self._published_data[topic] = RateLimit( margin, period, mode )
+            self._published_data[topic] = RateLimit( margin, period, mode, True )
 
     def get_rate_limit( self, topic ):
         return RateLimit( *config.MQTT_RATE_LIMIT.get( topic, (0, 60, "") ))
@@ -78,8 +79,14 @@ class MQTTWrapper:
     def write_stats( self, file ):
         maxlen = 1+max( len(topic) for topic in self._published_data.keys() )
         duration = time.monotonic() - self._startup_time
-        for topic, p in sorted( self._published_data.items(), key=lambda kv: kv[1].total_count, reverse=True ):
-            file.write( f"{topic!r:<{maxlen}}: ({p.period:4f}, {p.margin:>10.03f}, {p.mode!r:8s}), # {p.published_count/duration:6.03f}/{p.total_count/duration:6.03f},\n" )
+        for from_config in True, False:
+            if from_config:
+                file.write("From config.py:\n\n")
+            else:
+                file.write("\n\nNot configured:\n\n")
+            for topic, p in sorted( self._published_data.items(), key=lambda kv: kv[1].total_count, reverse=True ):
+                if bool(p.from_config) == from_config:
+                    file.write( f"{topic!r:<{maxlen}}: ({p.period:4f}, {p.margin:>10.03f}, {p.mode!r:8s}), # {p.published_count/duration:6.03f}/{p.total_count/duration:6.03f},\n" )
 
     def publish_reg( self, topic, reg ):
         self.publish_value( topic+reg.key, reg.value, reg._format_value )
@@ -180,6 +187,7 @@ class MQTTWrapper:
             parent = cur.dirname()
             await try_topic( parent / "#" )
             cur = parent
+        return 0
 # """
     #   Decorates a method as a MQTT callback
     #
@@ -305,5 +313,8 @@ class MQTTSetting( MQTTVariable ):
 
     def publish( self ):
         log.info( "MQTTSetting: %s = %s", self.mqtt_topic, self.value )
-        self.mqtt.publish_value( self.mqtt_topic, self.value )
+        if isinstance( self.value, (int,float) ):
+            self.mqtt.publish_value( self.mqtt_topic, self.value )
+        else:
+            self.mqtt.publish( self.mqtt_topic, str(self.value) )
 

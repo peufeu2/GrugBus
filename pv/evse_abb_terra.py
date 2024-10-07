@@ -59,6 +59,9 @@ class EVSE( grugbus.SlaveDevice ):
                 if config.LOG_MODBUS_REQUEST_TIME_ABB:
                     self.publish_modbus_timings()
 
+                # republish current limit periodically
+                await self.set_current_limit( self.rwr_current_limit.value )
+
             except (TimeoutError, ModbusException):
                 await asyncio.sleep(1)
 

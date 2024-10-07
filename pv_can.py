@@ -441,6 +441,7 @@ def start():
         runner.run(astart())
 
 try:
+    log.info("######################### START #########################")
     start()
 finally:
     with open("mqtt_stats/test_can.txt","w") as f:

@@ -4,6 +4,8 @@
 import re
 
 from config_secret import *
+from misc.interpolate import Interp
+
 # config_secret.py is not included on github and should contain:
 """
 #!/usr/bin/python
@@ -265,11 +267,12 @@ ROUTER_DEVICES_CONFIG_DEFAULTS = {
         "priority"                  : 4, 
         "name"                      : "EVSE", 
 
-        "high_priority_power"       : 0, 
-        "battery_interp"            : (90, 10000, 95, 0), # (min_soc, max_power, max_soc, min_power) note this is how much power this lets the battery take, not the EVSE
+        "high_priority_power"       : lambda ctx: 0, 
+        "reserve_for_battery"       : Interp((90, 10000), (95, 0), var="soc"), # (min_soc, max_power, max_soc, min_power) note this is how much power this lets the battery take, not the EVSE
 
-        "start_excess_threshold_W"  : 1400,     # minimum excess power to start charging
+        "start_threshold_W"         : lambda ctx: 1400,     # minimum excess power to start charging
         "start_time_s"              : 120,      # how long above minimum excess power before starting
+        "stop_threshold_W"          : lambda ctx: 1300,     # excess power to stop charging
         "stop_time_s"               : 120,      # how long before stopping when we don't have enough power
 
         "charge_detect_threshold_W" : 1200,     # detect beginning and end of charge
@@ -288,11 +291,11 @@ ROUTER_DEVICES_CONFIG_DEFAULTS = {
         "control_gain_i"            : 0.05    ,     # gain for the integrator in the PI loop
     },
 
-# Battery config: interp = (min_soc, max_power, max_soc, min_power)
+# Battery config: 
 #   At min_soc, allocate max_power to battery.
 #   At max_soc, allocate min_power to battery.
 #   Interpolate in between.
-    "bat"       : { "priority": 3, "name": "Battery", "interp": (90,10000,100,1000) },
+    "bat"       : { "priority": 3, "name": "Battery", "power_func": Interp((95,10000),(100,1000),var="soc") },
 
 # Plugs config: 
 #   "estimated_power"   : estimation of power before it is measured at first turn on
@@ -309,10 +312,11 @@ ROUTER_DEVICES_CONFIG = {
     #   Charge the car and battery at the same time to maximize self consumption
     "default": { 
         "evse": {
-            "high_priority_power"       : 2000, 
-            "start_excess_threshold_W"  : 2000,     # minimum excess power to start charging
-            "battery_interp"            : (50, 6000, 95, 1000),
-        }
+            "high_priority_power"       : lambda ctx: 2000, 
+            "start_threshold_W"         : Interp((50, 2000), (100, 1200),var="soc"),
+            "stop_threshold_W"          : Interp((50, 1400), (100,  800),var="soc"),     # allow it to discharge battery a little
+            "reserve_for_battery"       : Interp((50, 6000),  (95, 1000),var="soc"),
+        },
     },
 }
 
@@ -424,6 +428,13 @@ MQTT_RATE_LIMIT = {
 
     'pv/evse/meter/voltage'                    : (  60,      1.000, 'avg'      ), #  0.341/ 0.838,
 
+    'pv/router/evse/state'                     : (60.000000, 0.000, ''      ), #  0.204/ 4.087,
+    'pv/evse/error_code'                       : (60.000000, 0.000, ''      ), #  0.204/ 1.022,
+    'pv/evse/socket_state'                     : (60.000000, 0.000, ''      ), #  0.204/ 1.022,
+    'pv/evse/charge_state'                     : (60.000000, 0.000, ''      ), #  0.204/ 1.022,
+    'pv/evse/current_limit'                    : (60.000000, 0.000, ''      ), #  0.204/ 1.022,
+
+
     'pv/meter/house_power'                     : (   1,     40.000, 'avg'      ), #  4.711/ 4.743,
     'pv/total_battery_power'                   : (   1,     40.000, 'avg'      ), #  1.074/ 4.743,
     'pv/total_grid_port_power'                 : (   1,     40.000, 'avg'      ), #  4.227/ 4.743,
@@ -460,9 +471,9 @@ MQTT_RATE_LIMIT = {
     'pv/solis1/temperature'                    : (  60,      0.200, 'avg'      ), #  0.068/ 0.273,
 
     # publish only on change
-    'pv/battery_max_charge_power'              : (  60,      0.000, ''      ), #  0.050/ 4.749,
-    'pv/solis1/battery_max_charge_current'     : (  60,      0.000, ''      ), #  0.019/ 0.273,
-    'pv/solis1/battery_max_discharge_current'  : (  60,      0.000, ''      ), #  0.019/ 0.273,
+    'pv/battery_max_charge_power'              : (  60,    100.000, ''      ), #  0.050/ 4.749,
+    'pv/solis1/battery_max_charge_current'     : (  60,      0.100, ''      ), #  0.019/ 0.273,
+    'pv/solis1/battery_max_discharge_current'  : (  60,      0.100, ''      ), #  0.019/ 0.273,
     'pv/solis1/fault_status_1_grid'            : (  60,      0.000, ''      ), #  0.031/ 0.279,
     'pv/solis1/fault_status_2_backup'          : (  60,      0.000, ''      ), #  0.019/ 0.279,
     'pv/solis1/fault_status_3_battery'         : (  60,      0.000, ''      ), #  0.019/ 0.279,
@@ -473,6 +484,23 @@ MQTT_RATE_LIMIT = {
     'pv/solis1/rwr_backup_output_enabled'      : (  60,      0.000, ''      ), #  0.019/ 0.273,
     'pv/solis1/rwr_energy_storage_mode'        : (  60,      0.000, ''      ), #  0.019/ 0.273,
     'pv/solis1/rwr_power_on_off'               : (  60,      0.000, ''      ), #  0.019/ 0.273,
+
+    # smartplugs
+    'cmnd/plugs/tasmota_t1/Power'              : (60.000000,      0.000, ''      ), #  0.016/ 0.473,
+    'cmnd/plugs/tasmota_t2/Power'              : (60.000000,      0.000, ''      ), #  0.016/ 0.473,
+    'cmnd/plugs/tasmota_t3/Power'              : (60.000000,      0.000, ''      ), #  0.016/ 0.473,
+    'cmnd/plugs/tasmota_t4/Power'              : (60.000000,      0.000, ''      ), #  0.016/ 0.473,
+    'cmnd/plugs/tasmota_t5/Power'              : (60.000000,      0.000, ''      ), #  0.016/ 0.473,
+    'cmnd/plugs/tasmota_t6/Power'              : (60.000000,      0.000, ''      ), #  0.016/ 0.473,
+
+    # router
+    "pv/router/excess"                         : (60, 150.00, 'avg' ),
+    "pv/router/bat/max_power"                  : (60, 50.000, '' ),
+    "pv/router/evse/high_priority_power"       : (60, 50.000, '' ),
+    "pv/router/evse/reserve_for_battery"       : (60, 50.000, '' ),
+    "pv/router/evse/start_threshold_W"         : (60, 50.000, '' ),
+    "pv/router/evse/stop_threshold_W"          : (60, 50.000, '' ),
+
 
 }
 

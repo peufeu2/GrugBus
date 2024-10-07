@@ -544,6 +544,7 @@ if sys.version_info >= (3, 11):
         except:
             print("usage: %s [n]\n  n number of days worth of data to retrieve from MQTT logger")
             sys.exit(1)
+    log.info("######################### START #########################")
     with asyncio.Runner(loop_factory=uvloop.new_event_loop) as runner:
         runner.run(astart())
 else:
