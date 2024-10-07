@@ -246,6 +246,31 @@ def average( l ):
     else:
         return 0
 
+
+# class RingBuffer:
+#     def __init__( self, length ):
+#         self.q = [0] * length
+#         self.pos = 0
+
+#     def cur( self ):
+#         return self.q[self.pos]
+
+#     def at( self, offset ):
+#         return self.q[ (self.pos+offset) % len(self.q) ]
+
+#     def set( self, offset, value ):
+#         self.q[ (self.pos+offset) % len(self.q) ] = value
+
+#     def pop( self ):
+#         r = self.q[self.pos]
+#         self.q[self.pos] = 0
+#         self.pos = (self.pos+1) % len(self.q)
+#         return r
+
+#     def add( self, offset, value ):
+#         self.q[ (self.pos+offset) % len(self.q) ] += value
+
+
 if __name__ == "__main__":
     m = MovingAverage( 0.5 )
     for n in range( 100 ):

@@ -28,11 +28,8 @@ from misc import *
 ###########################################################################################
 #
 #       This file starts and runs the PV controller.
-#       Not much interesting code here, it's all in the classes,
-#       and pv/controller.py which can be reloaded at runtime.
 #
 ###########################################################################################
-
 
 """
     python >3.11
@@ -55,25 +52,23 @@ log = logging.getLogger(__name__)
 #       Modbus server emulating a fake smartmeter to feed data to inverter via meter port
 #
 ###########################################################################################
+
 #
-#   Modbus server is a slave (client is master)
-#   pymodbus requires ModbusSlaveContext which contains data to serve
-#   This ModbusSlaveContext has a hook to generate values on the fly when requested
+#   Helper class: ModbusSlaveContext which contains data to serve to the inverter
+#   This one has a hook to return an error if fakemeter data is too old.
 #
 class HookModbusSlaveContext(ModbusSlaveContext):
     def getValues(self, fc_as_hex, address, count=1):
         if self._on_getValues( fc_as_hex, address, count, self ):
             return super().getValues( fc_as_hex, address, count )
 
-###########################################################################################
 #   
-#   Fake smartmeter emulator
+#   Fake smartmeter class
 #
 #   Base class is grugbus.LocalServer which extends pymodbus server class to allow
 #   registers to be accessed by name with full type conversion, instead of just
 #   address and raw data.
 #   
-###########################################################################################
 #   Meter setting on Solis: "Acrel 1 Phase" ; reads fcode 3 addr 0 count 65
 #   Note the Modbus manual for Acrel ACR10H corresponds to the wrong version of the meter.
 #   Register map in Acrel_1_Phase.py was reverse engineered from inverter requests.
@@ -84,6 +79,7 @@ class HookModbusSlaveContext(ModbusSlaveContext):
 #   although they are on two different buses. So if you set address to 2 in the inverter GUI, 
 #   it will respond to that address on the COM port, and it will query the meter with that
 #   address on the meter port.
+#
 class FakeSmartmeter( grugbus.LocalServer ):
     #
     #   port    serial port name
@@ -91,13 +87,13 @@ class FakeSmartmeter( grugbus.LocalServer ):
     #   name    human readable name like "Fake SDM120 for Inverter 1"
     #
     def __init__( self, port, key, name, modbus_address, meter_type, meter_placement="grid", baudrate=9600, mqtt=None, mqtt_topic=None ):
-        # Create datastore corresponding to registers available in Eastron SDM120 smartmeter
+        # Create datastore to hold registers in our fake smartmeter
         data_store = ModbusSequentialDataBlock( 0, [0]*750 )   
         slave_ctx = HookModbusSlaveContext(
             zero_mode = True,   # addresses start at zero
             di = ModbusSequentialDataBlock( 0, [0] ), # Discrete Inputs  (not used, so just one zero register)
             co = ModbusSequentialDataBlock( 0, [0] ), # Coils            (not used, so just one zero register)
-            hr = data_store, # Holding Registers, we will write fake values to this datastore
+            hr = data_store, # Holding Registers, we will write to this datastore
             ir = data_store  # Input Registers (use the same datastore, so we don't have to check the opcode)
             )
 
@@ -105,16 +101,16 @@ class FakeSmartmeter( grugbus.LocalServer ):
         slave_ctx._on_getValues = self._on_getValues
         slave_ctx.modbus_address = modbus_address
 
-        # only make registers we actually need
+        # only create registers we actually need
         keys = { "active_power","voltage","current","apparent_power","reactive_power","power_factor",
                  "frequency","import_active_energy","export_active_energy"}
 
         # Use grugbus for data type translation
         super().__init__( slave_ctx, modbus_address, key, name, [ reg for reg in meter_type.MakeRegisters() if reg.key in keys ])
 
+        # pymodbus plumbing
         # Create Server context and assign previously created datastore to smartmeter_modbus_address, this means our 
         # local server will respond to requests to this address with the contents of this datastore
-
         self.server_ctx = ModbusServerContext( { modbus_address : slave_ctx }, single=False )
 
         self.port = port
@@ -122,21 +118,21 @@ class FakeSmartmeter( grugbus.LocalServer ):
         self.meter_type = meter_type
         self.meter_placement = meter_placement
 
-        # This event is set when the real smartmeter is read 
+        # If this is false, respond to the inverter with a Modbus exception, inverter will go into safe mode
         self.is_online = False
+
         self.mqtt = mqtt
         self.mqtt_topic = mqtt_topic
 
-        self.last_query_time = 0
-        self.data_timestamp = 0
+        self.last_query_time = 0        # last time the inverter queried
+        self.data_timestamp = 0         # timestamp for data in the fake meter, if it is too old return error
         self.error_count = 0
         self.stat_tick  = Metronome( 60 )
         self.request_count = 0
-        self.lags = []
+        self.lags = []                  # for statistics of lag between real and fake meters
 
     # This is called when the inverter sends a request to this server
     def _on_getValues( self, fc_as_hex, address, count, ctx ):
-        #   The main meter is read in another coroutine, which also sets registers in this object. Check this was done.
         t = time.monotonic()
         self.request_count += 1
 
@@ -145,12 +141,14 @@ class FakeSmartmeter( grugbus.LocalServer ):
             log.info("FakeMeter %s: receiving requests", self.key )
         self.last_query_time = t
 
-        # Publish statistics
+        # Publish requests/second statistics
         age = t - self.data_timestamp
         self.lags.append( age )
         if (elapsed := self.stat_tick.ticked()) and self.mqtt_topic:
             self.mqtt.publish_value( self.mqtt_topic + "req_per_s", self.request_count/max(elapsed,1) )
             self.request_count = 0
+
+        # publish lag between real meter data and inverter query
         self.mqtt.publish_value( self.mqtt_topic + "lag", age, lambda x:round(x,2) )
 
         # Do not serve stale data
@@ -169,7 +167,7 @@ class FakeSmartmeter( grugbus.LocalServer ):
         # If return value is False, pymodbus server will abort the request, which the inverter
         # correctly interprets as the meter being offline
 
-    # This function starts and runs the modbus server, and never returns as long as the server is running.
+    # Start and run the modbus serves. Never returns as long as the server is running.
     async def start_server( self ):
         self.server = await StartAsyncSerialServer( context=self.server_ctx, 
             framer          = ModbusRtuFramer,
@@ -188,11 +186,9 @@ class FakeSmartmeter( grugbus.LocalServer ):
 
 ###########################################################################################
 #   
-#   Fake smartmeter emulator
+#   PV Controller
 #
-#   Base class is grugbus.LocalServer which extends pymodbus server class to allow
-#   registers to be accessed by name with full type conversion, instead of just
-#   address and raw data.
+#   Makes two Solis S5 EH1P inverters work together, connected to the same battery
 #   
 ###########################################################################################
 
@@ -200,8 +196,8 @@ class Controller:
     def __init__( self ):
         self.event_power = asyncio.Event()
 
-        self.meter_power_tweaked      = 0    
-        self.house_power              = 0    
+        self.meter_power_tweaked      = 0    # main meter power + a bit of adjustment depending on SOC
+        self.house_power              = 0    # Power used by house (meter import - inverter export)
         self.total_pv_power           = 0    # Total PV production reported by inverters. Fast, but inaccurate.
         self.total_input_power        = 0    # Power going into the inverter/battery (PV and grid port). Fast proxy for battery charging power. For routing.
         self.total_grid_port_power    = 0    # Sum of inverters local smartmeter power (negative=export)

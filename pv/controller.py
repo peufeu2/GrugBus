@@ -197,30 +197,6 @@ async def power_coroutine( module_updated, first_start, self ):
         except Exception:
             log.exception("PowerManager coroutine:")
 
-# class RingBuffer:
-#     def __init__( self, length ):
-#         self.q = [0] * length
-#         self.pos = 0
-
-#     def cur( self ):
-#         return self.q[self.pos]
-
-#     def at( self, offset ):
-#         return self.q[ (self.pos+offset) % len(self.q) ]
-
-#     def set( self, offset, value ):
-#         self.q[ (self.pos+offset) % len(self.q) ] = value
-
-#     def pop( self ):
-#         r = self.q[self.pos]
-#         self.q[self.pos] = 0
-#         self.pos = (self.pos+1) % len(self.q)
-#         return r
-
-#     def add( self, offset, value ):
-#         self.q[ (self.pos+offset) % len(self.q) ] += value
-
-
 ########################################################################################
 #
 #   FakeMeter callback before serving values to inverter
