@@ -210,7 +210,7 @@ class Solis( grugbus.SlaveDevice ):
             self.tick.set( config.POLL_PERIOD_SOLIS )
 
     def is_ongrid( self ):
-        return not self.is_ongrid()
+        return not self.is_offgrid()
 
     def is_offgrid( self ):
         return self.fault_status_1_grid.bit_is_active( "No grid" )

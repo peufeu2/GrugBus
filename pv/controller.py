@@ -51,11 +51,17 @@ async def power_coroutine( module_updated, first_start, self ):
             # This is (Main spartmeter) - (inverter spartmeters). It is accurate and fast.
             meter_power              = self.meter.total_power.value or 0  
             meter_power_tweaked      = meter_power
+
             total_pv_power           = 0
             total_input_power        = 0
-            total_grid_port_power    = 0
             total_battery_power      = 0
+            total_grid_port_power    = 0
             battery_max_charge_power = 0
+
+            router_total_pv_power           = 0
+            router_total_battery_power      = 0
+            router_total_input_power        = 0
+            router_battery_max_charge_power = 0
 
             inverters_with_battery  = []
             inverters_online        = []
@@ -87,8 +93,9 @@ async def power_coroutine( module_updated, first_start, self ):
                 # PV and battery
                 pv_power = 0
                 solis.input_power.value = 0
-                if solis.is_online:                        
-                    battery_max_charge_power += (solis.battery_max_charge_current.value or 0) * (solis.battery_voltage.value or 0)
+                if solis.is_online:             
+                    max_cp = (solis.battery_max_charge_current.value or 0) * (solis.battery_voltage.value or 0)           
+                    battery_max_charge_power += max_cp
                     
                     # Battery charging power. Positive if charging, negative if discharging. Use fast register.
                     total_battery_power += solis.battery_power.value or 0                    
@@ -101,11 +108,20 @@ async def power_coroutine( module_updated, first_start, self ):
                         # If meter offline, use inverter's measured battery power instead
                         solis.input_power.value = solis.battery_power.value
 
+                    total_input_power  += solis.input_power.value
+
+                    # if inverter is offgrid, router can't use its power
+                    if solis.is_ongrid():
+                        router_battery_max_charge_power += max_cp
+                        router_total_pv_power += pv_power
+                        router_total_battery_power += solis.battery_power.value or 0                    
+                        router_total_input_power  += solis.input_power.value
+
             #   Fake Meter
             # shift slightly to avoid import when we can afford it
             if total_battery_power > 200:
                 meter_power_tweaked += self.bms_soc.value*total_battery_power*0.0001
-            total_input_power  = total_pv_power + total_grid_port_power
+            
 
             #   Insert full impulse response into fakemeter
             #
@@ -184,11 +200,11 @@ async def power_coroutine( module_updated, first_start, self ):
 
                 "meter_power_tweaked"      : int( self.meter_power_tweaked ),
                 "house_power"              : int( self.house_power ),
-                "total_pv_power"           : int( self.total_pv_power ),
-                "total_input_power"        : int( self.total_input_power ),
                 "total_grid_port_power"    : int( self.total_grid_port_power ),
-                "total_battery_power"      : int( self.total_battery_power ),
-                "battery_max_charge_power" : int( self.battery_max_charge_power ),
+                "total_pv_power"           : int( router_total_pv_power ),
+                "total_input_power"        : int( router_total_input_power ),
+                "total_battery_power"      : int( router_total_battery_power ),
+                "battery_max_charge_power" : int( router_battery_max_charge_power ),
 
                 "data_timestamp"           : m.last_transaction_timestamp
             }

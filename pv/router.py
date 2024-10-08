@@ -78,13 +78,13 @@ class Routable():
         self.key  = key
         self.mqtt = router.mqtt
         self.mqtt_topic = router.mqtt_topic + key + "/"
-        self.reload_config()
         _reload_object_classes.append( self )
+        self.load_config()
 
-    def reload_config( self ):
-        self.__dict__.update( 
-            config.ROUTER_DEVICES_CONFIG_DEFAULTS[ self.key ] 
-            | config.ROUTER_DEVICES_CONFIG[ self.router.active_config.value ].get( self.key, {} ) ) # load configuration
+    def load_config( self ):
+        cfg = self.router.config[ self.key ]
+        log.debug("Routable.setconfig %s %s", self.key, cfg )
+        self.__dict__.update( cfg )
 
         # Priority of routable loads can be set via MQTT
         # MQTTVariable( mqtt_topic+"priority", self, "priority", float, None, priority )
@@ -154,13 +154,13 @@ class Routable():
 class TasmotaPlug( Routable ):
 
     def __init__( self, router, key ):
-        super().__init__( router, key )
         self.current_power  = 0             # real mesurement
         self.power_measurements = collections.deque( maxlen=5 )
-        self.last_power_when_on = self.estimated_power # remember how much it used when it was on, even if it turns off on its own
+        self.last_power_when_on = None  # remember how much it used when it was on, even if it turns off on its own
         self.is_on = False
         self.switch_timeout = Timeout( expired=True )      # How long to wait after switching before switching again
         self.can_switch = False
+        super().__init__( router, key )
 
         # We can also request it to post power with cmnd/plugs/tasmota_t2/Status 8
         # It is published in stat/plugs/tasmota_t2/STATUS8/StatusSNS/ENERGY/Power
@@ -170,6 +170,11 @@ class TasmotaPlug( Routable ):
 
         # Request power updates on load power changes, to know when the heater turns off from its thermostat
         self.mqtt.publish( "cmnd/"+self.plug_topic+"PowerDelta", 101 )
+
+    def load_config( self ):
+        super().load_config()
+        if self.last_power_when_on == None:
+            self.last_power_when_on = self.estimated_power
 
     # get power reported by plug, and remember it
     async def _mqtt_sensor_callback( self, param ):
@@ -352,8 +357,8 @@ class EVSEController( Routable ):
             if self.state == STATE_FINISHED:
                 self.set_state( self.STATE_UNPLUGGED )
 
-    def reload_config( self ):
-        super().reload_config()
+    def load_config( self ):
+        super().load_config( )
         self.start_counter.set_maximum( self.start_time_s )
         self.start_counter.set( self.start_time_s - 10 )     # make it start fast after a configuration change, for quicker testing
         self.stop_counter .set_maximum( self.stop_time_s )
@@ -639,22 +644,6 @@ class Router( ):
         self.mqtt        = mqtt
         self.mqtt_topic  = mqtt_topic
 
-        # complete configurations (in config.py) can be loaded by MQTT command
-        # individual settings are not available, as that would complicate the HA GUI too much
-        MQTTSetting( self, "active_config"      , lambda v:v.decode(), config.ROUTER_DEVICES_CONFIG.__contains__, b"default", self.mqtt_config_updated_callback ) #
-        MQTTSetting( self, "offset", float, None, 0 )
-
-        self.evse = EVSEController( self, mgr.evse )
-        self.battery = Battery( self, key="bat" )
-        self.devices = [ 
-            TasmotaPlug( self, key="tasmota_t4" ),
-            TasmotaPlug( self, key="tasmota_t2" ),
-            TasmotaPlug( self, key="tasmota_t1" ),
-            self.battery,
-            self.evse,
-        ] 
-
-        # queues to smooth measured power
         self.smooth_export = MovingAverageSeconds( 1 )
         self.smooth_bp     = MovingAverageSeconds( 1 )
         self.battery_active_avg = MovingAverageSeconds( 20 )
@@ -663,33 +652,49 @@ class Router( ):
         # When it wants to make a change, start the timeout.
         # Check again when it expires, and if we still want to make the change, then
         # do it. This avoids reacting on spikes and other noise.
-        self.confirm_timeout = Timeout( 1.5 )
+        self.confirm_timeout = Timeout()
         self.last_call = Chrono()
         self.hair_trigger_timeout = Timeout( expired = True )
 
-        # This also sorts devices by priority
-        self.reload_config()
+        # complete configurations (in config.py) can be loaded by MQTT command
+        # individual settings are not available, as that would complicate the HA GUI too much
+        MQTTSetting( self, "active_config_names"      , orjson.loads, None, '["evse_high"]', self.mqtt_config_updated_callback )
+        MQTTSetting( self, "offset", float, None, 0 )
+        self.load_config()  # load config once, the devices will use it to initialize
 
-        # How long to disable routing changes after a plug switches
-        # (to let power measurement settle).
-        # (towel dryer takes ~1s to wake up)
-        # MQTTSetting( self, "plugs_holdoff_s", float, lambda x: (0<=x<=2), 1.5 )
+        self.evse = EVSEController( self, mgr.evse )
+        self.battery = Battery( self, key="bat" )
+        self.all_devices = [ 
+            TasmotaPlug( self, key="tasmota_t4" ),
+            TasmotaPlug( self, key="tasmota_t2" ),
+            TasmotaPlug( self, key="tasmota_t1" ),
+            self.battery,
+            self.evse,
+        ] 
+        self.sort_devices_by_priority()
 
     # callback when config module is reloaded
-    def reload_config( self ):
-        log.info( "Router: set config %s", self.active_config.value )
-        self.__dict__.update( config.ROUTER_CONFIG )
-
+    def load_config( self ):
+        configs = self.active_config_names.value
+        assert isinstance( configs, list )
+        if "default" not in configs:
+            configs = ["default"] + configs
+        log.info( "Router: set config %s", configs )
+        self.config = {}
+        for cfg_key in configs:
+            update_dict_recursive( self.config, config.ROUTER[ cfg_key ] )
+        print( self.config )
+        self.__dict__.update( self.config["router"])
+        for device in getattr( self, "all_devices", [] ):
+            device.load_config()
         self.smooth_export      .time_window = self.smooth_export_time_window
         self.smooth_bp          .time_window = self.smooth_bp_time_window
         self.battery_active_avg .time_window = self.battery_active_avg_time_window
         self.battery_full_avg   .time_window = self.battery_full_avg_time_window
         self.confirm_timeout.set_duration( self.confirm_change_time )
 
-        for device in self.devices:
-            device.reload_config()
-
-        self.devices = sorted( self.devices, key=lambda d:-d.priority )
+    def sort_devices_by_priority( self ):
+        self.devices = sorted( [ device for device in self.all_devices if device.enabled ], key=lambda d:-d.priority )
 
     # MQTT message received on config topic
     async def mqtt_config_updated_callback( self, param ):

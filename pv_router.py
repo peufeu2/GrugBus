@@ -131,7 +131,7 @@ class Master():
             "meter_power_tweaked", "house_power", "total_pv_power", "total_input_power", 
             "total_grid_port_power", "total_battery_power", "battery_max_charge_power", 
             "data_timestamp"):
-            setattr( self, k, param.value[k] )
+            setattr( self, k, param.value.get(k) )
 
         self.event_power.set()
         self.event_power.clear()

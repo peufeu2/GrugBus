@@ -270,6 +270,13 @@ def average( l ):
 #     def add( self, offset, value ):
 #         self.q[ (self.pos+offset) % len(self.q) ] += value
 
+def update_dict_recursive( d1, d2 ):
+    for k,v in d2.items():
+        if isinstance(v,dict) and k in d1:
+            update_dict_recursive( d1[k], v )
+        else:
+            d1[k] = v
+    return d1
 
 if __name__ == "__main__":
     m = MovingAverage( 0.5 )
