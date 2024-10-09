@@ -251,7 +251,7 @@ ROUTER = {
             #   battery max charge current not being zero
             "battery_full"          : lambda mgr, battery_active: (
                    mgr.battery_max_charge_power==0 
-                or mgr.meter_power_tweaked < -20 
+                # or mgr.meter_power_tweaked < -300 
                 or (mgr.bms_soc.value > 98 and not battery_active)
             ),
 
@@ -267,6 +267,11 @@ ROUTER = {
             # Changes are commited if they are confirmed for this long,
             # to avoid triggering on spikes
             "confirm_change_time"            : 1.5,
+
+            # Detect MPPT recalibration causing transient power drops (see router.py)
+            "mppt_drop_power_threshold"      : 0.2,
+            "mppt_drop_max_duration"         : 3.5,
+            "mppt_drop_average_duration"     : 20,
 
         },
         #

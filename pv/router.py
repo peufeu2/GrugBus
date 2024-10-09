@@ -569,6 +569,10 @@ class EVSEController( Routable ):
             self.integrator.value = 0.
             return
 
+        # do not react to MPPT power drops from recalibration
+        if ctx.mppts_in_drop:
+            return
+
         # calculate new limit
         # TODO: redo integrator using local meter instead
         cur_limit = self.evse.rwr_current_limit.value
@@ -649,6 +653,9 @@ class Router( ):
         self.battery_active_avg = MovingAverageSeconds( 20 )
         self.battery_full_avg   = MovingAverageSeconds( 20 )
 
+        self.mppt_power_avg = {}
+        self.mppt_drop_timeout = Timeout()
+
         # When it wants to make a change, start the timeout.
         # Check again when it expires, and if we still want to make the change, then
         # do it. This avoids reacting on spikes and other noise.
@@ -658,7 +665,7 @@ class Router( ):
 
         # complete configurations (in config.py) can be loaded by MQTT command
         # individual settings are not available, as that would complicate the HA GUI too much
-        MQTTSetting( self, "active_config_names"      , orjson.loads, None, '["evse_high"]', self.mqtt_config_updated_callback )
+        MQTTSetting( self, "active_config_names"      , orjson.loads, None, '["default"]', self.mqtt_config_updated_callback )
         MQTTSetting( self, "offset", float, None, 0 )
         self.load_config()  # load config once, the devices will use it to initialize
 
@@ -692,13 +699,16 @@ class Router( ):
         self.battery_active_avg .time_window = self.battery_active_avg_time_window
         self.battery_full_avg   .time_window = self.battery_full_avg_time_window
         self.confirm_timeout.set_duration( self.confirm_change_time )
+        for ma in self.mppt_power_avg.values():
+            ma.time_window = self.mppt_drop_average_duration
+        self.mppt_drop_timeout.set_duration( self.mppt_drop_max_duration )
 
     def sort_devices_by_priority( self ):
         self.devices = sorted( [ device for device in self.all_devices if device.enabled ], key=lambda d:-d.priority )
 
     # MQTT message received on config topic
     async def mqtt_config_updated_callback( self, param ):
-        self.reload_config()
+        self.load_config()
 
     async def stop( self ):
         # await mgr.evse.pause_charge()
@@ -769,6 +779,39 @@ class Router( ):
         if self.evse.is_charge_unpaused():
             soc += 5
 
+        # create routing context
+        ctx = RouterCtx()
+        ctx.bp_max = bp_max
+        ctx.soc    = soc
+
+        #
+        #   MPPT check
+        # When MPPT recalibration occurs, one MPPT on one inverter drops to zero power
+        # for 2.5-3 seconds then resumes as it was before, while other MPPTs are unaffected.
+        # Slow loads like EVSE should not react to this as it just makes a mess.
+        # Detect power drops by comparing current MPPT power with moving average average
+        mppts_online = 0
+        mppts_in_drop = 0
+        for solis_key, mppt_power in mgr.mppt_power.items():
+            for mppt, power in mppt_power.items():
+                mppts_online += 1
+                key = (solis_key, mppt)
+                if not ( ma := self.mppt_power_avg.get(key)):
+                    self.mppt_power_avg[key] = ma = MovingAverageSeconds( 20 )
+                avg = ma.append( power )
+                if ma.is_full and avg != None:
+                    if power < self.mppt_drop_power_threshold * avg:
+                        mppts_in_drop += 1
+        self.mqtt.publish_value( "pv/router/mppts_in_drop", mppts_in_drop, int )
+
+        # put the information into routing context
+        ctx.mppt_power_drop = False
+        if mppts_in_drop == 1 and mppts_online > 1:
+            if not self.mppt_drop_timeout.expired():
+                ctx.mppt_power_drop = True
+        else:
+            self.mppt_drop_timeout.reset( self.mppt_drop_max_duration )
+
         #
         #   Begin power routing
         #
@@ -785,18 +828,14 @@ class Router( ):
         for device in self.devices:
             excess += device.get_releaseable_power( )
 
-        # create routing context
-        ctx = RouterCtx()
-        ctx.soc    = soc
         ctx.power  = excess
         ctx.total  = excess
-        ctx.bp_max = bp_max
 
         # Scan from highest to lowest priority and let devices take power calculated above.
         # If no changes occur, each device takes back the power it released at the previous step.
         # If a high priority device takes more power, then a low priority device will have to take less.
         logs = []
-        logs.append(( "%5d start", ctx.power ))
+        logs.append(( "%5d start %s", ctx.power, self.active_config_names.value ))
         for device in self.devices:
             p = await device.take_power( ctx )  # if the device wants to make a change, it is added to ctx.changes
             logs.append(( "%-6d take %5d for %s", ctx.power, p, device.dump()))
@@ -863,7 +902,10 @@ async def route_coroutine( module_updated, first_start, mgr ):
         # await asyncio.sleep(5)
         if first_start:
             await mgr.router.stop()
-        await mgr.event_power.wait()
+
+        # If we stop receiving data from PV controller, this will raise TimeoutError and exit
+        await asyncio.wait_for( mgr.event_power.wait(), timeout = 10 )
+
         log.info("Routing enabled.")
 
         while not module_updated():

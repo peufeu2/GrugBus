@@ -96,6 +96,7 @@ DATA_STREAMS = [
     ( "pv/total_grid_port_power"                         , "W"   , "Grid Ports"                  , "grid_port"     , "solid",    1.0 , {}                 , {} ),
     ( "pv/total_battery_power"                           , "W"   , "Battery"                     , "battery"       , "solid"    , 1.0 , {}                 , {} ),
     ( "pv/battery_max_charge_power"                      , "W"   , "Battery Max Charge"          , "battery"       , "dashed"   , 1.0 , {}                 , {} ),
+    ( "pv/energy_generated_today"                        , "kWh" , "Energy generated today"      , nextcolor()     , "solid"   , 1.0 , {}                 , {} ),
 
     # Per-inverter data
     ( "pv/solis%d/fakemeter/active_power"                , "W"   , "S%d FakeMeter"               , "fakemeter"     , "solid",    1.0 , {"visible":False}  , {} ),
@@ -314,6 +315,7 @@ PLOT_LAYOUTS = [
                 "pv/evse/energy",
                 "pv/solis%d/meter/import_active_energy",
                 "pv/solis%d/meter/export_active_energy",
+                "pv/energy_generated_today",
             ]
         ]
     ],[ "Machine",

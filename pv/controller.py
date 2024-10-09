@@ -57,6 +57,7 @@ async def power_coroutine( module_updated, first_start, self ):
             total_battery_power      = 0
             total_grid_port_power    = 0
             battery_max_charge_power = 0
+            total_energy_generated_today = 0
 
             router_total_pv_power           = 0
             router_total_battery_power      = 0
@@ -66,6 +67,8 @@ async def power_coroutine( module_updated, first_start, self ):
             inverters_with_battery  = []
             inverters_online        = []
             meters_online           = 0
+
+            mppt_power = {}
 
             # TODO: degraded modes
             for solis in self.inverters:
@@ -93,7 +96,10 @@ async def power_coroutine( module_updated, first_start, self ):
                 # PV and battery
                 pv_power = 0
                 solis.input_power.value = 0
-                if solis.is_online:             
+                if solis.is_online:     
+                    total_energy_generated_today += solis.energy_generated_today.value
+                    mppt_power[solis.key] = { "1":solis.mppt1_power.value, "2":solis.mppt2_power.value }
+
                     max_cp = (solis.battery_max_charge_current.value or 0) * (solis.battery_voltage.value or 0)           
                     battery_max_charge_power += max_cp
                     
@@ -185,6 +191,8 @@ async def power_coroutine( module_updated, first_start, self ):
             self.mqtt.publish_value( "pv/total_input_power",         self.total_input_power        , int )
             self.mqtt.publish_value( "pv/total_grid_port_power",     self.total_grid_port_power    , int )
             self.mqtt.publish_value( "pv/battery_max_charge_power",  self.battery_max_charge_power , int )
+            self.mqtt.publish_value( "pv/energy_generated_today",    total_energy_generated_today , int )
+
             for solis in self.inverters:
                 self.mqtt.publish_reg( solis.mqtt_topic, solis.input_power )
 
@@ -206,7 +214,8 @@ async def power_coroutine( module_updated, first_start, self ):
                 "total_battery_power"      : int( router_total_battery_power ),
                 "battery_max_charge_power" : int( router_battery_max_charge_power ),
 
-                "data_timestamp"           : m.last_transaction_timestamp
+                "mppt_power"               : mppt_power,
+                "data_timestamp"           : m.last_transaction_timestamp,
             }
             self.mqtt.mqtt.publish( "nolog/pv/router_data", orjson.dumps( d ) )
 

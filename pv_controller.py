@@ -10,7 +10,7 @@ import pymodbus
 from pymodbus.client import AsyncModbusSerialClient, AsyncModbusTcpClient
 from pymodbus.datastore import ModbusServerContext, ModbusSlaveContext, ModbusSequentialDataBlock
 from pymodbus.server import StartAsyncSerialServer
-from pymodbus.transaction import ModbusRtuFramer
+# from pymodbus.transaction import ModbusRtuFramer
 from pymodbus.exceptions import ModbusException
 
 # Device wrappers and misc local libraries
@@ -170,7 +170,7 @@ class FakeSmartmeter( grugbus.LocalServer ):
     # Start and run the modbus serves. Never returns as long as the server is running.
     async def start_server( self ):
         self.server = await StartAsyncSerialServer( context=self.server_ctx, 
-            framer          = ModbusRtuFramer,
+            # framer          = ModbusRtuFramer,
             ignore_missing_slaves = True,
             auto_reconnect = True,
             port            = self.port,

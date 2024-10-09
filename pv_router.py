@@ -101,7 +101,7 @@ class Master():
         self.evse.local_meter.reg_sets[0].append( self.evse.local_meter.voltage )
         self.router = pv.router.Router( mgr = self, mqtt = self.mqtt, mqtt_topic = "pv/router/" )
 
-        pv.reload.add_module_to_reload( "config", lambda: (self.mqtt.load_rate_limit(), self.router.reload_config()) ) # reload rate limit configuration
+        pv.reload.add_module_to_reload( "config", lambda: (self.mqtt.load_rate_limit(), self.router.load_config()) ) # reload rate limit configuration
         pv.reload.add_module_to_reload( "pv.router", lambda: pv.router.hack_reload_classes() ) # reload rate limit configuration
 
         try:
@@ -129,7 +129,8 @@ class Master():
         for k in (
             "m_total_power", "m_p1_v", "m_p2_v", "m_p3_v", "m_p1_i", "m_p2_i", "m_p3_i", 
             "meter_power_tweaked", "house_power", "total_pv_power", "total_input_power", 
-            "total_grid_port_power", "total_battery_power", "battery_max_charge_power", 
+            "total_grid_port_power", "total_battery_power", "battery_max_charge_power",
+            "mppt_power",
             "data_timestamp"):
             setattr( self, k, param.value.get(k) )
 
