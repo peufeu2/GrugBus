@@ -10,7 +10,7 @@ import pymodbus
 from pymodbus.client import AsyncModbusSerialClient, AsyncModbusTcpClient
 from pymodbus.datastore import ModbusServerContext, ModbusSlaveContext, ModbusSequentialDataBlock
 from pymodbus.server import StartAsyncSerialServer
-# from pymodbus.transaction import ModbusRtuFramer
+# from pymodbus.transaction import ModbusRtuFramer  # removed in pymodbus 3.7.3
 from pymodbus.exceptions import ModbusException
 
 # Device wrappers and misc local libraries
