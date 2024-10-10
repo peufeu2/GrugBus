@@ -58,6 +58,7 @@ async def power_coroutine( module_updated, first_start, self ):
             total_grid_port_power    = 0
             battery_max_charge_power = 0
             total_energy_generated_today = 0
+            total_battery_charge_energy_today = 0
 
             router_total_pv_power           = 0
             router_total_battery_power      = 0
@@ -98,7 +99,7 @@ async def power_coroutine( module_updated, first_start, self ):
                 solis.input_power.value = 0
                 if solis.is_online:     
                     total_energy_generated_today += solis.energy_generated_today.value
-                    mppt_power[solis.key] = { "1":solis.mppt1_power.value, "2":solis.mppt2_power.value }
+                    total_battery_charge_energy_today += solis.battery_charge_energy_today.value
 
                     max_cp = (solis.battery_max_charge_current.value or 0) * (solis.battery_voltage.value or 0)           
                     battery_max_charge_power += max_cp
@@ -118,6 +119,7 @@ async def power_coroutine( module_updated, first_start, self ):
 
                     # if inverter is offgrid, router can't use its power
                     if solis.is_ongrid():
+                        mppt_power[solis.key] = { "1":solis.mppt1_power.value, "2":solis.mppt2_power.value }
                         router_battery_max_charge_power += max_cp
                         router_total_pv_power += pv_power
                         router_total_battery_power += solis.battery_power.value or 0                    
@@ -145,15 +147,35 @@ async def power_coroutine( module_updated, first_start, self ):
                     fake_power = meter_power_tweaked * 0.5 + 0.05*(solis.input_power.value - total_input_power*0.5)
 
                 # This is good stuff
-                # bonus = 0
+                bonus = 0
+                for threshold, multiplier in (200,2), (500,1), (1000,1):
+                    if fake_power > threshold:
+                        bonus += (fake_power - threshold) * multiplier
+
+                if not bonus and self.bms_soc.value < 97:
+                    boost = min( 1, boost + time_since_last*0.3 )
+                else:
+                    if bonus and boost:
+                        print( "boost", fake_power, bonus*boost )
+                    fake_power = min( 15000, fake_power+bonus*boost )
+                    boost = max( 0, boost - time_since_last*0.3 )
+
+                # positive and negative versions
+                # fp = abs( fake_power )
                 # for threshold, multiplier in (200,2), (500,1), (1000,1):
-                #     if fake_power > threshold:
-                #         bonus += (fake_power - threshold) * multiplier
+                #     if fp > threshold:
+                #         bonus += (fp - threshold) * multiplier
                 # if not bonus:
-                #     boost = 1
+                #     boost = 1       # power is low: enable boost for next spike
                 # else:
-                #     fake_power = min( 15000, fake_power+bonus*boost )
-                #     boost = max( 0, boost - time_since_last*0.3 )
+                #     # fake_power = min( 15000, fake_power+bonus*boost )
+                #     fp = min( 15000, fp+bonus*boost )
+                #     if fake_power < 0:
+                #         pass
+                #         # fake_power = -fp
+                #     else:
+                #         fake_power = fp
+
 
                 fm = solis.fake_meter
                 fm.active_power           .value = fake_power
@@ -185,13 +207,14 @@ async def power_coroutine( module_updated, first_start, self ):
             self.event_power.set()
             self.event_power.clear()
 
-            self.mqtt.publish_value( "pv/meter/house_power",         self.house_power              , int )
-            self.mqtt.publish_value( "pv/total_pv_power",            self.total_pv_power           , int )
-            self.mqtt.publish_value( "pv/total_battery_power",       self.total_battery_power      , int )
-            self.mqtt.publish_value( "pv/total_input_power",         self.total_input_power        , int )
-            self.mqtt.publish_value( "pv/total_grid_port_power",     self.total_grid_port_power    , int )
-            self.mqtt.publish_value( "pv/battery_max_charge_power",  self.battery_max_charge_power , int )
-            self.mqtt.publish_value( "pv/energy_generated_today",    total_energy_generated_today , int )
+            self.mqtt.publish_value( "pv/meter/house_power",            self.house_power              , int )
+            self.mqtt.publish_value( "pv/total_pv_power",               self.total_pv_power           , int )
+            self.mqtt.publish_value( "pv/total_battery_power",          self.total_battery_power      , int )
+            self.mqtt.publish_value( "pv/total_input_power",            self.total_input_power        , int )
+            self.mqtt.publish_value( "pv/total_grid_port_power",        self.total_grid_port_power    , int )
+            self.mqtt.publish_value( "pv/battery_max_charge_power",     self.battery_max_charge_power , int )
+            self.mqtt.publish_value( "pv/energy_generated_today",       total_energy_generated_today , int )
+            self.mqtt.publish_value( "pv/battery_charge_energy_today",  total_battery_charge_energy_today , int )
 
             for solis in self.inverters:
                 self.mqtt.publish_reg( solis.mqtt_topic, solis.input_power )

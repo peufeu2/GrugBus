@@ -96,7 +96,8 @@ DATA_STREAMS = [
     ( "pv/total_grid_port_power"                         , "W"   , "Grid Ports"                  , "grid_port"     , "solid",    1.0 , {}                 , {} ),
     ( "pv/total_battery_power"                           , "W"   , "Battery"                     , "battery"       , "solid"    , 1.0 , {}                 , {} ),
     ( "pv/battery_max_charge_power"                      , "W"   , "Battery Max Charge"          , "battery"       , "dashed"   , 1.0 , {}                 , {} ),
-    ( "pv/energy_generated_today"                        , "kWh" , "Energy generated today"      , nextcolor()     , "solid"   , 1.0 , {}                 , {} ),
+    ( "pv/energy_generated_today"                        , "kWh" , "Energy Generated today"      , nextcolor()     , "solid"   , 1.0 , {}                 , {} ),
+    ( "pv/battery_charge_energy_today"                   , "kWh" , "Energy Charge today"      , "battery"       , "solid"   , 1.0 , {}                 , {} ),
 
     # Per-inverter data
     ( "pv/solis%d/fakemeter/active_power"                , "W"   , "S%d FakeMeter"               , "fakemeter"     , "solid",    1.0 , {"visible":False}  , {} ),
@@ -140,13 +141,13 @@ DATA_STREAMS = [
     ( "pv/bms/alarm"               , "?", "Bat alarm",              nextcolor, "solid", 1.0, {}, {} ),
 
     # Router
-    ( "pv/router/battery_min_charge_power"               , "W"   , "Battery Min Charge"          , "battery"       , "dashed",   1.0 , {}                 , {} ),
+    # ( "pv/router/battery_min_charge_power"               , "W"   , "Battery Min Charge"          , "battery"       , "dashed",   1.0 , {}                 , {} ),
 
     # EVSE
     ( "pv/evse/energy"                                   , "kWh" , "EVSE"                        , "#FF80FF"       , "solid",    1.0 , {}  , {} ),
     ( "pv/evse/meter/active_power"                       , "W"   , "EVSE"                        , "#FF80FF"       , "solid",    1.0 , {}                 , {} ),
     ( "pv/evse/rwr_current_limit"                        , "W"   , "EVSE ILim"                   , "#FFFFFF"       , "solid",  235.0 , {"visible":False}  , {} ),
-    ( "pv/evse/state"                                    , ""    , "EVSE State"                  , "#FF80FF"       , "solid",    1.0 , {"visible":False}  , {} ),
+    ( "pv/router/evse/state"                             , ""    , "EVSE State"                  , "#FF80FF"       , "solid",    1.0 , {"visible":False}  , {} ),
 
     # ( "pv/evse/command_interval"                         , "s"   , "EVSE timeout L"              , "#FFFFFF"       , "dotted",  1000.0 , {"visible":False}  , {} ),
     # ( "pv/evse/command_interval_small"                   , "s"   , "EVSE timeout S"              , "#808080"       , "dotted",  1000.0 , {"visible":False}  , {} ),
@@ -191,6 +192,7 @@ DATA_STREAMS = [
     ( "cmnd/plugs/tasmota_t4/Power", "ON", "Tasmota T4 Sèche serviette"     , nextcolor(), "solid", 1, {}, {"func":display_bools()} ),
     ( "cmnd/plugs/tasmota_t2/Power", "ON", "Tasmota T2 Radiateur PF"        , nextcolor(), "solid", 1, {}, {"func":display_bools()} ),
     ( "cmnd/plugs/tasmota_t1/Power", "ON", "Tasmota T1 Radiateur bureau"    , nextcolor(), "solid", 1, {}, {"func":display_bools()} ),
+    ( "pv/router/mppts_in_drop",     "ON", "MPPT Drops"                     , nextcolor(), "solid", 1, {}, {} ),
 
     ( "tele/plugs/tasmota_t4/SENSOR/ENERGY/Power", "W", "Tasmota T4 Sèche serviette"     , nextcolor(), "solid", 1, {}, {} ),
     ( "tele/plugs/tasmota_t2/SENSOR/ENERGY/Power", "W", "Tasmota T2 Radiateur PF"        , nextcolor(), "solid", 1, {}, {} ),
@@ -241,7 +243,7 @@ PLOT_LAYOUTS = [
                 "pv/total_grid_port_power"                       ,
                 # "pv/battery_max_charge_power"                           ,
                 # "pv/bms/max_charge_power"                        ,
-                "pv/router/battery_min_charge_power"             ,
+                # "pv/router/battery_min_charge_power"             ,
                 "pv/evse/meter/active_power"                     ,
                 "pv/evse/rwr_current_limit"                      ,
                 "pv/router/excess"                           ,
@@ -255,7 +257,8 @@ PLOT_LAYOUTS = [
                 "cmnd/plugs/tasmota_t4/Power", 
                 "cmnd/plugs/tasmota_t2/Power", 
                 "cmnd/plugs/tasmota_t1/Power", 
-                "pv/evse/state",
+                "pv/router/mppts_in_drop",
+                "pv/router/evse/state",
             ]
         ]
     ],[ "Strings", 
@@ -316,6 +319,7 @@ PLOT_LAYOUTS = [
                 "pv/solis%d/meter/import_active_energy",
                 "pv/solis%d/meter/export_active_energy",
                 "pv/energy_generated_today",
+                "pv/battery_charge_energy_today",
             ]
         ]
     ],[ "Machine",

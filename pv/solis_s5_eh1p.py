@@ -74,6 +74,8 @@ class Solis( grugbus.SlaveDevice ):
                 self.energy_generated_today               ,  
                 self.energy_generated_yesterday           ,      
 
+                self.battery_charge_energy_today          ,
+
                 self.phase_a_voltage                      ,
 
                 self.temperature                          ,

@@ -301,7 +301,7 @@ class EVSEController( Routable ):
         #
         MQTTSetting( self, "force_charge_minimum_A"     , int  , range( 6, 32 ) , 10 )  # guarantee this charge minimum current    
         MQTTSetting( self, "force_charge_until_kWh"     , int  , range( 0, 81 ) , 0  , self.setting_updated )  # until this energy has been delivered (0 to disable force charge)
-        MQTTSetting( self, "stop_charge_after_kWh"      , int  , range( 0, 81 ) , 15 , self.setting_updated )
+        MQTTSetting( self, "stop_charge_after_kWh"      , int  , range( 0, 81 ) , 0  , self.setting_updated )
 
         # DO NOT CHANGE as these are set in the ISO standard
         self.i_pause = 5.0          # current limit in pause mode
@@ -439,13 +439,13 @@ class EVSEController( Routable ):
         return self.get_power()
 
     async def take_power( self, ctx ):
-        hpp  = self.high_priority_power(ctx)
-        resb = self.reserve_for_battery( ctx )
+        hpp  = self.high_priority_W(ctx)
+        resb = self.reserve_for_battery_W( ctx )
         self.start_threshold_W_value = self.start_threshold_W(ctx)
         self.stop_threshold_W_value  = self.stop_threshold_W(ctx)
 
-        self.mqtt.publish_value( self.mqtt_topic+"high_priority_power" , hpp , int )
-        self.mqtt.publish_value( self.mqtt_topic+"reserve_for_battery" , resb, int )
+        self.mqtt.publish_value( self.mqtt_topic+"high_priority_W" , hpp , int )
+        self.mqtt.publish_value( self.mqtt_topic+"reserve_for_battery_W" , resb, int )
         self.mqtt.publish_value( self.mqtt_topic+"start_threshold_W"   , self.start_threshold_W_value, int )
         self.mqtt.publish_value( self.mqtt_topic+"stop_threshold_W"    , self.stop_threshold_W_value , int )
 
@@ -458,7 +458,7 @@ class EVSEController( Routable ):
 
         # Take everything else
         avail_power = ctx.power - bat
-        # log.debug( "EVSE: hp %d min %d remain %d resbat %d start %d stop %d", self.high_priority_power(ctx), min_ev_power, remain, self.reserve_for_battery(ctx), self.start_threshold_W(ctx), self.stop_threshold_W(ctx) )
+        # log.debug( "EVSE: hp %d min %d remain %d resbat %d start %d stop %d", self.high_priority_W(ctx), min_ev_power, remain, self.reserve_for_battery_W(ctx), self.start_threshold_W(ctx), self.stop_threshold_W(ctx) )
 
         p = await self._take_power( avail_power, ctx )
         if p == None:
@@ -570,7 +570,7 @@ class EVSEController( Routable ):
             return
 
         # do not react to MPPT power drops from recalibration
-        if ctx.mppts_in_drop:
+        if ctx.mppt_power_drop:
             return
 
         # calculate new limit
@@ -665,7 +665,7 @@ class Router( ):
 
         # complete configurations (in config.py) can be loaded by MQTT command
         # individual settings are not available, as that would complicate the HA GUI too much
-        MQTTSetting( self, "active_config_names"      , orjson.loads, None, '["default"]', self.mqtt_config_updated_callback )
+        MQTTSetting( self, "active_config_names"      , orjson.loads, None, orjson.dumps( config.ROUTER_DEFAULT_CONFIG ), self.mqtt_config_updated_callback )
         MQTTSetting( self, "offset", float, None, 0 )
         self.load_config()  # load config once, the devices will use it to initialize
 
@@ -687,10 +687,18 @@ class Router( ):
         if "default" not in configs:
             configs = ["default"] + configs
         log.info( "Router: set config %s", configs )
-        self.config = {}
+
+        new_config = {}
         for cfg_key in configs:
-            update_dict_recursive( self.config, config.ROUTER[ cfg_key ] )
-        print( self.config )
+            try:
+                c = config.ROUTER[ cfg_key ]
+            except KeyError:
+                log.error( "Router: MQTT configuration %s invalid", cfg_key)
+                self.active_config_names.value = self.active_config_names.prev_value
+                return
+            update_dict_recursive( new_config, c )
+        print( new_config )
+        self.config = new_config
         self.__dict__.update( self.config["router"])
         for device in getattr( self, "all_devices", [] ):
             device.load_config()
@@ -797,7 +805,7 @@ class Router( ):
                 mppts_online += 1
                 key = (solis_key, mppt)
                 if not ( ma := self.mppt_power_avg.get(key)):
-                    self.mppt_power_avg[key] = ma = MovingAverageSeconds( 20 )
+                    self.mppt_power_avg[key] = ma = MovingAverageSeconds( self.mppt_drop_average_duration )
                 avg = ma.append( power )
                 if ma.is_full and avg != None:
                     if power < self.mppt_drop_power_threshold * avg:
@@ -806,7 +814,7 @@ class Router( ):
 
         # put the information into routing context
         ctx.mppt_power_drop = False
-        if mppts_in_drop == 1 and mppts_online > 1:
+        if mppts_online > 1 and 1 <= mppts_in_drop < mppts_online:
             if not self.mppt_drop_timeout.expired():
                 ctx.mppt_power_drop = True
         else:
@@ -835,7 +843,7 @@ class Router( ):
         # If no changes occur, each device takes back the power it released at the previous step.
         # If a high priority device takes more power, then a low priority device will have to take less.
         logs = []
-        logs.append(( "%5d start %s", ctx.power, self.active_config_names.value ))
+        logs.append(( "%5d start %s mppt drop %s/%d", ctx.power, self.active_config_names.value, mppts_in_drop, mppts_online ))
         for device in self.devices:
             p = await device.take_power( ctx )  # if the device wants to make a change, it is added to ctx.changes
             logs.append(( "%-6d take %5d for %s", ctx.power, p, device.dump()))

@@ -135,7 +135,7 @@ class MQTTWrapper:
 
     #   Publish text value, rate limit
     #
-    def publish( self, topic, text ):
+    def publish( self, topic, text, qos=0 ):
         if not self.mqtt.is_connected:
             log.error( "Trying to publish %s on unconnected MQTT" % prefix )
             return
@@ -152,7 +152,7 @@ class MQTTWrapper:
         p.published_count += 1
         p.text      = text
         p.start_time = time.monotonic()
-        self.mqtt.publish( topic, text, qos=0 )
+        self.mqtt.publish( topic, text, qos=qos )
 
     def on_connect(self, client, flags, rc, properties):
         log.info("MQTT connected")
@@ -309,12 +309,10 @@ class MQTTSetting( MQTTVariable ):
         self.mqtt.subscribe_callback( mqtt_prefix+self.container.mqtt_topic+"settings", self.async_publish_callback )  # ask to publish all settings
 
     async def async_publish_callback( self, topic, payload, qos=None, properties=None ):
-        self.publish()
+        self.publish( )
 
     def publish( self ):
         log.info( "MQTTSetting: %s = %s", self.mqtt_topic, self.value )
-        if isinstance( self.value, (int,float) ):
-            self.mqtt.publish_value( self.mqtt_topic, self.value )
-        else:
-            self.mqtt.publish( self.mqtt_topic, str(self.value) )
+        # MQTTSetting does not go through rate limiting, it always publishes.
+        self.mqtt.mqtt.publish( self.mqtt_topic, str(self.value), qos=0 )
 
