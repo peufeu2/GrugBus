@@ -110,6 +110,8 @@ class Master():
                 tg.create_task( self.log_coroutine( "Read: %s local meter" %self.evse.key, self.evse.local_meter.read_coroutine() ))
                 tg.create_task( self.log_coroutine( "Reload python modules",     pv.reload.reload_coroutine() ))
                 tg.create_task( pv.reload.reloadable_coroutine( "Router",     lambda: pv.router.route_coroutine, self ))
+                tg.create_task( pv.reload.reloadable_coroutine( "Sysinfo"             , lambda: pv.router.sysinfo_coroutine, self ))
+                tg.create_task( pv.reload.reloadable_coroutine( "Diskinfo"            , lambda: pv.router.diskinfo_coroutine, self ))
 
         except (KeyboardInterrupt, CancelledError):
             print("Terminated.")

@@ -148,11 +148,12 @@ class FakeSmartmeter( grugbus.LocalServer ):
             self.mqtt.publish_value( self.mqtt_topic + "req_per_s", self.request_count/max(elapsed,1) )
             self.request_count = 0
 
-        # publish lag between real meter data and inverter query
-        self.mqtt.publish_value( self.mqtt_topic + "lag", age, lambda x:round(x,2) )
-
         # Do not serve stale data
         if self.is_online:
+            # publish lag between real meter data and inverter query
+            self.mqtt.publish_value( self.mqtt_topic + "lag", age, lambda x:round(x,2) )
+
+            # do not serve stale data
             if age > config.FAKE_METER_MAX_AGE_IGNORE:
                 self.error_count += 1
                 log.error( "FakeMeter %s: data is too old (%f seconds) [%d errors]", self.key, age, self.error_count )
@@ -275,7 +276,6 @@ class Controller:
                 tg.create_task( self.log_coroutine( "Reload python modules",     pv.reload.reload_coroutine() ))
                 tg.create_task( pv.reload.reloadable_coroutine( "Inverter fan control", lambda: pv.controller.inverter_fan_coroutine, self ))
                 tg.create_task( pv.reload.reloadable_coroutine( "Power coroutine"     , lambda: pv.controller.power_coroutine, self ))
-                tg.create_task( pv.reload.reloadable_coroutine( "Sysinfo"             , lambda: pv.controller.sysinfo_coroutine, self ))
 
         except (KeyboardInterrupt, CancelledError):
             print("Terminated.")

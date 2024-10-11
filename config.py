@@ -259,8 +259,8 @@ ROUTER = {
             "battery_full_threshold" : 0.9,
             
             # Moving averages length (seconds)
-            "smooth_export_time_window"      : 1,    
-            "smooth_bp_time_window"          : 1,
+            # "smooth_export_time_window"      : 1,    
+            # "smooth_bp_time_window"          : 1,
             "battery_active_avg_time_window" : 20,            
             "battery_full_avg_time_window"   : 20,        
 
@@ -350,7 +350,7 @@ ROUTER = {
         "evse": {
             "high_priority_W"       : lambda ctx: 2000, 
             "reserve_for_battery_W" : Interp((50, 6000),  (95, 1000),var="soc"),
-            "start_threshold_W"     : Interp((50, 2000), (100, 1200),var="soc"),
+            "start_threshold_W"     : Interp((60, 2000), (100, 1200),var="soc"),
             "stop_threshold_W"      : Interp((70, 1400), (100,  800),var="soc"),     # allow it to discharge battery a little
         },
     },
@@ -436,9 +436,9 @@ MQTT_RATE_LIMIT = {
     'pv/meter/frequency'                            : (  10,      1.000, 'avg'   ), #  1.234/ 1.250,
 
     # Low rate, publish as-is
-    'pv/disk_space_gb'                              : (  0,      0.000, ''      ), #  0.021/ 0.117,
-    'pv/cpu_temp_c'                                 : (  0,      0.000, ''      ), #  0.085/ 0.101,
-    'pv/cpu_load_percent'                           : (  0,      0.000, ''      ), #  0.090/ 0.095,
+    'pv/disk_space_gb'                              : (  10,      0.100, ''      ), #  0.021/ 0.117,
+    'pv/cpu_temp_c'                                 : (  10,      1.000, ''      ), #  0.085/ 0.101,
+    'pv/cpu_load_percent'                           : (  10,      1.000, ''      ), #  0.090/ 0.095,
 
 
     #   CANBUS BMS INFORMATION

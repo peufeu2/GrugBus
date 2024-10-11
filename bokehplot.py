@@ -92,7 +92,7 @@ DATA_STREAMS = [
     ( "pv/meter/req_period"                              , "s"   , "req_period"                  , "#FFFF00"       , "solid",    1.0 , {}                 , {"aggregate":"max"} ),
 
     # Totals across inverters
-    ( "pv/total_input_power"                             , "W"   , "Battery Proxy"               , "input"         , "solid",    1.0 , {}                 , {} ),
+    ( "pv/total_input_power"                             , "W"   , "Battery Proxy"               , "input"         , "solid",    1.0 , {"visible":False}                 , {} ),
     ( "pv/total_grid_port_power"                         , "W"   , "Grid Ports"                  , "grid_port"     , "solid",    1.0 , {}                 , {} ),
     ( "pv/total_battery_power"                           , "W"   , "Battery"                     , "battery"       , "solid"    , 1.0 , {}                 , {} ),
     ( "pv/battery_max_charge_power"                      , "W"   , "Battery Max Charge"          , "battery"       , "dashed"   , 1.0 , {}                 , {} ),
@@ -101,6 +101,7 @@ DATA_STREAMS = [
 
     # Per-inverter data
     ( "pv/solis%d/fakemeter/active_power"                , "W"   , "S%d FakeMeter"               , "fakemeter"     , "solid",    1.0 , {"visible":False}  , {} ),
+    ( "pv/solis%d/fakemeter/lag"                         , "s"   , "S%d Fakemeter lag"           , nextcolor       , "solid",    1.0 , {"visible":False}  , {} ),
     ( "pv/solis%d/input_power"                           , "W"   , "S%d Battery Proxy"           , "input"         , "solid",    1.0 , {}                 , {} ),
     ( "pv/solis%d/meter/active_power"                    , "W"   , "S%d Grid port"               , "grid_port"     , "solid",    1.0 , {}                 , {} ),
   # ( "pv/solis%d/dc_bus_voltage"                        , "V"   , "S%d DC Bus"                  , (cat20,8)       , "solid",    1.0 , {}                 , {} ),
@@ -109,9 +110,6 @@ DATA_STREAMS = [
     ( "pv/evse/meter/import_active_energy"               , "kWh" , "EVSE meter"                  , "#FFC0FF"       , "solid",    1.0 , {"visible":False}  , {"mode":"delta"} ),
     ( "pv/solis%d/meter/import_active_energy"            , "kWh" , "S%d Import"                  , "input"         , "solid",    1.0 , {"visible":False}  , {"mode":"delta"} ),
     ( "pv/solis%d/meter/export_active_energy"            , "kWh" , "S%d Export"                  , "grid_port"     , "solid",    1.0 , {"visible":False}  , {"mode":"delta"} ),
-
-    # Router
-    ( "pv/router/excess"                             , "W"   , "Route excess"                , "#FF00FF"       , "solid",   -1.0 , {"visible":False}  , {} ),
 
     # Battery (inverter side)
     ( "pv/solis%d/battery_power"                         , "W"   , "S%d Battery"                 , "battery"       , "solid"    , 1.0 , {"visible":False}  , {} ),
@@ -192,11 +190,11 @@ DATA_STREAMS = [
     ( "cmnd/plugs/tasmota_t4/Power", "ON", "Tasmota T4 Sèche serviette"     , nextcolor(), "solid", 1, {}, {"func":display_bools()} ),
     ( "cmnd/plugs/tasmota_t2/Power", "ON", "Tasmota T2 Radiateur PF"        , nextcolor(), "solid", 1, {}, {"func":display_bools()} ),
     ( "cmnd/plugs/tasmota_t1/Power", "ON", "Tasmota T1 Radiateur bureau"    , nextcolor(), "solid", 1, {}, {"func":display_bools()} ),
-    ( "pv/router/mppts_in_drop",     "ON", "MPPT Drops"                     , nextcolor(), "solid", 1, {}, {} ),
+    ( "pv/router/mppts_in_drop",     "ON", "MPPT Drops"                     , nextcolor(), "solid", 1, {"visible":False}, {} ),
 
-    ( "tele/plugs/tasmota_t4/SENSOR/ENERGY/Power", "W", "Tasmota T4 Sèche serviette"     , nextcolor(), "solid", 1, {}, {} ),
-    ( "tele/plugs/tasmota_t2/SENSOR/ENERGY/Power", "W", "Tasmota T2 Radiateur PF"        , nextcolor(), "solid", 1, {}, {} ),
-    ( "tele/plugs/tasmota_t1/SENSOR/ENERGY/Power", "W", "Tasmota T1 Radiateur bureau"    , nextcolor(), "solid", 1, {}, {} ),
+    ( "tele/plugs/tasmota_t4/SENSOR/ENERGY/Power", "W", "Tasmota T4 Sèche serviette"     , nextcolor(), "solid", 1, {"visible":False}, {} ),
+    ( "tele/plugs/tasmota_t2/SENSOR/ENERGY/Power", "W", "Tasmota T2 Radiateur PF"        , nextcolor(), "solid", 1, {"visible":False}, {} ),
+    ( "tele/plugs/tasmota_t1/SENSOR/ENERGY/Power", "W", "Tasmota T1 Radiateur bureau"    , nextcolor(), "solid", 1, {"visible":False}, {} ),
 
     # SQL
     # ( 
@@ -246,8 +244,6 @@ PLOT_LAYOUTS = [
                 # "pv/router/battery_min_charge_power"             ,
                 "pv/evse/meter/active_power"                     ,
                 "pv/evse/rwr_current_limit"                      ,
-                "pv/router/excess"                           ,
-                # "pv/router/excess_avg_nobat"                     ,
 
 "tele/plugs/tasmota_t4/SENSOR/ENERGY/Power",
 "tele/plugs/tasmota_t2/SENSOR/ENERGY/Power",
@@ -379,19 +375,16 @@ PLOT_LAYOUTS = [
                 # "pv/solis%d/battery_current",
                 # "pv/bms/current",
                 # "pv/solis%d/reserved_33191",
-                "pv/solis2/fakemeter/active_power",
+                "pv/solis%d/fakemeter/active_power",
                 "pv/meter/house_power",
                 "pv/meter/total_power",
-                "pv/solis2/meter/active_power",
+                "pv/solis%d/meter/active_power",
             ],[
-                "pv/solis%d/battery_voltage",
-                "pv/bms/max_charge_voltage",
-                "pv/bms/voltage",
-
                 "pv/bms/protection",
                 "pv/bms/alarm",
                 "pv/bms/charge_enable",
-                "pv/bms/max_charge_current",
+                # "pv/bms/max_charge_current",
+                "pv/solis%d/fakemeter/lag"
             ],
         ]
     ],
@@ -695,7 +688,6 @@ class PVDashboard():
                 "pv/meter/house_power"                           ,
                 "pv/evse/meter/active_power"                     ,
                 "pv/meter/total_power"                           ,
-                "pv/router/excess"                               ,
             )
         self.gauge_tab_power_gauge_datastreams = [ self.app.data_streams[k] for k in power_gauge_topics ]
         power_gauge_labels = [ ds.label for ds in self.gauge_tab_power_gauge_datastreams ]

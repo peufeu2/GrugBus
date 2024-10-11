@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-import os, time, sys, logging, orjson, shutil, collections
+import os, time, sys, logging, orjson, collections
 
 # This program is supposed to run on a potato (Allwinner H3 SoC) and uses async/await,
 # so import the fast async library uvloop
@@ -213,8 +213,8 @@ async def power_coroutine( module_updated, first_start, self ):
             self.mqtt.publish_value( "pv/total_input_power",            self.total_input_power        , int )
             self.mqtt.publish_value( "pv/total_grid_port_power",        self.total_grid_port_power    , int )
             self.mqtt.publish_value( "pv/battery_max_charge_power",     self.battery_max_charge_power , int )
-            self.mqtt.publish_value( "pv/energy_generated_today",       total_energy_generated_today , int )
-            self.mqtt.publish_value( "pv/battery_charge_energy_today",  total_battery_charge_energy_today , int )
+            self.mqtt.publish_value( "pv/energy_generated_today",       total_energy_generated_today )
+            self.mqtt.publish_value( "pv/battery_charge_energy_today",  total_battery_charge_energy_today )
 
             for solis in self.inverters:
                 self.mqtt.publish_reg( solis.mqtt_topic, solis.input_power )
@@ -356,7 +356,7 @@ async def inverter_fan_coroutine( module_updated, first_start, self ):
             avgp = []
             for solis in self.inverters:
                 if solis.is_online:
-                    avgp.append( bat_power_avg[solis.key].append( abs(solis.battery_power.value or 0) ) or 0 )
+                    avgp.append( bat_power_avg[solis.key].append( abs(solis.battery_power.value or 0), 0 ) )
                     temps.append( solis.temperature.value )
 
             if temps and (max(temps)> 40 or max(avgp) > 2000):
@@ -370,22 +370,4 @@ async def inverter_fan_coroutine( module_updated, first_start, self ):
             log.exception("")
             await asyncio.sleep(5)
 
-########################################################################################
-#   System info
-########################################################################################
-async def sysinfo_coroutine( module_updated, first_start, self ):
-    prev_cpu_timings = None
-    while not module_updated():
-        await asyncio.sleep(10)
-        with open("/proc/stat") as f:
-            cpu_timings = [ int(_) for _ in f.readline().split()[1:] ]
-            cpu_timings = cpu_timings[3], sum(cpu_timings)  # idle time, total time
-            if prev_cpu_timings:
-                self.mqtt.publish_value( "pv/cpu_load_percent", round( 100.0*( 1.0-(cpu_timings[0]-prev_cpu_timings[0])/(cpu_timings[1]-prev_cpu_timings[1]) ), 1 ))
-            prev_cpu_timings = cpu_timings
-
-        with open("/sys/devices/virtual/thermal/thermal_zone0/temp") as f:
-            self.mqtt.publish_value( "pv/cpu_temp_c", round( int(f.read())*0.001, 1 ) )
-        total, used, free = shutil.disk_usage("/")
-        self.mqtt.publish_value( "pv/disk_space_gb", round( free/2**30, 2 ) )
 

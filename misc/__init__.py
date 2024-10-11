@@ -38,6 +38,9 @@ class Metronome:
                 await asyncio.sleep(delay)
         self.last_tick = time.monotonic()
 
+    def __await__( self ):
+        return self.wait().__await__()
+
     def ticked( self ):
         ct = time.monotonic()
         if self.next_tick < ct:
@@ -178,14 +181,14 @@ class MovingAverageSeconds:
         self.ncalls = 0
         self.is_full = False     # True when we have enough data to fill the time window
 
-    def append( self, value ):
+    def append( self, value, default_value = None ):
         # time since last append
         t = time.monotonic()
         dt = t-self.tick
         if not self.tick:
             # on first call, ignore value and just keep the timestamp
             self.tick=t
-            return
+            return default_value
         self.tick=t
 
         # add to total
@@ -208,9 +211,18 @@ class MovingAverageSeconds:
             self.sum_value = sum( value for value, dt in q )
             self.sum_time  = sum( dt    for value, dt in q )
 
-        return self.sum_value / self.sum_time
+        if self.is_full:
+            return self.sum_value / self.sum_time
+        else:
+            return default_value
 
         # return None if we don't have enough data yet
+
+    def avg( self, default_value = None ):
+        if self.is_full:
+            return self.sum_value / self.sum_time
+        return default_value
+
 
 #
 #   Time weighted moving average

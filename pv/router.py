@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-import os, time, sys, serial, logging, logging.handlers, orjson, datetime
+import os, time, sys, serial, logging, logging.handlers, orjson, datetime, shutil
 from path import Path
 
 # This program is supposed to run on a potato (Allwinner H3 SoC) and uses async/await,
@@ -83,7 +83,7 @@ class Routable():
 
     def load_config( self ):
         cfg = self.router.config[ self.key ]
-        log.debug("Routable.setconfig %s %s", self.key, cfg )
+        # log.debug("Routable.setconfig %s %s", self.key, cfg )
         self.__dict__.update( cfg )
 
         # Priority of routable loads can be set via MQTT
@@ -183,7 +183,7 @@ class TasmotaPlug( Routable ):
             self.power_measurements.append( param.value )
             self.current_power = self.last_power_when_on = max( self.power_measurements ) # ignore low readings just after turning on
 
-    def publish_power( self ):
+    def send_power_command( self ):
         if not TEST_MODE:
             self.mqtt.publish_value( "cmnd/"+self.plug_topic+"Power", int(self.is_on) )
 
@@ -193,7 +193,7 @@ class TasmotaPlug( Routable ):
             self.current_power = self.last_power_when_on
             self.switch_timeout.reset( self.router.plugs_min_on_time_s ) # stay on during minimum time
             self.is_on = True
-            self.publish_power()
+            self.send_power_command()
 
     async def off( self ):
         if self.is_on:
@@ -201,7 +201,7 @@ class TasmotaPlug( Routable ):
             self.current_power = 0
             self.switch_timeout.reset( self.router.plugs_min_off_time_s ) # stay off during minimum time
             self.is_on = False
-            self.publish_power()
+            self.send_power_command()
 
     # turn it on or off
     async def onoff( self, on ):
@@ -242,7 +242,7 @@ class TasmotaPlug( Routable ):
 
     # republish power commands periodically
     def publish( self ):
-        self.publish_power()
+        self.send_power_command()
 
 #################################################################################
 #
@@ -301,7 +301,7 @@ class EVSEController( Routable ):
         #
         MQTTSetting( self, "force_charge_minimum_A"     , int  , range( 6, 32 ) , 10 )  # guarantee this charge minimum current    
         MQTTSetting( self, "force_charge_until_kWh"     , int  , range( 0, 81 ) , 0  , self.setting_updated )  # until this energy has been delivered (0 to disable force charge)
-        MQTTSetting( self, "stop_charge_after_kWh"      , int  , range( 0, 81 ) , 0  , self.setting_updated )
+        MQTTSetting( self, "stop_charge_after_kWh"      , int  , range( 0, 101 ) , 0  , self.setting_updated )
 
         # DO NOT CHANGE as these are set in the ISO standard
         self.i_pause = 5.0          # current limit in pause mode
@@ -648,8 +648,8 @@ class Router( ):
         self.mqtt        = mqtt
         self.mqtt_topic  = mqtt_topic
 
-        self.smooth_export = MovingAverageSeconds( 1 )
-        self.smooth_bp     = MovingAverageSeconds( 1 )
+        # self.smooth_export = MovingAverageSeconds( 1 )
+        # self.smooth_bp     = MovingAverageSeconds( 1 )
         self.battery_active_avg = MovingAverageSeconds( 20 )
         self.battery_full_avg   = MovingAverageSeconds( 20 )
 
@@ -697,13 +697,13 @@ class Router( ):
                 self.active_config_names.value = self.active_config_names.prev_value
                 return
             update_dict_recursive( new_config, c )
-        print( new_config )
+        # print( new_config )
         self.config = new_config
         self.__dict__.update( self.config["router"])
         for device in getattr( self, "all_devices", [] ):
             device.load_config()
-        self.smooth_export      .time_window = self.smooth_export_time_window
-        self.smooth_bp          .time_window = self.smooth_bp_time_window
+        # self.smooth_export      .time_window = self.smooth_export_time_window
+        # self.smooth_bp          .time_window = self.smooth_bp_time_window
         self.battery_active_avg .time_window = self.battery_active_avg_time_window
         self.battery_full_avg   .time_window = self.battery_full_avg_time_window
         self.confirm_timeout.set_duration( self.confirm_change_time )
@@ -731,6 +731,7 @@ class Router( ):
     #   Allocate excess power to devices
     #
     async def route( self ):
+        logs = []
         mgr = self.mgr
         time_since_last_call = min( 1, self.last_call.lap() )
 
@@ -748,7 +749,7 @@ class Router( ):
         # detect if battery is active
         # self.battery_active is in config.py, returns bool, which goes through moving average, and compared with threshold.
         # result: true if self.battery_active() returns true more often than self.battery_active_threshold on average
-        bat_active  = (self.battery_active_avg.append( self.battery_active( mgr )) or 1) > self.battery_active_threshold
+        bat_active  = self.battery_active_avg.append( self.battery_active( mgr ), 1) > self.battery_active_threshold
 
         # remove battery power measurement error when battery is inactive
         if not bat_active:
@@ -758,7 +759,7 @@ class Router( ):
         # If register battery_max_charge_power == 0, then we're sure it won't charge and can use all the power.
         # But when battery_max_charge_power > 0 and soc < 100, sometimes it doesn't charge, and exports instead.
         # self.battery_full() is in config.py
-        bat_full = (self.battery_full_avg.append( self.battery_full( mgr, bat_active )) or 0) > self.battery_full_threshold
+        bat_full = self.battery_full_avg.append( self.battery_full( mgr, bat_active ), 0 ) > self.battery_full_threshold
 
         # mgr.battery_max_charge_power is the maximum charging power the battery can take, as determined by inverter, according to BMS info
         # bp_max is the max power the inverter will actually charge at, it feels like it
@@ -842,8 +843,9 @@ class Router( ):
         # Scan from highest to lowest priority and let devices take power calculated above.
         # If no changes occur, each device takes back the power it released at the previous step.
         # If a high priority device takes more power, then a low priority device will have to take less.
-        logs = []
-        logs.append(( "%5d start %s mppt drop %s/%d", ctx.power, self.active_config_names.value, mppts_in_drop, mppts_online ))
+        logs.append(( "%5d start %s bat: %.02fA active %d -> %.02f -> %d soc %d full %d -> %.02f -> %d", ctx.power, self.active_config_names.value, 
+            mgr.bms_current.value, self.battery_active( mgr ), self.battery_active_avg.avg( -1 ), bat_active,
+            mgr.bms_soc.value, self.battery_full( mgr, bat_active ), self.battery_full_avg.avg( -1 ), bat_full ))
         for device in self.devices:
             p = await device.take_power( ctx )  # if the device wants to make a change, it is added to ctx.changes
             logs.append(( "%-6d take %5d for %s", ctx.power, p, device.dump()))
@@ -893,7 +895,7 @@ def hack_reload_classes( ):
     for obj in _reload_object_classes:
         prev_module_name = obj.__class__.__module__
         if prev_module_name in pv.reload.module_names_to_reload:
-            print( "Install new class for", prev_module_name, obj )
+            log.debug( "Install new class for %s %s", prev_module_name, obj )
             mod = sys.modules.get( prev_module_name )
             newclass = getattr( mod, obj.__class__.__name__ )
             obj.__class__ = newclass # set object's class to new version so it gets new version of all methods
@@ -928,3 +930,34 @@ async def route_coroutine( module_updated, first_start, mgr ):
         if not module_updated():
             log.info("Router: STOP")
             await mgr.router.stop()
+
+
+########################################################################################
+#   System info
+########################################################################################
+async def sysinfo_coroutine( module_updated, first_start, self ):
+    prev_cpu_timings = None
+    tick = Metronome( 1.0 )
+    while not module_updated():
+        await tick
+        with open("/proc/stat") as f:
+            cpu_timings = [ int(_) for _ in f.readline().split()[1:] ]
+            cpu_timings = cpu_timings[3], sum(cpu_timings)  # idle time, total time
+            if prev_cpu_timings:
+                self.mqtt.publish_value( "pv/cpu_load_percent", round( 100.0*( 1.0-(cpu_timings[0]-prev_cpu_timings[0])/(cpu_timings[1]-prev_cpu_timings[1]) ), 1 ))
+            prev_cpu_timings = cpu_timings
+
+        await asyncio.sleep(0)
+        with open("/sys/devices/virtual/thermal/thermal_zone0/temp") as f:
+            self.mqtt.publish_value( "pv/cpu_temp_c", round( int(f.read())*0.001, 1 ) )
+
+########################################################################################
+#   Disk info
+########################################################################################
+async def diskinfo_coroutine( module_updated, first_start, self ):
+    prev_cpu_timings = None
+    tick = Metronome( 60.0 )
+    while not module_updated():
+        await tick
+        total, used, free = shutil.disk_usage("/")
+        self.mqtt.publish_value( "pv/disk_space_gb", round( free/2**30, 2 ) )
