@@ -277,13 +277,13 @@ class SlaveDevice( DeviceBase ):
                             else:
                                 reg_data = resp.bits
                             if self.modbus._async_mutex._waiters:
-                                await asyncio.sleep(0.003)  # wait until serial is flushed before releasing lock
+                                await asyncio.sleep(0.005)  # wait until serial is flushed before releasing lock
                         update_list.append( (fcode, chunk, start_addr, reg_data) )
                         break
                     except (TimeoutError,ModbusException) as e:
-                        await asyncio.sleep(0.2)  # let other tasks use this serial port
+                        await asyncio.sleep(0.01)  # let other tasks use this serial port
                         if retry < retries-1:
-                            # log.info( "Modbus read error: %s will retry %d/%d (%s) %s", self.key, retry+1, retries, e, msg )
+                            log.info( "Modbus read error: %s will retry %d/%d (%s)", self.key, retry+1, retries, e )
                             pass
                         else:
                             if (msg := self.rate_limit_error(old_is_online)) is not None:

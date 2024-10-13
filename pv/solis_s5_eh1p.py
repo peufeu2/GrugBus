@@ -27,6 +27,7 @@ class Solis( grugbus.SlaveDevice ):
 
         self.local_meter = local_meter        # on AC grid port
         self.fake_meter  = fake_meter    # meter emulation on meter port
+        fake_meter.solis = self
         self.mqtt        = mqtt
         self.mqtt_topic  = mqtt_topic
         self.mqtt_written_regs = {}
@@ -186,6 +187,8 @@ class Solis( grugbus.SlaveDevice ):
 
                         if config.LOG_MODBUS_REQUEST_TIME_SOLIS:
                             self.publish_modbus_timings()
+
+                        self.mqtt.mqtt.publish( "nolog/event/" + self.key, qos=0 )
 
                     finally:
                         # wake up other coroutines waiting for fresh values

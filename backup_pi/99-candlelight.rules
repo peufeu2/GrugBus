@@ -1,0 +1,6 @@
+#
+# sudo udevadm control --reload-rules && sudo systemctl restart systemd-udevd && sudo udevadm trigger
+#
+SUBSYSTEM=="net", ATTRS{idVendor}=="1d50", ATTRS{idProduct}=="606f", ATTRS{serial}=="0030002D3830511120393658", NAME="can_bat", RUN+="/usr/sbin/ip link set can_bat up type can bitrate 500000 restart-ms 100"
+SUBSYSTEM=="net", ATTRS{idVendor}=="1d50", ATTRS{idProduct}=="606f", ATTRS{serial}=="0047003D4E56510B20353534", NAME="can_1",   RUN+="/usr/sbin/ip link set can_1 up type can bitrate 500000 restart-ms 100"
+SUBSYSTEM=="net", ATTRS{idVendor}=="1d50", ATTRS{idProduct}=="606f", ATTRS{serial}=="003C001F5834570B20343833", NAME="can_2",   RUN+="/usr/sbin/ip link set can_2 up type can bitrate 500000 restart-ms 100"

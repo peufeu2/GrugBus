@@ -188,6 +188,9 @@ async def power_coroutine( module_updated, first_start, self ):
                 fm.import_active_energy   .value = m.total_import_kwh              .value
                 fm.export_active_energy   .value = m.total_export_kwh              .value
                 fm.data_timestamp                = m.last_transaction_timestamp
+                if m.is_online and not fm.is_online:
+                    log.info("%s online", fm.name)
+                    fm.startup_done = True
                 fm.is_online                     = m.is_online
 
                 fm.write_regs_to_context()
@@ -252,10 +255,56 @@ async def power_coroutine( module_updated, first_start, self ):
 ########################################################################################
 def fakemeter_on_getvalues( self ):
     try:
-        return True
+        t = time.monotonic()
+        self.request_count += 1
+
+        # Print message if inverter talks to us
+        if self.last_query_time < t-10.0:
+            log.info("FakeMeter %s: receiving requests", self.key )
+        self.last_query_time = t
+
+        if not self.data_timestamp:
+            return False            # Not initialized yet
+
+        # Publish requests/second statistics
+        age = t - self.data_timestamp
+        self.lags.append( age )
+        if (elapsed := self.stat_tick.ticked()) and self.mqtt_topic:
+            self.mqtt.publish_value( self.mqtt_topic + "req_per_s", self.request_count/max(elapsed,1) )
+            self.request_count = 0
+
+        # Do not serve stale data
+        if self.is_online:
+            # publish lag between real meter data and inverter query
+            self.mqtt.publish_value( self.mqtt_topic + "lag", age, lambda x:round(x,2) )
+
+            # do not serve stale data
+            if age <= config.FAKE_METER_MAX_AGE:
+                self.error_count = 0
+                return True
+            else:
+                self.is_online = False
+                if self.error_count < 100:
+                    log.error( "FakeMeter %s: data is too old (%f seconds) [%d errors]", self.key, age, self.error_count )
+
+        self.error_count += 1
+        lm = self.solis.local_meter
+        lm_age = t-lm.last_transaction_timestamp 
+        if lm_age < config.FAKE_METER_MAX_AGE:
+            self.active_power.value =  lm.active_power.value
+            self.write_regs_to_context( [ self.active_power ])
+            if self.error_count < 100:
+                log.error( "FakeMeter %s: using local meter data", self.key )
+            return True
+
+        if self.error_count < 100:
+            log.error( "FakeMeter %s: local meter data is too old (%f seconds)", self.key, lm_age )
+
+        return False
+
     except Exception:
         log.exception("fakemeter_on_getvalues")
-        return True
+        raise
 
 
     ########################################################################################
@@ -345,25 +394,23 @@ async def inverter_powersave_coroutine( module_updated, first_start, self, solis
 #
 ########################################################################################
 async def inverter_fan_coroutine( module_updated, first_start, self ):
-    timeout_fan_off = Timeout( 60 )
     bat_power_avg = { _.key: MovingAverageSeconds(10) for _ in self.inverters }
     if first_start:
         await asyncio.sleep( 5 )
     while not module_updated(): # Exit if this module was reloaded
         await asyncio.sleep( 2 )
         try:
-            temps = []
-            avgp = []
             for solis in self.inverters:
-                if solis.is_online:
-                    avgp.append( bat_power_avg[solis.key].append( abs(solis.battery_power.value or 0), 0 ) )
-                    temps.append( solis.temperature.value )
-
-            if temps and (max(temps)> 40 or max(avgp) > 2000):
-                timeout_fan_off.reset()
-                self.mqtt.publish_value( "cmnd/plugs/tasmota_t3/Power", 1 )
-            elif min( temps ) < 35 and timeout_fan_off.expired():
-                self.mqtt.publish_value( "cmnd/plugs/tasmota_t3/Power", 0 )
+                # run the fan if it is ON and HOT
+                if solis.is_online and solis.rwr_power_on_off.value == solis.rwr_power_on_off.value_on:
+                    avgp = bat_power_avg[solis.key].append( abs(solis.battery_power.value or 0), 0 )
+                    temp = solis.temperature.value
+                    pwm = min( 1, max( 0, (temp-35)*0.1, (avgp-2000)*0.001 ))
+                    if pwm < 0.1:
+                        pwm = 0
+                else:
+                    pwm = 0
+                self.mqtt.publish_value( solis.mqtt_topic + "fan_pwm", int(100*pwm) )
 
         except (TimeoutError, ModbusException): pass
         except:

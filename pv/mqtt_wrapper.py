@@ -243,6 +243,7 @@ class MQTTVariable:
     def __init__( self, mqtt_topic, container, name, datatype, validation, value, callback = None, mqtt_prefix="" ):
         assert not hasattr( container, name )
         setattr( container, name, self )
+        self.name           = name
         self.container      = container
         self.mqtt_topic     = mqtt_topic
         self.datatype       = datatype

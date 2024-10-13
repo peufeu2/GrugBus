@@ -41,7 +41,7 @@ logging.basicConfig( encoding='utf-8',
                      format='[%(asctime)s] %(levelname)s:%(message)s',
                      handlers=[
                             logging.handlers.RotatingFileHandler(Path(__file__).stem+'.log', mode='a', maxBytes=5*1024*1024, backupCount=2, encoding=None, delay=False),
-                            logging.FileHandler(filename=Path(__file__).stem+'.log'), 
+                            # logging.FileHandler(filename=Path(__file__).stem+'.log'), 
                             logging.StreamHandler(stream=sys.stdout)
                     ])
 log = logging.getLogger(__name__)
@@ -133,37 +133,7 @@ class FakeSmartmeter( grugbus.LocalServer ):
 
     # This is called when the inverter sends a request to this server
     def _on_getValues( self, fc_as_hex, address, count, ctx ):
-        t = time.monotonic()
-        self.request_count += 1
-
-        # Print message if inverter talks to us
-        if self.last_query_time < t-10.0:
-            log.info("FakeMeter %s: receiving requests", self.key )
-        self.last_query_time = t
-
-        # Publish requests/second statistics
-        age = t - self.data_timestamp
-        self.lags.append( age )
-        if (elapsed := self.stat_tick.ticked()) and self.mqtt_topic:
-            self.mqtt.publish_value( self.mqtt_topic + "req_per_s", self.request_count/max(elapsed,1) )
-            self.request_count = 0
-
-        # Do not serve stale data
-        if self.is_online:
-            # publish lag between real meter data and inverter query
-            self.mqtt.publish_value( self.mqtt_topic + "lag", age, lambda x:round(x,2) )
-
-            # do not serve stale data
-            if age > config.FAKE_METER_MAX_AGE_IGNORE:
-                self.error_count += 1
-                log.error( "FakeMeter %s: data is too old (%f seconds) [%d errors]", self.key, age, self.error_count )
-                self.active_power.value = 0 # Prevent runaway inverter output power
-                if age > config.FAKE_METER_MAX_AGE_ABORT:
-                    log.error( "FakeMeter %s: shutting down", self.key )
-                    self.is_online = False
-
-        # call reloadable routine to tweak values if necessary
-        return self.is_online and pv.controller.fakemeter_on_getvalues( self )
+        return pv.controller.fakemeter_on_getvalues( self )
 
         # If return value is False, pymodbus server will abort the request, which the inverter
         # correctly interprets as the meter being offline

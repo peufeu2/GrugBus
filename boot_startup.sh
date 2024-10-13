@@ -12,10 +12,10 @@ cd /home/peufeu/solaire
 sleep 5
 
 # run solar management
-screen -dmS pv        bash -c 'python3.11 modbus_mitm.py'
 screen -dmS buf       bash -c 'python3.11 mqtt_buffer.py'
 screen -dmS chauffage bash -c 'python3.11 chauffage_mqtt.py'
 screen -dmS can       bash -c 'python3.11 pv_can.py'
 screen -dmS fakemeter bash -c 'python3.11 pv_controller.py'
+screen -dmS router    bash -c 'python3.11 pv_router.py'
 
 # screen -d -m -t ventilation python3.11 ventilation.py

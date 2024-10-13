@@ -23,7 +23,7 @@ CLICKHOUSE_PASSWORD =
 ##################################################################
 
 LOG_MODBUS_REQUEST_TIME = False
-LOG_MODBUS_REQUEST_TIME_SDM630 = False
+LOG_MODBUS_REQUEST_TIME_SDM630 = True
 LOG_MODBUS_REQUEST_TIME_SDM120 = False
 LOG_MODBUS_REQUEST_TIME_ABB    = False
 LOG_MODBUS_WRITE_REQUEST_TIME  = False
@@ -140,8 +140,7 @@ METER = {
 }
 
 # Fake meter safe mode: ignore or abort if data has not been updated since ... seconds
-FAKE_METER_MAX_AGE_IGNORE = 1.5     
-FAKE_METER_MAX_AGE_ABORT  = 2.5
+FAKE_METER_MAX_AGE = 1.5
 
 EVSE = {
     "SERIAL": _SERIAL_DEFAULTS | { 
@@ -163,11 +162,22 @@ EVSE = {
     }
 }
 
+
 ##################################################################
 # CAN
 ##################################################################
 
 CAN_PORT_BATTERY  = 'can_bat'
+
+##################################################################
+# Mainboard
+##################################################################
+
+MAINBOARD_SERIAL_PORT = "/dev/ttyS1"
+
+##################################################################
+# Modbus poll period
+##################################################################
 
 # How often we send modbus requests to these devices, in seconds
 #
@@ -348,7 +358,7 @@ ROUTER = {
     #   to avoid stopping charge on each cloud.
     "evse_high": { 
         "evse": {
-            "high_priority_W"       : lambda ctx: 2000, 
+            "high_priority_W"       : Interp((49, 0),  (50, 2000),var="soc"), 
             "reserve_for_battery_W" : Interp((50, 6000),  (95, 1000),var="soc"),
             "start_threshold_W"     : Interp((60, 2000), (100, 1200),var="soc"),
             "stop_threshold_W"      : Interp((70, 1400), (100,  800),var="soc"),     # allow it to discharge battery a little
@@ -387,7 +397,7 @@ MQTT_RATE_LIMIT = {
     #   PV Controller
     #
 
-    'pv/solis1/fakemeter/lag'                       : (  10,       1.000, 'avg'   ), #  0.026/14.297,
+    'pv/solis1/fakemeter/lag'                       : (  10,      0.25,   'avg'   ), #  0.026/14.297,
 
     # Compress/threshold heavily
     'pv/meter/is_online'                            : (  60,      0.000, ''      ), #  0.021/ 5.011,
@@ -396,7 +406,7 @@ MQTT_RATE_LIMIT = {
     'pv/solis1/fakemeter/req_per_s'                 : (  30,      0.000, ''      ), #  0.021/ 0.021,
 
     # Master process needs every value, don't limit it, so set margin to -1
-    'pv/meter/total_power'                          : (   1,     25.000, 'avg'      ), #  4.736/ 4.995,
+    'pv/meter/total_power'                          : (   0,     25.000, 'avg'      ), #  4.736/ 4.995,
 
     # This is for debugging only and generates huge traffic, average it
     'pv/solis1/fakemeter/active_power'              : (   1,     25.000, ''      ), #  4.714/ 4.974,
@@ -536,6 +546,12 @@ MQTT_RATE_LIMIT = {
     'pv/solis1/rwr_backup_output_enabled'      : (  60,      0.000, ''      ), #  0.019/ 0.273,
     'pv/solis1/rwr_energy_storage_mode'        : (  60,      0.000, ''      ), #  0.019/ 0.273,
     'pv/solis1/rwr_power_on_off'               : (  60,      0.000, ''      ), #  0.019/ 0.273,
+
+
+    # fan control
+    'pv/solis1/fan_pwm'                        : (  60,      15.000, ''      ),
+    'pv/solis1/fan_rpm'                        : (  60,     100.000, ''      ),
+
 
     # smartplugs
     'cmnd/plugs/tasmota_t1/Power'              : (60.000000,      0.000, ''      ), #  0.016/ 0.473,

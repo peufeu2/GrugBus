@@ -178,7 +178,7 @@ class TasmotaPlug( Routable ):
 
     # get power reported by plug, and remember it
     async def _mqtt_sensor_callback( self, param ):
-        log.info( "%s: is %s MQTT Power %f W" % (self.plug_topic, ('OFF','ON')[self.is_on], param.value ) )
+        log.debug( "%s: is %s MQTT Power %f W" % (self.plug_topic, ('OFF','ON')[self.is_on], param.value ) )
         if self.is_on and param.value > self.min_power:    # remember how much it uses
             self.power_measurements.append( param.value )
             self.current_power = self.last_power_when_on = max( self.power_measurements ) # ignore low readings just after turning on
@@ -348,9 +348,12 @@ class EVSEController( Routable ):
     async def setting_updated( self, setting=None ):
         stop = self.stop_charge_after_kWh
         force = self.force_charge_until_kWh
-        if stop.value < force.value:
-            if setting is force:    stop.value = force.value = max( stop.value, force.value )
-            elif setting is stop:   stop.value = force.value = min( stop.value, force.value )
+        if stop.value and force.value:
+            if stop.value < force.value:
+                if setting is force:    
+                    stop.value = force.value = max( stop.value, force.value )
+                elif setting is stop:
+                    stop.value = force.value = min( stop.value, force.value )
             stop.publish()
             force.publish()
         if setting in (force, stop):    # if it was updated, go back to charging
