@@ -22,13 +22,21 @@ CLICKHOUSE_PASSWORD =
 # debugging tools
 ##################################################################
 
-LOG_MODBUS_REQUEST_TIME = False
-LOG_MODBUS_REQUEST_TIME_SDM630 = True
-LOG_MODBUS_REQUEST_TIME_SDM120 = False
-LOG_MODBUS_REQUEST_TIME_ABB    = False
-LOG_MODBUS_WRITE_REQUEST_TIME  = False
-LOG_MODBUS_REQUEST_TIME_SOLIS  = False
+#   To log request times, use "r", "w", or "rw" for request types.
+#   Second parameter: time in seconds, if it's slower than this, log it 
+#
+LOG_MODBUS_REQUEST_TIME = {
+    "meter"  : ( "rw"  , 0.5 ),
+    "ms1"    : ( ""    , 0.5 ),
+    "ms2"    : ( ""    , 0.5 ),
+    "mevse"  : ( "rw"  , 0.5 ),
+    "evse"   : ( ""    , 1.0 ),
+    "solis1" : ( ""    , 1.0 ),
+    "solis2" : ( ""    , 1.0 ),
+}
+
 LOG_MODBUS_REGISTER_CHUNKS     = False
+ROUTER_PRINT_DEBUG_INFO = False
 
 ##################################################################
 # mqtt
@@ -60,6 +68,13 @@ MQTT_BUFFER_PATH = "/home/peufeu/mqtt_buffer"
 MQTT_BUFFER_TEMP = "/mnt/ssd/temp/solarpi/mqtt"
 
 ##################################################################
+# Various features enable/disable
+##################################################################
+
+ENABLE_DISKINFO = True     # Post free disk space to MQTT
+ENABLE_SYSINFO  = True      # Post CPU usage to MQTT
+
+##################################################################
 # Mainboard
 ##################################################################
 
@@ -74,12 +89,13 @@ FAN_SPEED = {
     "attack"    : 10,                                 # when below  target, fan speed is increased by this % per second
     "release"   : 0.2,                                # when above target, fan speed is reduced by this % per second
     "min_speed" : 20,                                 # don't spin the fans below this % speed
+    "stop_time" : 300,                                # keep them running this long at minimum power before stopping
     "left_fan"  : 1.2,                                # increase speed of left fan over battery DC/DC
 }
+
 ##################################################################
 # Modbus poll period
 ##################################################################
-
 # How often we send modbus requests to these devices, in seconds
 #
 POLL_PERIOD_METER       = 0.2
@@ -406,12 +422,24 @@ ROUTER_DEFAULT_CONFIG = ["default", "evse_high"]
 
 MQTT_RATE_LIMIT = {
 
-    #   PV Controller
-    #
 
-    'pv/solis1/fakemeter/lag'                       : (  10,      0.25,   'avg'   ), #  0.026/14.297,
+    # Debug
     'test/controller_lag'                           : (  10,      0.1,   'avg'   ), #  0.026/14.297,
     'test/router_lag'                               : (  10,      0.1,   'avg'   ), #  0.026/14.297,
+
+    'pv/meter/req_time'                             : (  1,       0.2,   'avg'   ), #  0.026/14.297,
+    'pv/meter/req_period'                           : (  1,       0.2,   'avg'   ), #  0.026/14.297,
+    'pv/solis1/meter/req_time'                      : (  1,       0.2,   'avg'   ), #  0.026/14.297,
+    'pv/solis1/meter/req_period'                    : (  1,       0.2,   'avg'   ), #  0.026/14.297,
+    'pv/solis1/req_time'                            : (  1,       0.2,   'avg'   ), #  0.026/14.297,
+    'pv/solis1/req_period'                          : (  1,       0.2,   'avg'   ), #  0.026/14.297,
+    'pv/evse/meter/req_time'                        : (  1,       0.2,   'avg'   ), #  0.026/14.297,
+    'pv/evse/meter/req_period'                      : (  1,       0.2,   'avg'   ), #  0.026/14.297,
+
+
+    #   PV Controller
+    #
+    'pv/solis1/fakemeter/lag'                       : (  10,      0.25,   'avg'   ), #  0.026/14.297,
 
     # Compress/threshold heavily
     'pv/meter/is_online'                            : (  60,      0.000, ''      ), #  0.021/ 5.011,

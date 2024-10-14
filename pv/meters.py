@@ -86,9 +86,6 @@ class SDM630( grugbus.SlaveDevice ):
 
                     mqtt.publish_value( topic+"is_online", int( self.is_online ))   # set by read_regs(), True if it succeeded, False otherwise
 
-                    if config.LOG_MODBUS_REQUEST_TIME_SDM630:
-                        self.publish_modbus_timings()
-
                     if config.MAINBOARD_FLASH_LEDS:
                         self.mqtt.mqtt.publish( "nolog/pv/event/" + self.key, qos=0 )
 
@@ -158,9 +155,6 @@ class SDM120( grugbus.SlaveDevice ):
 
                     for reg in regs:
                         mqtt.publish_reg( topic, reg )
-
-                    if config.LOG_MODBUS_REQUEST_TIME_SDM120:
-                        self.publish_modbus_timings()
 
                     if config.MAINBOARD_FLASH_LEDS:
                         self.mqtt.mqtt.publish( "nolog/pv/event/" + self.key, qos=0 )

@@ -1,16 +1,18 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-import asyncio, os, time, traceback, collections, logging, sys, datetime, logging, uvloop, orjson
+import asyncio, os, time, traceback, collections, logging, sys, datetime, logging, uvloop, orjson, shutil
 from path import Path
-import config
-from misc import *
 from asyncio import get_event_loop
 from asyncio.exceptions import TimeoutError, CancelledError
-from pv.mqtt_wrapper import MQTTWrapper, MQTTSetting, MQTTVariable
 import serial_asyncio
 
 from OPi import GPIO
+
+from pv.mqtt_wrapper import MQTTWrapper, MQTTSetting, MQTTVariable
+from misc import *
+import config
+import pv.reload
 
 logging.basicConfig( encoding='utf-8', 
                      level=logging.INFO,
@@ -170,7 +172,13 @@ class PiPico:
             await self.send( cmd )
         return cb
 
+    async def log_coroutine( self, title, fut ):
+        log.info("Start:"+title )
+        try:        await fut
+        finally:    log.info("Exit: "+title )
+
     async def astart( self ):
+
         self.reader, self.writer = await serial_asyncio.open_serial_connection(
             url=config.MAINBOARD_SERIAL_PORT,
             baudrate=112500,
@@ -215,10 +223,15 @@ class PiPico:
         self.mqtt.subscribe_callback( "nolog/pv/event/meter"    , self.on_mqtt_event_led( 2 ) )
         self.mqtt.subscribe_callback( "nolog/pv/event/evse"     , self.on_mqtt_event_led( 5 ) )
 
+        pv.reload.add_module_to_reload( "config", self.mqtt.load_rate_limit ) # reload rate limit configuration
+
         try:
             async with asyncio.TaskGroup() as tg:
-                tg.create_task( self.read_coroutine() )
-                tg.create_task( self.poll_status_coroutine() )
+                tg.create_task( self.log_coroutine( "Read responses coroutine" , self.read_coroutine() ))
+                tg.create_task( self.log_coroutine( "Poll status coroutine"    , self.poll_status_coroutine() ))
+                tg.create_task( self.log_coroutine( "Sysinfo coroutine"        , self.sysinfo_coroutine() ))
+                tg.create_task( self.log_coroutine( "Diskinfo coroutine"       , self.diskinfo_coroutine() ))
+                tg.create_task( self.log_coroutine( "Reload python modules"    , pv.reload.reload_coroutine() ))
 
         except (KeyboardInterrupt, CancelledError):
             print("Terminated.")
@@ -248,6 +261,39 @@ class PiPico:
             except Exception:
                 log.exception( "Status coroutine:")
 
+    ########################################################################################
+    #   System info
+    ########################################################################################
+    async def sysinfo_coroutine( self ):
+        prev_cpu_timings = None
+        tick = Metronome( 1.0 )
+        while True:
+            await tick
+            if not config.ENABLE_SYSINFO:
+                continue
+            with open("/proc/stat") as f:
+                cpu_timings = [ int(_) for _ in f.readline().split()[1:] ]
+                cpu_timings = cpu_timings[3], sum(cpu_timings)  # idle time, total time
+                if prev_cpu_timings:
+                    self.mqtt.publish_value( "pv/cpu_load_percent", round( 100.0*( 1.0-(cpu_timings[0]-prev_cpu_timings[0])/(cpu_timings[1]-prev_cpu_timings[1]) ), 1 ))
+                prev_cpu_timings = cpu_timings
+
+            await asyncio.sleep(0)
+            with open("/sys/devices/virtual/thermal/thermal_zone0/temp") as f:
+                self.mqtt.publish_value( "pv/cpu_temp_c", round( int(f.read())*0.001, 1 ) )
+
+    ########################################################################################
+    #   Disk info
+    ########################################################################################
+    async def diskinfo_coroutine( self ):
+        prev_cpu_timings = None
+        tick = Metronome( 60.0 )
+        while True:
+            await tick
+            if not config.ENABLE_DISKINFO:
+                continue
+            total, used, free = shutil.disk_usage("/")
+            self.mqtt.publish_value( "pv/disk_space_gb", round( free/2**30, 2 ) )
 
 
 try:

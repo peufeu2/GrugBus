@@ -185,9 +185,6 @@ class Solis( grugbus.SlaveDevice ):
                         for reg in regs:
                             mqtt.publish_reg( topic, reg )
 
-                        if config.LOG_MODBUS_REQUEST_TIME_SOLIS:
-                            self.publish_modbus_timings()
-
                         if config.MAINBOARD_FLASH_LEDS:
                             self.mqtt.mqtt.publish( "nolog/pv/event/" + self.key, qos=0 )
 

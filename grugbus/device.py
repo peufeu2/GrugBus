@@ -163,6 +163,7 @@ class SlaveDevice( DeviceBase ):
         if not self.modbus.connected:
             async with self.modbus._async_mutex:
                 if not self.modbus.connected:
+                    log.info( "%s: modbus connect", self.key )
                     await self.modbus.connect()
 
     # function cache requires reg_list to be a tuple
@@ -281,7 +282,7 @@ class SlaveDevice( DeviceBase ):
                         update_list.append( (fcode, chunk, start_addr, reg_data) )
                         break
                     except (TimeoutError,ModbusException) as e:
-                        await asyncio.sleep(0.01)  # let other tasks use this serial port
+                        await asyncio.sleep(0)  # let other tasks use this serial port
                         if retry < retries-1:
                             log.info( "Modbus read error: %s will retry %d/%d (%s)", self.key, retry+1, retries, e )
                             pass
@@ -310,6 +311,9 @@ class SlaveDevice( DeviceBase ):
             raise
         finally:
             self._set_timings( start_time )
+            cfg = config.LOG_MODBUS_REQUEST_TIME.get( self.key )
+            if cfg and ("r" in cfg[0] or self.last_transaction_duration > cfg[1]):
+                self.publish_modbus_timings()
 
     def _set_timings( self, start_time ):
         t = time.monotonic()
@@ -317,6 +321,7 @@ class SlaveDevice( DeviceBase ):
             self.last_transaction_period    = t - self.last_transaction_timestamp
         self.last_transaction_timestamp = t
         self.last_transaction_duration  = t - start_time
+
 
     def publish_modbus_timings( self ):
         if self.last_transaction_duration:
@@ -423,6 +428,9 @@ class SlaveDevice( DeviceBase ):
             raise
         finally:
             self._set_timings( start_time )
+            cfg = config.LOG_MODBUS_REQUEST_TIME.get( self.key )
+            if cfg and ("w" in cfg[0] or self.last_transaction_duration > cfg[1]):
+                self.publish_modbus_timings()
 
     # for debugging
     def dump_all_regs( self, all=False ):

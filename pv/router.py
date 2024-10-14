@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-import os, time, sys, serial, logging, logging.handlers, orjson, datetime, shutil
+import os, time, sys, serial, logging, logging.handlers, orjson, datetime
 from path import Path
 
 # This program is supposed to run on a potato (Allwinner H3 SoC) and uses async/await,
@@ -380,7 +380,8 @@ class EVSEController( Routable ):
             log.info("EVSE: Pause charge")
             self.router.hair_trigger( 3 ) # let other devices take power released by the car immediately
             self.power_report_timeout.expire()
-        self.local_meter.tick.set( 10 )   # less  traffic when not charging
+        # TODO
+        # self.local_meter.tick.set( 10 )   # less  traffic when not charging
         self.start_counter.to_minimum() # reset counters so it has to wait before starting
         self.stop_counter.to_minimum()
         self.set_state( state )
@@ -881,7 +882,7 @@ class Router( ):
         for fmt in logs:
             if ctx.changes:
                 log.debug( *fmt )
-            else:
+            elif config.ROUTER_PRINT_DEBUG_INFO:
                 print( fmt[0] % fmt[1:] )
 
         # publish results
@@ -934,43 +935,11 @@ async def route_coroutine( module_updated, first_start, mgr ):
             log.info("Router: STOP")
             await mgr.router.stop()
 
-
-########################################################################################
-#   System info
-########################################################################################
-async def sysinfo_coroutine( module_updated, first_start, self ):
-    prev_cpu_timings = None
-    tick = Metronome( 1.0 )
-    while not module_updated():
-        await tick
-        with open("/proc/stat") as f:
-            cpu_timings = [ int(_) for _ in f.readline().split()[1:] ]
-            cpu_timings = cpu_timings[3], sum(cpu_timings)  # idle time, total time
-            if prev_cpu_timings:
-                self.mqtt.publish_value( "pv/cpu_load_percent", round( 100.0*( 1.0-(cpu_timings[0]-prev_cpu_timings[0])/(cpu_timings[1]-prev_cpu_timings[1]) ), 1 ))
-            prev_cpu_timings = cpu_timings
-
-        await asyncio.sleep(0)
-        with open("/sys/devices/virtual/thermal/thermal_zone0/temp") as f:
-            self.mqtt.publish_value( "pv/cpu_temp_c", round( int(f.read())*0.001, 1 ) )
-
-########################################################################################
-#   Disk info
-########################################################################################
-async def diskinfo_coroutine( module_updated, first_start, self ):
-    prev_cpu_timings = None
-    tick = Metronome( 60.0 )
-    while not module_updated():
-        await tick
-        total, used, free = shutil.disk_usage("/")
-        self.mqtt.publish_value( "pv/disk_space_gb", round( free/2**30, 2 ) )
-
-
 async def lag_coroutine( module_updated, first_start, self ):
     tick = Metronome( 0.2 )
     lt = 0
     while not module_updated(): # Exit if this module was reloaded
-        elapsed = await tick.wait()
+        elapsed = await tick
         self.mqtt.publish_value( "test/router_lag", elapsed )
 
 

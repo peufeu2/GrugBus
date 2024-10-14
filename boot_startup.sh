@@ -9,13 +9,14 @@ mount -a
 cd /home/peufeu/solaire
 ./copy.sh
 
-sleep 5
+sleep 1
 
 # run solar management
-screen -dmS buf       bash -c 'python3.11 mqtt_buffer.py'
-screen -dmS chauffage bash -c 'python3.11 chauffage_mqtt.py'
-screen -dmS can       bash -c 'python3.11 pv_can.py'
-screen -dmS fakemeter bash -c 'python3.11 pv_controller.py'
-screen -dmS router    bash -c 'python3.11 pv_router.py'
+screen -dmS buf       bash -c 'python3.11 mqtt_buffer.py ; exec bash'
+screen -dmS chauffage bash -c 'python3.11 chauffage_mqtt.py ; exec bash'
+screen -dmS can       bash -c 'python3.11 pv_can.py ; exec bash'
+screen -dmS fakemeter bash -c 'python3.11 pv_controller.py ; exec bash'
+screen -dmS router    bash -c 'python3.11 pv_router.py ; exec bash'
+screen -dmS mainboard bash -c 'python3.11 pv_mainboard.py ; exec bash'
 
 # screen -d -m -t ventilation python3.11 ventilation.py

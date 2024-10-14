@@ -55,10 +55,6 @@ class EVSE( grugbus.SlaveDevice ):
                 for reg in await self.read_regs( self.regs_to_read ):
                     mqtt.publish_reg( topic, reg )
 
-                # publish force charge info                
-                if config.LOG_MODBUS_REQUEST_TIME_ABB:
-                    self.publish_modbus_timings()
-
                 if config.MAINBOARD_FLASH_LEDS:
                     self.mqtt.mqtt.publish( "nolog/pv/event/" + self.key )
 
@@ -93,8 +89,6 @@ class EVSE( grugbus.SlaveDevice ):
             mqtt = self.mqtt
             topic = self.mqtt_topic
             mqtt.publish_reg( topic, self.rwr_current_limit )
-            if config.LOG_MODBUS_WRITE_REQUEST_TIME:
-                self.publish_modbus_timings()
 
 
 #

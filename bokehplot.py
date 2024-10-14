@@ -201,8 +201,11 @@ DATA_STREAMS = [
     ( "pv/meter/req_time",   "s", "SDM630 req time"   , nextcolor(), "solid", 1, {"visible":False}, {} ),
     ( "pv/meter/req_period", "s", "SDM630 req period" , nextcolor(), "solid", 1, {"visible":False}, {} ),
 
-    ( "pv/solis%d/meter/req_time",   "s", "SDM120 %s req time"   , nextcolor(), "solid", 1, {"visible":False}, {} ),
-    ( "pv/solis%d/meter/req_period", "s", "SDM120 %s req period" , nextcolor(), "solid", 1, {"visible":False}, {} ),
+    ( "pv/evse/meter/req_time",   "s", "EVSE meter req time"   , nextcolor(), "solid", 1, {"visible":False}, {} ),
+    ( "pv/evse/meter/req_period", "s", "EVSE meter req period" , nextcolor(), "solid", 1, {"visible":False}, {} ),
+
+    ( "test/controller_lag",   "s", "Controller lag"   , nextcolor(), "solid", 1, {"visible":False}, {} ),
+    ( "test/router_lag",   "s", "Router lag"   , nextcolor(), "solid", 1, {"visible":False}, {} ),
 
 
     # SQL
@@ -397,8 +400,10 @@ PLOT_LAYOUTS = [
                 "pv/solis%d/fakemeter/lag",
                 "pv/meter/req_time",
                 "pv/meter/req_period",
-"pv/solis%d/meter/req_time",
-"pv/solis%d/meter/req_period",
+                "pv/evse/meter/req_time",
+                "pv/evse/meter/req_period",
+"test/controller_lag",
+"test/router_lag",
             ],
         ]
     ],
