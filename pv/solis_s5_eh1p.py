@@ -188,7 +188,8 @@ class Solis( grugbus.SlaveDevice ):
                         if config.LOG_MODBUS_REQUEST_TIME_SOLIS:
                             self.publish_modbus_timings()
 
-                        self.mqtt.mqtt.publish( "nolog/event/" + self.key, qos=0 )
+                        if config.MAINBOARD_FLASH_LEDS:
+                            self.mqtt.mqtt.publish( "nolog/pv/event/" + self.key, qos=0 )
 
                     finally:
                         # wake up other coroutines waiting for fresh values

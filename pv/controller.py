@@ -395,26 +395,49 @@ async def inverter_powersave_coroutine( module_updated, first_start, self, solis
 ########################################################################################
 async def inverter_fan_coroutine( module_updated, first_start, self ):
     bat_power_avg = { _.key: MovingAverageSeconds(10) for _ in self.inverters }
+    tick = Metronome( 2 )
     if first_start:
         await asyncio.sleep( 5 )
+    fan_speed = { inverter.key: 0 for inverter in self.inverters }
     while not module_updated(): # Exit if this module was reloaded
-        await asyncio.sleep( 2 )
+        elapsed = await tick.wait()
         try:
             for solis in self.inverters:
                 # run the fan if it is ON and HOT
                 if solis.is_online and solis.rwr_power_on_off.value == solis.rwr_power_on_off.value_on:
-                    avgp = bat_power_avg[solis.key].append( abs(solis.battery_power.value or 0), 0 )
-                    temp = solis.temperature.value
-                    pwm = min( 1, max( 0, (temp-35)*0.1, (avgp-2000)*0.001 ))
-                    if pwm < 0.1:
-                        pwm = 0
+                    speeds = ( 
+                        config.FAN_SPEED[ "batp" ]( abs(solis.battery_power.value) ),
+                        config.FAN_SPEED[ "temp" ]( solis.temperature.value ),
+                    )
+                    speed = max( speeds )
+                    speed_prev = fan_speed[ solis.key ]
+                    if speed > speed_prev:
+                        speed = min( speed, speed_prev + config.FAN_SPEED["attack"] * elapsed )
+                    elif speed < speed_prev:
+                        speed = max( speed, speed_prev - config.FAN_SPEED["release"] * elapsed )
+                    speed = min( 100, max( 0, speed ))
+                    if 0 < speed < config.FAN_SPEED["min_speed"]:
+                        speed = config.FAN_SPEED["min_speed"]
                 else:
-                    pwm = 0
-                self.mqtt.publish_value( solis.mqtt_topic + "fan_pwm", int(100*pwm) )
+                    speed = 0
+
+
+                fan_speed[ solis.key ] = speed
+                self.mqtt.publish_value( "nolog/%sfan_speed" % solis.mqtt_topic, int(speed) )
 
         except (TimeoutError, ModbusException): pass
         except:
             log.exception("")
             await asyncio.sleep(5)
 
+
+async def lag_coroutine( module_updated, first_start, self ):
+    tick = Metronome( 0.2 )
+    lt = 0
+    while not module_updated(): # Exit if this module was reloaded
+        nt = tick.next_tick
+        elapsed = await tick.wait()
+        if elapsed < 0.1 or elapsed > 0.3:
+            print( "%10.03f %10.03f %10.03f %s" % (nt, tick.last_tick, elapsed, " #"[elapsed < 0.1] ))
+        self.mqtt.publish_value( "test/controller_lag", elapsed )
 

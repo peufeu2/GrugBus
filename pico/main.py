@@ -12,10 +12,10 @@ PIN_TACH4 = machine.Pin( 3 , machine.Pin.IN , machine.Pin.PULL_UP )
 
 # Outputs
 PIN_BUZZER    = machine.Pin( 11, machine.Pin.OUT, value=0 )
-PIN_FAN_PWM1  = machine.Pin( 10, machine.Pin.OUT, value=0 )
-PIN_FAN_PWM2  = machine.Pin( 8 , machine.Pin.OUT, value=0 )
-PIN_FAN_PWM3  = machine.Pin( 6 , machine.Pin.OUT, value=0 )
-PIN_FAN_PWM4  = machine.Pin( 4 , machine.Pin.OUT, value=0 )
+PIN_FAN_PWM1  = machine.Pin( 10, machine.Pin.OUT, value=1 )
+PIN_FAN_PWM2  = machine.Pin( 8 , machine.Pin.OUT, value=1 )
+PIN_FAN_PWM3  = machine.Pin( 6 , machine.Pin.OUT, value=1 )
+PIN_FAN_PWM4  = machine.Pin( 4 , machine.Pin.OUT, value=1 )
 
 PIN_RELAY1    = machine.Pin( 15, machine.Pin.OUT, value=0 )
 PIN_RELAY2    = machine.Pin( 16, machine.Pin.OUT, value=0 )
@@ -35,11 +35,37 @@ BUZZER_PWM = machine.PWM( PIN_BUZZER, freq=440, duty_u16=0 )
 
 # Fan PWM output
 FANS = [ PIN_FAN_PWM1, PIN_FAN_PWM2, PIN_FAN_PWM3, PIN_FAN_PWM4 ]
-FAN_PWM = [ machine.PWM(pin, freq=25000, duty_u16=0) for pin in FANS ]
+
+# Start fans in OFF state
+FAN_PWM = [ machine.PWM(pin, freq=25000, duty_u16=65535) for pin in FANS ]
 
 # 9 pixel display
-LEDS = [ PIN_LED1, PIN_LED2, PIN_LED3, PIN_LED4, PIN_LED5, PIN_LED6, PIN_LED7, PIN_LED8, PIN_LED9 ]
-LED_PWM = [ machine.PWM(pin, freq=25000, duty_u16=n*500) for n,pin in enumerate(LEDS) ]
+LED_PINS = [ PIN_LED1, PIN_LED2, PIN_LED3, PIN_LED4, PIN_LED5, PIN_LED6, PIN_LED7, PIN_LED8, PIN_LED9 ]
+
+class Led:
+    def __init__( self, pin ):
+        self.pin = pin
+        self.set( 0 )
+
+    def update( self ):
+        self.pin( self.counter != 0 )
+        if self.counter > 0:
+            self.counter -= 1
+
+    def set( self, on ):
+        self.counter = on
+        self.pin( on != 0 )
+
+LEDS = [ Led( pin ) for pin in LED_PINS ]
+LED_MODE = "fan"
+
+def update_leds( t ):
+    if not LED_MODE:
+        for led in LEDS:
+            led.update()
+
+LEDtimer = machine.Timer()
+LEDtimer.init( mode=machine.Timer.PERIODIC, callback=update_leds, freq=20 ) 
 
 # Tachometer
 # Frequency us very low, we can just use python counters!
@@ -48,15 +74,23 @@ TACH_COUNTERS = [0,0,0,0]
 
 def cb_tach1(p):
     TACH_COUNTERS[0] += 1
+    if LED_MODE == "fan":
+        LEDS[0].set( TACH_COUNTERS[0] & 2 )
 
 def cb_tach2(p):
     TACH_COUNTERS[1] += 1
+    if LED_MODE == "fan":
+        LEDS[3].set( TACH_COUNTERS[1] & 2 )
 
 def cb_tach3(p):
     TACH_COUNTERS[2] += 1
+    if LED_MODE == "fan":
+        LEDS[2].set( TACH_COUNTERS[2] & 2 )
 
 def cb_tach4(p):
     TACH_COUNTERS[3] += 1
+    if LED_MODE == "fan":
+        LEDS[5].set( TACH_COUNTERS[3] & 2 )
 
 PIN_TACH1.irq( trigger=machine.Pin.IRQ_RISING, handler=cb_tach1 )
 PIN_TACH2.irq( trigger=machine.Pin.IRQ_RISING, handler=cb_tach2 )
@@ -101,8 +135,8 @@ def cmd_leds( args ):
     if len(args) != 9:
         send("!leds: needs 9 ints 0-65535")
         return
-    for pwm, arg in zip( LED_PWM, args ):
-        pwm.duty_u16( int( arg ) )
+    for led, arg in zip( LEDS, args ):
+        pwm.set( int( arg ) )
 
 def cmd_fans( args ):
     if len(args) != 4:
@@ -133,6 +167,13 @@ def cmd_stat( args=None ):
     send( ">tach %s\n" % tc )   # send comment line
     send( ">button %s\n" % PIN_BUTTON() )   # send comment line
 
+def cmd_led( args ):
+    LEDS[int(args[0])].set(int(args[1]))
+
+def cmd_led_mode( args ):
+    global LED_MODE
+    LED_MODE = args[0]
+
 COMMANDS = {
     "relays"    : cmd_relays,
     "leds"      : cmd_leds,
@@ -140,6 +181,8 @@ COMMANDS = {
     "beep"      : cmd_beep,
     "run"       : cmd_run,
     "stat"      : cmd_stat,
+    "led"       : cmd_led,
+    "led_mode"  : cmd_led_mode,
 }
 
 def parse( line ):

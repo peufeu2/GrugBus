@@ -246,6 +246,7 @@ class Controller:
                 tg.create_task( self.log_coroutine( "Reload python modules",     pv.reload.reload_coroutine() ))
                 tg.create_task( pv.reload.reloadable_coroutine( "Inverter fan control", lambda: pv.controller.inverter_fan_coroutine, self ))
                 tg.create_task( pv.reload.reloadable_coroutine( "Power coroutine"     , lambda: pv.controller.power_coroutine, self ))
+                tg.create_task( pv.reload.reloadable_coroutine( "Lag coroutine"     ,   lambda: pv.controller.lag_coroutine, self ))
 
         except (KeyboardInterrupt, CancelledError):
             print("Terminated.")

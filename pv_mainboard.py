@@ -21,6 +21,9 @@ logging.basicConfig( encoding='utf-8',
                     ])
 log = logging.getLogger(__name__)
 
+def clip01( x ):
+    return min( 1, max( 0, x ))
+
 #
 #   Raspberry Pi Pico on carrier board
 #
@@ -29,7 +32,7 @@ class PiPico:
         self.gpio_configured = False
         self.ready = False
         self.button_state = None
-        self.prev_tach = None
+        self.prev_tach_time = None
         self.fan_rpm = [0] * 4
         self.fan_pwm = [0] * 4
 
@@ -78,6 +81,7 @@ class PiPico:
 
     # sends a line
     async def send( self, s ):
+        # print(s)
         self.writer.write( s.encode() )
         await self.writer.drain()
 
@@ -113,10 +117,10 @@ class PiPico:
         await self.send( "relays %d %d\n" % (relay1, relay2))
 
     async def set_leds( self, led_duty ):
-        await self.send( "leds %s\n" % " ".join( str(int(min(1.0,max(0.0,d))*65535)) for d in led_duty ))
+        await self.send( "leds %s\n" % " ".join( str(int(clip01(1-d)*65535)) for d in led_duty ))
 
     async def set_fans( self, fans_duty ):
-        await self.send( "fans %s\n" % " ".join( str(int(min(1.0,max(0.0,1-d))*65535)) for d in fans_duty ))
+        await self.send( "fans %s\n" % " ".join( str(int(clip01(1-d)*65535)) for d in fans_duty ))
 
     async def beep( self, freq ):
         await self.send( "beep %s\n" % freq )
@@ -138,25 +142,33 @@ class PiPico:
 
     def on_tach( self, tach ):
         t = time.monotonic()
-        if self.prev_tach != None:
+        if self.prev_tach_time != None:
             age = (t - self.prev_tach_time)
             if age > 1:
                 f = 30/age
                 for n in range(4):
-                    self.fan_rpm[n] = tach[n] * f
-        self.prev_tach = tach
+                    self.fan_rpm[n] = int( tach[n] * f )
+                if self.mqtt:
+                    self.mqtt.publish_value( "pv/solis1/fan_rpm", min( self.fan_rpm[0:2] ), int )
+                    self.mqtt.publish_value( "pv/solis2/fan_rpm", min( self.fan_rpm[2:4] ), int )
+                print( "Fan RPM:", self.fan_rpm )
         self.prev_tach_time = t
-        if self.mqtt:
-            self.mqtt.publish_value( "pv/solis1/fan_rpm", min( self.fan_rpm[0:2] ), int )
-            self.mqtt.publish_value( "pv/solis2/fan_rpm", min( self.fan_rpm[2:4] ), int )
-        print( "Fan RPM:", self.fan_rpm )
 
     async def on_mqtt_update_fan( self, param ):
         if param is self.solis1_fan:
-            self.fan_pwm[0] = self.fan_pwm[1] = param.value * 0.01
+            self.fan_pwm[0] = clip01( param.value * 0.01 * config.FAN_SPEED["left_fan"] )
+            self.fan_pwm[1] = clip01( param.value * 0.01 )
         if param is self.solis2_fan:
-            self.fan_pwm[2] = self.fan_pwm[3] = param.value * 0.01
+            self.fan_pwm[2] = clip01( param.value * 0.01 * config.FAN_SPEED["left_fan"] )
+            self.fan_pwm[3] = clip01( param.value * 0.01 )
+        print("set fans", self.fan_pwm)
         await self.set_fans( self.fan_pwm )
+
+    def on_mqtt_event_led( self, led ):
+        cmd = "led %d 2\n" % led
+        async def cb( topic, payload, qos, properties ):
+            await self.send( cmd )
+        return cb
 
     async def astart( self ):
         self.reader, self.writer = await serial_asyncio.open_serial_connection(
@@ -194,8 +206,14 @@ class PiPico:
         self.mqtt_topic = "pv/"
         await self.mqtt.mqtt.connect( config.MQTT_BROKER_LOCAL )
 
-        MQTTVariable( "pv/solis1/fan_pwm", self, "solis1_fan", float, None, 0, self.on_mqtt_update_fan )
-        MQTTVariable( "pv/solis2/fan_pwm", self, "solis2_fan", float, None, 0, self.on_mqtt_update_fan )
+        MQTTVariable( "nolog/pv/solis1/fan_speed", self, "solis1_fan", float, None, 0, self.on_mqtt_update_fan )
+        MQTTVariable( "nolog/pv/solis2/fan_speed", self, "solis2_fan", float, None, 0, self.on_mqtt_update_fan )
+        self.mqtt.subscribe_callback( "nolog/pv/event/solis1"   , self.on_mqtt_event_led( 0 ) )
+        self.mqtt.subscribe_callback( "nolog/pv/event/ms1"      , self.on_mqtt_event_led( 3 ) )
+        self.mqtt.subscribe_callback( "nolog/pv/event/solis2"   , self.on_mqtt_event_led( 1 ) )
+        self.mqtt.subscribe_callback( "nolog/pv/event/ms2"      , self.on_mqtt_event_led( 4 ) )
+        self.mqtt.subscribe_callback( "nolog/pv/event/meter"    , self.on_mqtt_event_led( 2 ) )
+        self.mqtt.subscribe_callback( "nolog/pv/event/evse"     , self.on_mqtt_event_led( 5 ) )
 
         try:
             async with asyncio.TaskGroup() as tg:
@@ -220,10 +238,13 @@ class PiPico:
 
     async def poll_status_coroutine( self ):
         tick = Metronome( 2 )
+        n = 0
         while True:
             try:
                 await tick.wait()
                 await self.send("stat\n")
+                # await self.send("flash %d\n" % (n,) )
+                # n = (n+1)%9
             except Exception:
                 log.exception( "Status coroutine:")
 

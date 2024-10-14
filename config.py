@@ -60,6 +60,36 @@ MQTT_BUFFER_PATH = "/home/peufeu/mqtt_buffer"
 MQTT_BUFFER_TEMP = "/mnt/ssd/temp/solarpi/mqtt"
 
 ##################################################################
+# Mainboard
+##################################################################
+
+MAINBOARD_SERIAL_PORT = "/dev/ttyS1"
+MAINBOARD_FLASH_LEDS  = False
+
+#   Fan speed is set to the maximum of these two ; values 0-100
+#   
+FAN_SPEED = {
+    "batp"      : Interp( (1500, 0), (3000, 100) ),   # Battery power is in absolute value and per inverter
+    "temp"      : Interp( (35, 0),   (45, 100) ),     # Fan to 0% at 35°C, 100% at 45°C
+    "attack"    : 10,                                 # when below  target, fan speed is increased by this % per second
+    "release"   : 0.2,                                # when above target, fan speed is reduced by this % per second
+    "min_speed" : 20,                                 # don't spin the fans below this % speed
+    "left_fan"  : 1.2,                                # increase speed of left fan over battery DC/DC
+}
+##################################################################
+# Modbus poll period
+##################################################################
+
+# How often we send modbus requests to these devices, in seconds
+#
+POLL_PERIOD_METER       = 0.2
+POLL_PERIOD_SOLIS_METER = 0.2
+POLL_PERIOD_EVSE_METER  = 0.2
+POLL_PERIOD_SOLIS       = 0.2
+POLL_PERIOD_EVSE        = 1
+
+
+##################################################################
 # Modbus configuration
 ##################################################################
 #
@@ -168,24 +198,6 @@ EVSE = {
 ##################################################################
 
 CAN_PORT_BATTERY  = 'can_bat'
-
-##################################################################
-# Mainboard
-##################################################################
-
-MAINBOARD_SERIAL_PORT = "/dev/ttyS1"
-
-##################################################################
-# Modbus poll period
-##################################################################
-
-# How often we send modbus requests to these devices, in seconds
-#
-POLL_PERIOD_METER       = 0.2
-POLL_PERIOD_SOLIS_METER = 0.2
-POLL_PERIOD_EVSE_METER  = 0.2
-POLL_PERIOD_SOLIS       = 0.2
-POLL_PERIOD_EVSE        = 1
 
 ##################################################################
 # Measurement offset correction
@@ -398,6 +410,8 @@ MQTT_RATE_LIMIT = {
     #
 
     'pv/solis1/fakemeter/lag'                       : (  10,      0.25,   'avg'   ), #  0.026/14.297,
+    'test/controller_lag'                           : (  10,      0.1,   'avg'   ), #  0.026/14.297,
+    'test/router_lag'                               : (  10,      0.1,   'avg'   ), #  0.026/14.297,
 
     # Compress/threshold heavily
     'pv/meter/is_online'                            : (  60,      0.000, ''      ), #  0.021/ 5.011,
@@ -448,7 +462,7 @@ MQTT_RATE_LIMIT = {
     # Low rate, publish as-is
     'pv/disk_space_gb'                              : (  10,      0.100, ''      ), #  0.021/ 0.117,
     'pv/cpu_temp_c'                                 : (  10,      1.000, ''      ), #  0.085/ 0.101,
-    'pv/cpu_load_percent'                           : (  10,      1.000, ''      ), #  0.090/ 0.095,
+    'pv/cpu_load_percent'                           : (  10,     10.000, ''      ), #  0.090/ 0.095,
 
 
     #   CANBUS BMS INFORMATION
@@ -549,8 +563,7 @@ MQTT_RATE_LIMIT = {
 
 
     # fan control
-    'pv/solis1/fan_pwm'                        : (  60,      15.000, ''      ),
-    'pv/solis1/fan_rpm'                        : (  60,     100.000, ''      ),
+    'pv/solis1/fan_rpm'                        : (  10,     100.000, ''      ),
 
 
     # smartplugs

@@ -89,6 +89,9 @@ class SDM630( grugbus.SlaveDevice ):
                     if config.LOG_MODBUS_REQUEST_TIME_SDM630:
                         self.publish_modbus_timings()
 
+                    if config.MAINBOARD_FLASH_LEDS:
+                        self.mqtt.mqtt.publish( "nolog/pv/event/" + self.key, qos=0 )
+
                 except (TimeoutError, ModbusException):
                     await asyncio.sleep(1)
 
@@ -158,6 +161,9 @@ class SDM120( grugbus.SlaveDevice ):
 
                     if config.LOG_MODBUS_REQUEST_TIME_SDM120:
                         self.publish_modbus_timings()
+
+                    if config.MAINBOARD_FLASH_LEDS:
+                        self.mqtt.mqtt.publish( "nolog/pv/event/" + self.key, qos=0 )
 
                 except (TimeoutError, ModbusException):
                     await asyncio.sleep(1)

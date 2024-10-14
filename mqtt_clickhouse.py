@@ -448,8 +448,6 @@ async def astart():
             log.error( "Exception: %s", traceback.format_exc() )
             await asyncio.sleep(1)
 
-
-
 async def transfer_data( mqtt ):
     # setup local
     tmp_dir = Path( config.MQTT_BUFFER_TEMP )
@@ -512,10 +510,11 @@ async def transfer_data( mqtt ):
             pool.flush()
             timer = Metronome( config.CLICKHOUSE_INSERT_PERIOD_SECONDS )
             while True:
-                try:
+                async with asyncio.timeout( 60 ):
                     line = await rsock.readline()
-                    if not line:
-                        return
+                if not line:
+                    return
+                try:
                     pool.add( *orjson.loads( line ) )
                 except Exception as e:
                     log.exception( "Error" )

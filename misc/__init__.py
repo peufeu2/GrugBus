@@ -27,16 +27,24 @@ class Metronome:
     def reset( self ):
         self.next_tick = time.monotonic()+self.tick
 
-    # Wait for next tick. First call never waits.
+    # Wait for next tick. First call never waits. Returns elapsed time since last call.
     async def wait( self ):
-        if self.last_tick:
-            ct = time.monotonic()
-            if self.next_tick < ct:
-                self.next_tick += self.tick * math.ceil((ct-self.next_tick)/self.tick)
+        lt = self.last_tick
+        ct = time.monotonic()
+        if not lt:
+            self.last_tick = ct     # no wait on first call
+            return 0
+
+        if self.next_tick <= ct:
+            self.next_tick += self.tick * math.ceil((ct-self.next_tick)/self.tick)
+
+        while ct < self.next_tick:
             delay = self.next_tick - ct
-            if delay>0.01:
-                await asyncio.sleep(delay)
-        self.last_tick = time.monotonic()
+            await asyncio.sleep(delay)
+            ct = time.monotonic()
+
+        self.last_tick = ct
+        return ct - lt
 
     def __await__( self ):
         return self.wait().__await__()

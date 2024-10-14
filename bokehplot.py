@@ -106,6 +106,7 @@ DATA_STREAMS = [
     ( "pv/solis%d/meter/active_power"                    , "W"   , "S%d Grid port"               , "grid_port"     , "solid",    1.0 , {}                 , {} ),
   # ( "pv/solis%d/dc_bus_voltage"                        , "V"   , "S%d DC Bus"                  , (cat20,8)       , "solid",    1.0 , {}                 , {} ),
     ( "pv/solis%d/temperature"                           , "°C"  , "S%d Temperature"             , "temperature"   , "solid",    1.0 , {}                 , {} ),
+    ( "pv/solis%d/fan_rpm"                               , "rpm/100"  , "S%d Fan RPM"            , nextcolor       , "solid",    0.01, {"visible":False}                 , {} ),
     # ( "pv/solis%d/energy_generated_today"                , "kWh" , "S%d Energy generated"        , "pv"            , "solid",    1.0 , {}                 , {"mode":"delta"} ),
     ( "pv/evse/meter/import_active_energy"               , "kWh" , "EVSE meter"                  , "#FFC0FF"       , "solid",    1.0 , {"visible":False}  , {"mode":"delta"} ),
     ( "pv/solis%d/meter/import_active_energy"            , "kWh" , "S%d Import"                  , "input"         , "solid",    1.0 , {"visible":False}  , {"mode":"delta"} ),
@@ -195,6 +196,14 @@ DATA_STREAMS = [
     ( "tele/plugs/tasmota_t4/SENSOR/ENERGY/Power", "W", "Tasmota T4 Sèche serviette"     , nextcolor(), "solid", 1, {"visible":False}, {} ),
     ( "tele/plugs/tasmota_t2/SENSOR/ENERGY/Power", "W", "Tasmota T2 Radiateur PF"        , nextcolor(), "solid", 1, {"visible":False}, {} ),
     ( "tele/plugs/tasmota_t1/SENSOR/ENERGY/Power", "W", "Tasmota T1 Radiateur bureau"    , nextcolor(), "solid", 1, {"visible":False}, {} ),
+
+
+    ( "pv/meter/req_time",   "s", "SDM630 req time"   , nextcolor(), "solid", 1, {"visible":False}, {} ),
+    ( "pv/meter/req_period", "s", "SDM630 req period" , nextcolor(), "solid", 1, {"visible":False}, {} ),
+
+    ( "pv/solis%d/meter/req_time",   "s", "SDM120 %s req time"   , nextcolor(), "solid", 1, {"visible":False}, {} ),
+    ( "pv/solis%d/meter/req_period", "s", "SDM120 %s req period" , nextcolor(), "solid", 1, {"visible":False}, {} ),
+
 
     # SQL
     # ( 
@@ -326,6 +335,7 @@ PLOT_LAYOUTS = [
                 "pv/cpu_load_percent"    ,
                 "pv/disk_space_gb"       ,
                 "pv/bms/temperature"     ,
+                "pv/solis%d/fan_rpm"     ,
             ]
         ]
     ],["S1 history", 
@@ -384,7 +394,11 @@ PLOT_LAYOUTS = [
                 "pv/bms/alarm",
                 "pv/bms/charge_enable",
                 # "pv/bms/max_charge_current",
-                "pv/solis%d/fakemeter/lag"
+                "pv/solis%d/fakemeter/lag",
+                "pv/meter/req_time",
+                "pv/meter/req_period",
+"pv/solis%d/meter/req_time",
+"pv/solis%d/meter/req_period",
             ],
         ]
     ],

@@ -59,6 +59,9 @@ class EVSE( grugbus.SlaveDevice ):
                 if config.LOG_MODBUS_REQUEST_TIME_ABB:
                     self.publish_modbus_timings()
 
+                if config.MAINBOARD_FLASH_LEDS:
+                    self.mqtt.mqtt.publish( "nolog/pv/event/" + self.key )
+
                 # republish current limit periodically
                 await self.set_current_limit( self.rwr_current_limit.value )
 

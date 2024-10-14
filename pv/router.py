@@ -964,3 +964,13 @@ async def diskinfo_coroutine( module_updated, first_start, self ):
         await tick
         total, used, free = shutil.disk_usage("/")
         self.mqtt.publish_value( "pv/disk_space_gb", round( free/2**30, 2 ) )
+
+
+async def lag_coroutine( module_updated, first_start, self ):
+    tick = Metronome( 0.2 )
+    lt = 0
+    while not module_updated(): # Exit if this module was reloaded
+        elapsed = await tick.wait()
+        self.mqtt.publish_value( "test/router_lag", elapsed )
+
+

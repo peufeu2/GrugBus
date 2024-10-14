@@ -9,10 +9,10 @@ PIN_FAN_TACH4 = machine.Pin( 3 , machine.Pin.IN , machine.Pin.PULL_UP )
 
 # Outputs
 PIN_BUZZER    = machine.Pin( 11, machine.Pin.OUT, value=0 )
-PIN_FAN_PWM1  = machine.Pin( 10, machine.Pin.OUT, value=0 )
-PIN_FAN_PWM2  = machine.Pin( 8 , machine.Pin.OUT, value=0 )
-PIN_FAN_PWM3  = machine.Pin( 6 , machine.Pin.OUT, value=0 )
-PIN_FAN_PWM4  = machine.Pin( 4 , machine.Pin.OUT, value=0 )
+PIN_FAN_PWM1  = machine.Pin( 10, machine.Pin.OUT, value=1 ) # start fans OFF
+PIN_FAN_PWM2  = machine.Pin( 8 , machine.Pin.OUT, value=1 )
+PIN_FAN_PWM3  = machine.Pin( 6 , machine.Pin.OUT, value=1 )
+PIN_FAN_PWM4  = machine.Pin( 4 , machine.Pin.OUT, value=1 )
 
 PIN_RELAY1    = machine.Pin( 15, machine.Pin.OUT, value=0 )
 PIN_RELAY2    = machine.Pin( 16, machine.Pin.OUT, value=0 )
@@ -28,7 +28,7 @@ PIN_LED2      = machine.Pin( 21, machine.Pin.OUT, value=0 )
 PIN_LED1      = machine.Pin( 22, machine.Pin.OUT, value=0 )
 
 LEDS = [ PIN_LED1, PIN_LED2, PIN_LED3, PIN_LED4, PIN_LED5, PIN_LED6, PIN_LED7, PIN_LED8, PIN_LED9 ]
-LED_PWM = [ machine.PWM(pin, freq=20000) for pin in LEDS ]
+LED_PWM = [ machine.PWM(pin, freq=25000) for pin in LEDS ]
 
 BUZZER_PWM = machine.PWM( PIN_BUZZER, freq=440, duty_u16=0 )
 
