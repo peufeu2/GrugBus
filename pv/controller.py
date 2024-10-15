@@ -439,15 +439,3 @@ async def inverter_fan_coroutine( module_updated, first_start, self ):
         except:
             log.exception("")
             await asyncio.sleep(5)
-
-
-async def lag_coroutine( module_updated, first_start, self ):
-    tick = Metronome( 0.2 )
-    lt = 0
-    while not module_updated(): # Exit if this module was reloaded
-        nt = tick.next_tick
-        elapsed = await tick
-        if elapsed < 0.1 or elapsed > 0.3:
-            print( "%10.03f %10.03f %10.03f %s" % (nt, tick.last_tick, elapsed, " #"[elapsed < 0.1] ))
-        self.mqtt.publish_value( "test/controller_lag", elapsed )
-

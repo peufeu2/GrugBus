@@ -381,7 +381,7 @@ class EVSEController( Routable ):
             self.router.hair_trigger( 3 ) # let other devices take power released by the car immediately
             self.power_report_timeout.expire()
         # TODO
-        # self.local_meter.tick.set( 10 )   # less  traffic when not charging
+        self.local_meter.tick.set( config.POLL_PERIOD_EVSE_METER_IDLE )   # less  traffic when not charging
         self.start_counter.to_minimum() # reset counters so it has to wait before starting
         self.stop_counter.to_minimum()
         self.set_state( state )
@@ -391,7 +391,7 @@ class EVSEController( Routable ):
         if self.is_charge_paused():
             log.info("EVSE: Resume charge")
             self.end_of_charge_timeout.reset( self.end_of_charge_timeout_s )
-        self.local_meter.tick.set( config.POLL_PERIOD_EVSE_METER ) # poll meter more often
+        self.local_meter.tick.set( config.POLL_PERIOD_EVSE_METER_CHARGING ) # poll meter more often
         self.start_counter.to_maximum()
         self.stop_counter.to_maximum()
         self.integrator.set(0)
@@ -935,11 +935,5 @@ async def route_coroutine( module_updated, first_start, mgr ):
             log.info("Router: STOP")
             await mgr.router.stop()
 
-async def lag_coroutine( module_updated, first_start, self ):
-    tick = Metronome( 0.2 )
-    lt = 0
-    while not module_updated(): # Exit if this module was reloaded
-        elapsed = await tick
-        self.mqtt.publish_value( "test/router_lag", elapsed )
 
 

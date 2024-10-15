@@ -201,13 +201,6 @@ DATA_STREAMS = [
     ( "pv/meter/req_time",   "s", "SDM630 req time"   , nextcolor(), "solid", 1, {"visible":False}, {} ),
     ( "pv/meter/req_period", "s", "SDM630 req period" , nextcolor(), "solid", 1, {"visible":False}, {} ),
 
-    ( "pv/evse/meter/req_time",   "s", "EVSE meter req time"   , nextcolor(), "solid", 1, {"visible":False}, {} ),
-    ( "pv/evse/meter/req_period", "s", "EVSE meter req period" , nextcolor(), "solid", 1, {"visible":False}, {} ),
-
-    ( "test/controller_lag",   "s", "Controller lag"   , nextcolor(), "solid", 1, {"visible":False}, {} ),
-    ( "test/router_lag",   "s", "Router lag"   , nextcolor(), "solid", 1, {"visible":False}, {} ),
-
-
     # SQL
     # ( 
     # SQLtopic( 
@@ -307,17 +300,19 @@ PLOT_LAYOUTS = [
         ]
     ],[ "Grid",
         [
+            # [
+            #     "pv/meter/phase_1_line_to_neutral_volts",
+            #     "pv/meter/phase_2_line_to_neutral_volts",
+            #     "pv/meter/phase_3_line_to_neutral_volts",
+            # ],
             [
-                "pv/meter/phase_1_line_to_neutral_volts",
-                "pv/meter/phase_2_line_to_neutral_volts",
-                "pv/meter/phase_3_line_to_neutral_volts",
-            ],[
                 "pv/meter/phase_1_current",
                 "pv/meter/phase_2_current",
                 "pv/meter/phase_3_current",
-            ],[
-                "pv/meter/frequency",
-            ]
+            ],
+            # [
+            #     "pv/meter/frequency",
+            # ]
         ]
     ],[ "Energy", 
         [
@@ -400,10 +395,6 @@ PLOT_LAYOUTS = [
                 "pv/solis%d/fakemeter/lag",
                 "pv/meter/req_time",
                 "pv/meter/req_period",
-                "pv/evse/meter/req_time",
-                "pv/evse/meter/req_period",
-"test/controller_lag",
-"test/router_lag",
             ],
         ]
     ],
@@ -411,10 +402,10 @@ PLOT_LAYOUTS = [
         [
             [
                 "$SYS/broker/load/messages/received/1min",
-                "$SYS/broker/load/messages/sent/1min",
+                # "$SYS/broker/load/messages/sent/1min",
             ],[
                 "$SYS/broker/load/bytes/received/1min",
-                "$SYS/broker/load/bytes/sent/1min",
+                # "$SYS/broker/load/bytes/sent/1min",
             ]
         ]
     ]

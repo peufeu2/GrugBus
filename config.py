@@ -26,17 +26,17 @@ CLICKHOUSE_PASSWORD =
 #   Second parameter: time in seconds, if it's slower than this, log it 
 #
 LOG_MODBUS_REQUEST_TIME = {
-    "meter"  : ( "rw"  , 0.5 ),
-    "ms1"    : ( ""    , 0.5 ),
-    "ms2"    : ( ""    , 0.5 ),
-    "mevse"  : ( "rw"  , 0.5 ),
+    "meter"  : ( "r"   , 0.5 ),
+    "ms1"    : ( "r"   , 0.5 ),
+    "ms2"    : ( "r"   , 0.5 ),
+    "mevse"  : ( ""    , 1.0 ),
     "evse"   : ( ""    , 1.0 ),
-    "solis1" : ( ""    , 1.0 ),
-    "solis2" : ( ""    , 1.0 ),
+    "solis1" : ( ""    , 1.5 ),
+    "solis2" : ( ""    , 1.5 ),
 }
 
-LOG_MODBUS_REGISTER_CHUNKS     = False
-ROUTER_PRINT_DEBUG_INFO = False
+LOG_MODBUS_REGISTER_CHUNKS = False
+ROUTER_PRINT_DEBUG_INFO    = False
 
 ##################################################################
 # mqtt
@@ -84,7 +84,7 @@ MAINBOARD_FLASH_LEDS  = False
 #   Fan speed is set to the maximum of these two ; values 0-100
 #   
 FAN_SPEED = {
-    "batp"      : Interp( (1500, 0), (3000, 100) ),   # Battery power is in absolute value and per inverter
+    "batp"      : Interp( (1500, 0), (4000, 100) ),   # Battery power is in absolute value and per inverter
     "temp"      : Interp( (35, 0),   (45, 100) ),     # Fan to 0% at 35°C, 100% at 45°C
     "attack"    : 10,                                 # when below  target, fan speed is increased by this % per second
     "release"   : 0.2,                                # when above target, fan speed is reduced by this % per second
@@ -100,9 +100,10 @@ FAN_SPEED = {
 #
 POLL_PERIOD_METER       = 0.2
 POLL_PERIOD_SOLIS_METER = 0.2
-POLL_PERIOD_EVSE_METER  = 0.2
 POLL_PERIOD_SOLIS       = 0.2
 POLL_PERIOD_EVSE        = 1
+POLL_PERIOD_EVSE_METER_CHARGING  = 0.2
+POLL_PERIOD_EVSE_METER_IDLE      = 10
 
 
 ##################################################################
@@ -114,8 +115,8 @@ POLL_PERIOD_EVSE        = 1
 #   allows renaming serial ports.
 
 _SERIAL_DEFAULTS = {
-    "timeout"  : 0.5,
-    "retries"  : 1,
+    "timeout"  : 0.3,
+    "retries"  : 3,
     "baudrate" : 9600,
     "bytesize" : 8,
     "parity"   : "N",
@@ -125,7 +126,7 @@ _SERIAL_DEFAULTS = {
 SOLIS = {
     "solis1":  {
         "CAN_PORT"   : 'can_1',
-        "SERIAL"     : _SERIAL_DEFAULTS | { "port"   : "/dev/serial/by-id/usb-FTDI_USB_RS485_1-if01-port0" },   # Solis1 COM port
+        "SERIAL"     : _SERIAL_DEFAULTS | { "port"   : "/dev/serial/by-id/usb-FTDI_USB_RS485_1-if01-port0", "timeout":1 },   # Solis1 COM port
         "PARAMS": {
             "modbus_addr" : 1,
             "key"         : "solis1",
@@ -149,7 +150,7 @@ SOLIS = {
     },
     "solis2": {
         "CAN_PORT"   : 'can_2',
-        "SERIAL"     : _SERIAL_DEFAULTS | { "port"   : "/dev/serial/by-id/usb-FTDI_USB_RS485_2-if01-port0" },   # Solis2 COM port
+        "SERIAL"     : _SERIAL_DEFAULTS | { "port"   : "/dev/serial/by-id/usb-FTDI_USB_RS485_2-if01-port0", "timeout":1 },   # Solis2 COM port
         "PARAMS": {
             "modbus_addr" : 1,
             "key"         : "solis2",
@@ -163,7 +164,7 @@ SOLIS = {
             "modbus_address"  : 1, 
         },
         "LOCAL_METER" : { 
-            "SERIAL": _SERIAL_DEFAULTS | { "port" : "/dev/serial/by-id/usb-FTDI_USB_RS485_4-if01-port0" },
+            "SERIAL": _SERIAL_DEFAULTS | { "port" : "/dev/serial/by-id/usb-FTDI_USB_RS485_4-if01-port0", },
             "PARAMS": {
                 "modbus_addr" : 1,
                 "key"         : "ms2",
@@ -191,7 +192,7 @@ FAKE_METER_MAX_AGE = 1.5
 EVSE = {
     "SERIAL": _SERIAL_DEFAULTS | { 
         "port"    : "/dev/serial/by-id/usb-FTDI_USB_RS485_3-if00-port0",        
-        "timeout" : 2,    
+        "timeout" : 0.5,
     },
     "PARAMS": {
         "modbus_addr" : 3,
@@ -384,6 +385,21 @@ ROUTER = {
     #   then "reserve_for_battery_W" to battery, then the rest to EV.
     #   Relaxed start/stop thresholds, allowing to discharge battery a little
     #   to avoid stopping charge on each cloud.
+    "evse_mid": { 
+        "evse": {
+            "high_priority_W"       : Interp((79, 0),  (80, 2000),var="soc"), 
+            "reserve_for_battery_W" : Interp((80, 6000),  (90, 1000),var="soc"),
+            "start_threshold_W"     : Interp((80, 2000), (100, 1200),var="soc"),
+            "stop_threshold_W"      : Interp((80, 1400), (100,  800),var="soc"),     # allow it to discharge battery a little
+        },
+    },
+
+    #   Charge the car and battery at the same time to maximize self consumption
+    #
+    #   Allocate "high_priority_W" watts to EV charging (if available)
+    #   then "reserve_for_battery_W" to battery, then the rest to EV.
+    #   Relaxed start/stop thresholds, allowing to discharge battery a little
+    #   to avoid stopping charge on each cloud.
     "evse_high": { 
         "evse": {
             "high_priority_W"       : Interp((49, 0),  (50, 2000),var="soc"), 
@@ -406,7 +422,7 @@ ROUTER = {
     },
 }
 
-ROUTER_DEFAULT_CONFIG = ["default", "evse_high"]
+ROUTER_DEFAULT_CONFIG = ["default", "evse_mid"]
 
 
 
@@ -424,9 +440,6 @@ MQTT_RATE_LIMIT = {
 
 
     # Debug
-    'test/controller_lag'                           : (  10,      0.1,   'avg'   ), #  0.026/14.297,
-    'test/router_lag'                               : (  10,      0.1,   'avg'   ), #  0.026/14.297,
-
     'pv/meter/req_time'                             : (  1,       0.2,   'avg'   ), #  0.026/14.297,
     'pv/meter/req_period'                           : (  1,       0.2,   'avg'   ), #  0.026/14.297,
     'pv/solis1/meter/req_time'                      : (  1,       0.2,   'avg'   ), #  0.026/14.297,
@@ -468,9 +481,13 @@ MQTT_RATE_LIMIT = {
     'pv/meter/phase_2_power'                        : (   1,     50.000, ''      ), #  1.250/ 1.250,
     'pv/meter/phase_3_power'                        : (   1,     50.000, ''      ), #  1.250/ 1.250,
 
+    'pv/meter/phase_1_volt_amps'                    : (   5,    150.000, ''      ), #  1.250/ 1.250,
+    'pv/meter/phase_2_volt_amps'                    : (   5,    150.000, ''      ), #  1.250/ 1.250,
+    'pv/meter/phase_3_volt_amps'                    : (   5,    150.000, ''      ), #  1.250/ 1.250,
+
     # Only for logging purposes, average it
-    'pv/meter/total_volt_amps'                      : (  10,    100.000, 'avg'      ), #  1.250/ 1.250,
-    'pv/meter/total_var'                            : (  10,    100.000, 'avg'      ), #  1.250/ 1.250,
+    'pv/meter/total_volt_amps'                      : (  10,    150.000, 'avg'      ), #  1.250/ 1.250,
+    'pv/meter/total_var'                            : (  10,    150.000, 'avg'      ), #  1.250/ 1.250,
     'pv/meter/total_power_factor'                   : (  10,   1000.000, 'avg'      ), #  1.250/ 1.250,
     'pv/meter/total_phase_angle'                    : (  10,   1000.000, 'avg'      ), #  0.996/ 1.250,
 

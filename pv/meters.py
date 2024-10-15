@@ -53,11 +53,14 @@ class SDM630( grugbus.SlaveDevice ):
             self.phase_2_line_to_neutral_volts    ,
             self.phase_3_line_to_neutral_volts    ,
             self.phase_1_current                  ,    # required for fakemeter
-            self.phase_2_current                  ,
+            self.phase_2_current                  ,    # but current has no sign
             self.phase_3_current                  ,
             self.phase_1_power                    ,
             self.phase_2_power                    ,
             self.phase_3_power                    ,
+            self.phase_1_volt_amps                ,    # 
+            self.phase_2_volt_amps                ,
+            self.phase_3_volt_amps                ,
             self.total_kwh                        ,    # required for fakemeter
             self.total_kvarh                      ,    # required for fakemeter
             self.average_line_to_neutral_volts_thd,

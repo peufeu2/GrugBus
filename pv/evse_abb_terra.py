@@ -71,6 +71,9 @@ class EVSE( grugbus.SlaveDevice ):
             self.event_all.set()
             self.event_all.clear()
 
+            # reload config if changed
+            self.tick.set(config.POLL_PERIOD_EVSE)
+
     async def set_current_limit( self, current_limit ):
         current_limit = round(current_limit)
         # print("set limit", current_limit, "minmax", self.current_limit_bounds.minimum, self.current_limit_bounds.maximum, "value", self.current_limit_bounds.value, "reg", self.rwr_current_limit.value )

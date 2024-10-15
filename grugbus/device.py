@@ -63,7 +63,7 @@ class DeviceBase( ):
         self.last_transaction_timestamp = 0
         self.last_transaction_period    = 0
         self.last_transaction_duration  = 0
-        self.default_retries = 3
+        self.default_retries = 1    # 1 means 1 try and no retry
 
         # SDM120 does not like "write register", it needs "write multiple registers" even if there is just one
         self.force_multiple_regiters = False
@@ -255,6 +255,8 @@ class SlaveDevice( DeviceBase ):
         old_is_online = self.is_online
         try:
             start_time = time.monotonic()
+            modbus_time = 0
+            mutex_time = 0
             await self.connect()
             update_list = []
             for fcode, chunk in self.reg_list_to_chunks( read_list, max_hole_size ):
@@ -268,9 +270,12 @@ class SlaveDevice( DeviceBase ):
                 end_addr    = chunk[-1][1]
                 for retry in range( retries ):
                     try:
+                        mutex_time -= time.monotonic()
                         async with self.modbus._async_mutex:    # share same serial port between several tasks
-                            t = time.monotonic()
+                            st = time.monotonic()
+                            mutex_time += st
                             resp = await func( start_addr, end_addr-start_addr, self.bus_address )
+                            modbus_time += time.monotonic() - st
                             if isinstance( resp, ExceptionResponse ):
                                 raise ModbusException( str( resp ) )
                             if fcode != 2:
@@ -278,7 +283,9 @@ class SlaveDevice( DeviceBase ):
                             else:
                                 reg_data = resp.bits
                             if self.modbus._async_mutex._waiters:
-                                await asyncio.sleep(0.005)  # wait until serial is flushed before releasing lock
+                                # wait until serial is flushed before releasing lock, 
+                                # do not use asyncio sleep, we're in a hurry to release it
+                                time.sleep(0.001)  
                         update_list.append( (fcode, chunk, start_addr, reg_data) )
                         break
                     except (TimeoutError,ModbusException) as e:
@@ -288,7 +295,7 @@ class SlaveDevice( DeviceBase ):
                             pass
                         else:
                             if (msg := self.rate_limit_error(old_is_online)) is not None:
-                                log.error( "Modbus read error: %s after %d/%d retries (%s) %s", self.key, retry+1, retries, e, msg )
+                                log.error( "Modbus read error: %s after %d/%d tries (%s) %s", self.key, retry+1, retries, e, msg )
                             raise
 
             # Decode values and assign to registers. Do this in a separate loop after reading,
@@ -312,8 +319,12 @@ class SlaveDevice( DeviceBase ):
         finally:
             self._set_timings( start_time )
             cfg = config.LOG_MODBUS_REQUEST_TIME.get( self.key )
-            if cfg and ("r" in cfg[0] or self.last_transaction_duration > cfg[1]):
-                self.publish_modbus_timings()
+            if cfg:
+                slow = self.last_transaction_duration > cfg[1]
+                if "r" in cfg[0] or slow:
+                    self.publish_modbus_timings()
+                if slow:
+                    log.info("%s: slow modbus: [mutex %.03fs modbus %.03fs]/%.03fs %s", self.key, mutex_time, modbus_time, self.last_transaction_duration, [reg.key for reg in read_list])
 
     def _set_timings( self, start_time ):
         t = time.monotonic()
@@ -420,7 +431,7 @@ class SlaveDevice( DeviceBase ):
                             pass
                         else:
                             if (msg := self.rate_limit_error(old_is_online)) is not None:
-                                log.error( "Modbus write error: %s after %d/%d retries (%s) %s", self.key, retry+1, retries, e, msg )
+                                log.error( "Modbus write error: %s after %d/%d tries (%s) %s", self.key, retry+1, retries, e, msg )
                             raise
 
         except Exception as e:
@@ -429,8 +440,12 @@ class SlaveDevice( DeviceBase ):
         finally:
             self._set_timings( start_time )
             cfg = config.LOG_MODBUS_REQUEST_TIME.get( self.key )
-            if cfg and ("w" in cfg[0] or self.last_transaction_duration > cfg[1]):
-                self.publish_modbus_timings()
+            if cfg:
+                slow = self.last_transaction_duration > cfg[1]
+                if "w" in cfg[0] or slow:
+                    self.publish_modbus_timings()
+                if slow:
+                    log.info("%s: slow modbus: %.03fs %s", self.key, self.last_transaction_duration, [reg.key for reg in write_list])
 
     # for debugging
     def dump_all_regs( self, all=False ):
