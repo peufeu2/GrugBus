@@ -589,7 +589,8 @@ class EVSEController( Routable ):
         # self.mqtt.publish_value( self.mqtt_topic+"command_interval_small",  round(self.command_interval_small.remain(),1) )
         # self.mqtt.publish_value( self.mqtt_topic+"command_interval",        round(self.command_interval.remain(),1) )
 
-        log.debug( "power %4d voltage %4d current %5.02f integ %.02f limit %d -> %d timeouts %.02f %.02f", ev_power, voltage, ev_power/voltage, self.integrator.value, cur_limit, new_limit, self.command_interval.remain(), self.command_interval_small.remain() )
+        if config.ROUTER_PRINT_DEBUG_INFO:
+            log.debug( "power %4d voltage %4d current %5.02f integ %.02f limit %d -> %d timeouts %.02f %.02f", ev_power, voltage, ev_power/voltage, self.integrator.value, cur_limit, new_limit, self.command_interval.remain(), self.command_interval_small.remain() )
 
         # no change
         if not delta_i:
@@ -789,8 +790,8 @@ class Router( ):
         excess_avg = self.offset.value + export_avg + bp_avg - self.p_export_target( soc ) # p_export_target from config
 
         # Hack: If EV charging has begun, pretend SOC is higher to avoid start/stop cycles
-        if self.evse.is_charge_unpaused():
-            soc += 5
+        # if self.evse.is_charge_unpaused():
+            # soc += self.evse.increase_soc_when_charging
 
         # create routing context
         ctx = RouterCtx()

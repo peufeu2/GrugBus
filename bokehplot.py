@@ -694,7 +694,7 @@ class PVDashboard():
         #
         power_gauge_topics = (
                 "pv/total_pv_power"                              ,
-                "pv/total_input_power"                           ,
+                "pv/total_battery_power"                         ,
                 "pv/meter/house_power"                           ,
                 "pv/evse/meter/active_power"                     ,
                 "pv/meter/total_power"                           ,

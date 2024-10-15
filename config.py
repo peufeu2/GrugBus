@@ -262,6 +262,8 @@ SOLIS_POWERSAVE_CONFIG = {
 # "default" is  automatically added to the runtime-selected configuration, no need to copy these settings
 # Note EVSE force charge will override these settings
 #
+# _increase_soc_when_charging = 5
+
 ROUTER = {
     #
     #   Default configuration: priority to battery charging, then EV, then the rest.
@@ -322,10 +324,12 @@ ROUTER = {
             "enabled"                   : True,
 
             # These settings are placeholders, they're overwritten by EVSE configuration below
-            "high_priority_W"       : lambda ctx: 0,
-            "reserve_for_battery_W"       : lambda ctx: 10000,
+            "high_priority_W"           : lambda ctx: 0,
+            "reserve_for_battery_W"     : lambda ctx: 10000,
             "start_threshold_W"         : lambda ctx: 1500, 
             "stop_threshold_W"          : lambda ctx: 1400, 
+
+            # "increase_soc_when_charging": _increase_soc_when_charging,        # when EVSE is charging, pretend SOC is X% higher to avoid stopping too early
 
             "start_time_s"              : 120,      # how long above minimum excess power before starting
             "stop_time_s"               : 600,      # how long before stopping when we don't have enough power
@@ -371,11 +375,10 @@ ROUTER = {
 
             # Remaining excess goes to battery up to reserve_for_battery_W
             # Interp(min_soc, max_power, max_soc, min_power) 
-            "reserve_for_battery_W" : Interp((90, 10000), (95, 0), var="soc"),
             # Then what remains after that goes to EVSE.
-
-            "start_threshold_W"     : Interp((90, 1400), (100, 1200),var="soc"), # minimum excess power to start charging
-            "stop_threshold_W"      : Interp((90, 1400), (100,  800),var="soc"), # excess power to stop charging
+            "reserve_for_battery_W" : Interp((90, 10000), (95, 0), var="soc"),
+            "start_threshold_W"     : Interp((90, 2000), (100, 1400),var="soc"), # minimum excess power to start charging
+            "stop_threshold_W"      : Interp((90, 1400), (100, 1000),var="soc"), # excess power to stop charging
         }
     },
 
@@ -440,14 +443,14 @@ MQTT_RATE_LIMIT = {
 
 
     # Debug
-    'pv/meter/req_time'                             : (  1,       0.2,   'avg'   ), #  0.026/14.297,
-    'pv/meter/req_period'                           : (  1,       0.2,   'avg'   ), #  0.026/14.297,
-    'pv/solis1/meter/req_time'                      : (  1,       0.2,   'avg'   ), #  0.026/14.297,
-    'pv/solis1/meter/req_period'                    : (  1,       0.2,   'avg'   ), #  0.026/14.297,
-    'pv/solis1/req_time'                            : (  1,       0.2,   'avg'   ), #  0.026/14.297,
-    'pv/solis1/req_period'                          : (  1,       0.2,   'avg'   ), #  0.026/14.297,
-    'pv/evse/meter/req_time'                        : (  1,       0.2,   'avg'   ), #  0.026/14.297,
-    'pv/evse/meter/req_period'                      : (  1,       0.2,   'avg'   ), #  0.026/14.297,
+    'pv/meter/req_time'                             : (  10,       0.2,   'avg'   ), #  0.026/14.297,
+    'pv/meter/req_period'                           : (  10,       0.2,   'avg'   ), #  0.026/14.297,
+    'pv/solis1/meter/req_time'                      : (  10,       0.2,   'avg'   ), #  0.026/14.297,
+    'pv/solis1/meter/req_period'                    : (  10,       0.2,   'avg'   ), #  0.026/14.297,
+    'pv/solis1/req_time'                            : (  10,       0.2,   'avg'   ), #  0.026/14.297,
+    'pv/solis1/req_period'                          : (  10,       0.2,   'avg'   ), #  0.026/14.297,
+    'pv/evse/meter/req_time'                        : (  10,       0.2,   'avg'   ), #  0.026/14.297,
+    'pv/evse/meter/req_period'                      : (  10,       0.2,   'avg'   ), #  0.026/14.297,
 
 
     #   PV Controller
