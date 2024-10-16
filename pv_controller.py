@@ -15,7 +15,7 @@ from pymodbus.exceptions import ModbusException
 
 # Device wrappers and misc local libraries
 import grugbus
-from grugbus.devices import Acrel_1_Phase
+from grugbus.devices import Acrel_1_Phase, Eastron_SDM120
 import pv.meters
 
 from pv.mqtt_wrapper import MQTTWrapper, MQTTSetting, MQTTVariable
@@ -127,13 +127,12 @@ class FakeSmartmeter( grugbus.LocalServer ):
         self.last_query_time = 0        # last time the inverter queried
         self.data_timestamp = 0         # timestamp for data in the fake meter, if it is too old return error
         self.error_count = 0
-        self.stat_tick  = Metronome( 60 )
+        self.stat_tick  = Metronome( 10 )
         self.request_count = 0
-        self.lags = []                  # for statistics of lag between real and fake meters
 
     # This is called when the inverter sends a request to this server
     def _on_getValues( self, fc_as_hex, address, count, ctx ):
-        return pv.controller.fakemeter_on_getvalues( self )
+        return pv.controller.fakemeter_on_getvalues( self, fc_as_hex, address, count )
 
         # If return value is False, pymodbus server will abort the request, which the inverter
         # correctly interprets as the meter being offline
@@ -215,6 +214,7 @@ class Controller:
                 ),
                 fake_meter = FakeSmartmeter( 
                     meter_type      = Acrel_1_Phase,
+                    # meter_type      = Eastron_SDM120, # Acrel_1_Phase,
                     mqtt            = self.mqtt, 
                     mqtt_topic      = ("pv/%s/fakemeter/"%key),
                     **cfg["FAKE_METER"]
@@ -260,38 +260,26 @@ class Controller:
         finally:    log.info("Exit: "+title )
 
 
-if 1:
-    try:
-        log.info("######################### START #########################")
-        mgr = Controller()
-        mgr.start()
-    finally:
-        logging.shutdown()
-else:
-    import cProfile
-    with cProfile.Profile( time.process_time ) as pr:
-        pr.enable()
+def run():
+    mgr = Controller()
+    mgr.start()
+
+if __name__ == '__main__':
+    if "profile" not in sys.argv:
         try:
-            mgr = Controller()
-            mgr.start()
+            log.info("######################### START #########################")
+            run()
         finally:
             logging.shutdown()
-            pr.dump_stats("profile.dump")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    else:
+        log.info("######################### PROFILING ON #########################")
+        import cProfile
+        with cProfile.Profile( time.process_time ) as pr:
+            pr.enable()
+            try:
+                run()
+            finally:
+                logging.shutdown()
+                p = Path(__file__)
+                pr.dump_stats(p.dirname()/"profile"/(Path(__file__).stem+"_profile.dump"))
 

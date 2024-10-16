@@ -301,17 +301,25 @@ class Buffer( MQTTWrapper ):
             raise
 
 
-
+def run():
+    with Buffer( config.MQTT_BUFFER_PATH ) as buf:
+        buf.start()
 
 if __name__ == '__main__':
-    try:
-        log.info("######################### START #########################")
-        with Buffer( config.MQTT_BUFFER_PATH ) as buf:
-            buf.start()
-    finally:
-        log.info("MQTT logger stopping.")
-        logging.shutdown()
-
-# gmqtt also compatibility with uvloop  
-# import uvloop
-# asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+    if "profile" not in sys.argv:
+        try:
+            log.info("######################### START #########################")
+            run()
+        finally:
+            logging.shutdown()
+    else:
+        log.info("######################### PROFILING ON #########################")
+        import cProfile
+        with cProfile.Profile( time.process_time ) as pr:
+            pr.enable()
+            try:
+                run()
+            finally:
+                logging.shutdown()
+                p = Path(__file__)
+                pr.dump_stats(p.dirname()/"profile"/(Path(__file__).stem+"_profile.dump"))

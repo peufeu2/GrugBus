@@ -38,7 +38,6 @@ async def power_coroutine( module_updated, first_start, self ):
     await m.event_all.wait()    # wait for all registers to be read
 
     boost = 0
-
     chrono = Chrono()
     while not module_updated(): # Exit if this module was reloaded
         try:
@@ -129,13 +128,20 @@ async def power_coroutine( module_updated, first_start, self ):
             # shift slightly to avoid import when we can afford it
             if total_battery_power > 200:
                 meter_power_tweaked += self.bms_soc.value*total_battery_power*0.0001
-            
+
+            try:
+                # hack area for meter tweaks
+                pass
+            except Exception:
+                log.exception("PowerManager coroutine:") 
 
             #   Insert full impulse response into fakemeter
             #
             #
             for solis in self.inverters:
+                # default power management: if there are two inverters, balance battery charging between the two
                 if len( inverters_online ) == 1:
+                    # hack area for meter tweaks
                     fake_power = meter_power_tweaked
                 else:
                     # balance power between inverters
@@ -146,36 +152,41 @@ async def power_coroutine( module_updated, first_start, self ):
                     # else:
                     fake_power = meter_power_tweaked * 0.5 + 0.05*(solis.input_power.value - total_input_power*0.5)
 
-                # This is good stuff
-                bonus = 0
-                for threshold, multiplier in (200,2), (500,1), (1000,1):
-                    if fake_power > threshold:
-                        bonus += (fake_power - threshold) * multiplier
+                try:
 
-                if not bonus and self.bms_soc.value < 97:
-                    boost = min( 1, boost + time_since_last*0.3 )
-                else:
-                    if bonus and boost:
-                        print( "boost", fake_power, bonus*boost )
-                    fake_power = min( 15000, fake_power+bonus*boost )
-                    boost = max( 0, boost - time_since_last*0.3 )
+                    if config.FAKEMETER_IMPROVE_TRANSIENTS == 1:
+                        bonus = 0
+                        for threshold, multiplier in (200,2), (500,1), (1000,1):
+                            if fake_power > threshold:
+                                bonus += (fake_power - threshold) * multiplier
 
-                # positive and negative versions
-                # fp = abs( fake_power )
-                # for threshold, multiplier in (200,2), (500,1), (1000,1):
-                #     if fp > threshold:
-                #         bonus += (fp - threshold) * multiplier
-                # if not bonus:
-                #     boost = 1       # power is low: enable boost for next spike
-                # else:
-                #     # fake_power = min( 15000, fake_power+bonus*boost )
-                #     fp = min( 15000, fp+bonus*boost )
-                #     if fake_power < 0:
-                #         pass
-                #         # fake_power = -fp
-                #     else:
-                #         fake_power = fp
+                        if not bonus and self.bms_soc.value < 97:
+                            boost = min( 1, boost + time_since_last*0.3 )
+                        else:
+                            if bonus and boost:
+                                print( "boost", fake_power, bonus*boost )
+                            fake_power = min( 15000, fake_power+bonus*boost )
+                            boost = max( 0, boost - time_since_last*0.3 )
+                    elif config.FAKEMETER_IMPROVE_TRANSIENTS == 2:
+                        pass
+                        # positive and negative versions
+                        # fp = abs( fake_power )
+                        # for threshold, multiplier in (200,2), (500,1), (1000,1):
+                        #     if fp > threshold:
+                        #         bonus += (fp - threshold) * multiplier
+                        # if not bonus:
+                        #     boost = 1       # power is low: enable boost for next spike
+                        # else:
+                        #     # fake_power = min( 15000, fake_power+bonus*boost )
+                        #     fp = min( 15000, fp+bonus*boost )
+                        #     if fake_power < 0:
+                        #         pass
+                        #         # fake_power = -fp
+                        #     else:
+                        #         fake_power = fp
 
+                except Exception:
+                    log.exception("PowerManager coroutine:") 
 
                 fm = solis.fake_meter
                 fm.active_power           .value = fake_power
@@ -253,9 +264,11 @@ async def power_coroutine( module_updated, first_start, self ):
 #   FakeMeter callback before serving values to inverter
 #
 ########################################################################################
-def fakemeter_on_getvalues( self ):
+def fakemeter_on_getvalues( self, fc_as_hex, address, count ):
     try:
         t = time.monotonic()
+        # if self.key == "fake_meter_2":
+            # log.info("%s %s %s", fc_as_hex, address, count)
         self.request_count += 1
 
         # Print message if inverter talks to us
@@ -268,7 +281,6 @@ def fakemeter_on_getvalues( self ):
 
         # Publish requests/second statistics
         age = t - self.data_timestamp
-        self.lags.append( age )
         if (elapsed := self.stat_tick.ticked()) and self.mqtt_topic:
             self.mqtt.publish_value( self.mqtt_topic + "req_per_s", self.request_count/max(elapsed,1) )
             self.request_count = 0
@@ -281,6 +293,8 @@ def fakemeter_on_getvalues( self ):
             # do not serve stale data
             if age <= config.FAKE_METER_MAX_AGE:
                 self.error_count = 0
+                self.active_power.value += (time.monotonic() % 2.0)
+                self.write_regs_to_context([ self.active_power ])
                 return True
             else:
                 self.is_online = False
@@ -292,7 +306,7 @@ def fakemeter_on_getvalues( self ):
         lm_age = t-lm.last_transaction_timestamp 
         if lm_age < config.FAKE_METER_MAX_AGE:
             self.active_power.value =  lm.active_power.value
-            self.write_regs_to_context( [ self.active_power ])
+            self.write_regs_to_context([ self.active_power ])
             if self.error_count < 100:
                 log.error( "FakeMeter %s: using local meter data", self.key )
             return True
@@ -439,3 +453,4 @@ async def inverter_fan_coroutine( module_updated, first_start, self ):
         except:
             log.exception("")
             await asyncio.sleep(5)
+

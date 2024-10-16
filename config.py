@@ -31,12 +31,18 @@ LOG_MODBUS_REQUEST_TIME = {
     "ms2"    : ( "r"   , 0.5 ),
     "mevse"  : ( ""    , 1.0 ),
     "evse"   : ( ""    , 1.0 ),
-    "solis1" : ( ""    , 1.5 ),
-    "solis2" : ( ""    , 1.5 ),
+    "solis1" : ( ""    , 1.0 ),
+    "solis2" : ( ""    , 1.0 ),
 }
 
 LOG_MODBUS_REGISTER_CHUNKS = False
 ROUTER_PRINT_DEBUG_INFO    = False
+
+##################################################################
+# Experimental features
+##################################################################
+
+FAKEMETER_IMPROVE_TRANSIENTS = 0
 
 ##################################################################
 # mqtt
@@ -455,7 +461,7 @@ MQTT_RATE_LIMIT = {
 
     #   PV Controller
     #
-    'pv/solis1/fakemeter/lag'                       : (  10,      0.25,   'avg'   ), #  0.026/14.297,
+    'pv/solis1/fakemeter/lag'                       : (  10,      0.40,   'avg'   ), #  0.026/14.297,
 
     # Compress/threshold heavily
     'pv/meter/is_online'                            : (  60,      0.000, ''      ), #  0.021/ 5.011,
@@ -467,7 +473,7 @@ MQTT_RATE_LIMIT = {
     'pv/meter/total_power'                          : (   0,     25.000, 'avg'      ), #  4.736/ 4.995,
 
     # This is for debugging only and generates huge traffic, average it
-    'pv/solis1/fakemeter/active_power'              : (   1,     25.000, ''      ), #  4.714/ 4.974,
+    'pv/solis1/fakemeter/active_power'              : (   0,     25.000, ''      ), #  4.714/ 4.974,
 
     # Average voltage
     'pv/meter/phase_1_line_to_neutral_volts'        : (  10,      1.500, 'avg'   ), #  1.250/ 1.250,

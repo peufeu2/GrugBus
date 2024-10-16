@@ -116,21 +116,23 @@ class Solis( grugbus.SlaveDevice ):
         # Build modbus requests: read frequent_regs on every request, plus one chunk out of all_regs
         self.reg_sets = list( self.reg_list_interleave( frequent_regs, all_regs ) )
 
-    async def read_coroutine( self ):
+    async def set_meter_type_and_location( self ):
         # set meter type remotely to make it easy to emulate different fakemeters
         if   self.fake_meter.meter_type == Acrel_1_Phase:      mt = 1
         elif self.fake_meter.meter_type == Acrel_ACR10RD16TE4: mt = 2
         elif self.fake_meter.meter_type == Eastron_SDM120:     mt = 4
         mt |= {"grid":0x100, "load":0x200}[self.fake_meter.meter_placement]
+        if self.rwr_meter1_type_and_location.value == None:
+            await self.rwr_meter1_type_and_location.read()
+        await self.rwr_meter1_type_and_location.write_if_changed( mt )
+
+    async def read_coroutine( self ):
 
         try:
             await self.adjust_time()
-            await self.rwr_meter1_type_and_location.read()
-            await self.rwr_meter1_type_and_location.write_if_changed( mt )
-
+            await self.set_meter_type_and_location()
             # configure inverter
-            for reg, value in  [(self.rwr_meter1_type_and_location, mt), 
-                                (self.rwr_battery_charge_current_maximum_setting, 100.0),
+            for reg, value in  [(self.rwr_battery_charge_current_maximum_setting, 100.0),
                                 (self.rwr_battery_discharge_current_maximum_setting, 100.0)]:
                 await reg.read()
                 await reg.write_if_changed( value )

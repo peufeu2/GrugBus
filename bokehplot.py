@@ -23,14 +23,15 @@ TIME_SHIFT = np.timedelta64( TIME_SHIFT_S, 's' )
 clickhouse = clickhouse_driver.Client('localhost', user=config.CLICKHOUSE_USER, password=config.CLICKHOUSE_PASSWORD )
 
 # Category20 colors: https://docs.bokeh.org/en/latest/docs/reference/palettes.html
-cat20 = ('#1f77b4', '#aec7e8', '#ff7f0e', '#ffbb78', '#2ca02c', '#98df8a', '#d62728', '#ff9896', '#9467bd', '#c5b0d5', '#8c564b', '#c49c94', '#e377c2', '#f7b6d2', '#7f7f7f', '#c7c7c7', '#bcbd22', '#dbdb8d', '#17becf', '#9edae5')
+# cat20 = ('#1f77b4', '#aec7e8', '#ff7f0e', '#ffbb78', '#2ca02c', '#98df8a', '#d62728', '#ff9896', '#9467bd', '#c5b0d5', '#8c564b', '#c49c94', '#e377c2', '#f7b6d2', '#7f7f7f', '#c7c7c7', '#bcbd22', '#dbdb8d', '#17becf', '#9edae5')
+palette = [ "#a6cee3","#1f78b4","#b2df8a","#33a02c","#fb9a99","#e31a1c","#fdbf6f","#ff7f00","#cab2d6","#6a3d9a","#ffff99","#b15928", ]
 def _nextcolor():
     while True:
-        for _ in cat20:
+        for _ in palette:
             yield _
-_nextcolor = _nextcolor()
+_nextcolor_iter = _nextcolor()
 def nextcolor():
-    return next( _nextcolor )
+    return next( _nextcolor_iter )
 
 display_bools_offset = 0
 def display_bools():
@@ -88,20 +89,18 @@ DATA_STREAMS = [
     ( "pv/meter/phase_2_current"                         , "A"   , "Phase 2"                     , color_phase2    , "solid"    , 1.0 , {}                 , {} ),
     ( "pv/meter/phase_3_current"                         , "A"   , "Phase 3"                     , color_phase3    , "solid"    , 1.0 , {}                 , {} ),
 
-    ( "pv/meter/frequency"                               , "Hz"  , "Frequency"                   , nextcolor()     , "solid",    1.0, {}, {}),
-    ( "pv/meter/req_period"                              , "s"   , "req_period"                  , "#FFFF00"       , "solid",    1.0 , {}                 , {"aggregate":"max"} ),
+    ( "pv/meter/frequency"                               , "Hz"  , "Frequency"                   , nextcolor       , "solid",    1.0, {}, {}),
 
     # Totals across inverters
     ( "pv/total_input_power"                             , "W"   , "Battery Proxy"               , "input"         , "solid",    1.0 , {"visible":False}                 , {} ),
     ( "pv/total_grid_port_power"                         , "W"   , "Grid Ports"                  , "grid_port"     , "solid",    1.0 , {}                 , {} ),
     ( "pv/total_battery_power"                           , "W"   , "Battery"                     , "battery"       , "solid"    , 1.0 , {}                 , {} ),
     ( "pv/battery_max_charge_power"                      , "W"   , "Battery Max Charge"          , "battery"       , "dashed"   , 1.0 , {}                 , {} ),
-    ( "pv/energy_generated_today"                        , "kWh" , "Energy Generated today"      , nextcolor()     , "solid"   , 1.0 , {}                 , {} ),
+    ( "pv/energy_generated_today"                        , "kWh" , "Energy Generated today"      , nextcolor       , "solid"   , 1.0 , {}                 , {} ),
     ( "pv/battery_charge_energy_today"                   , "kWh" , "Energy Charge today"      , "battery"       , "solid"   , 1.0 , {}                 , {} ),
 
     # Per-inverter data
     ( "pv/solis%d/fakemeter/active_power"                , "W"   , "S%d FakeMeter"               , "fakemeter"     , "solid",    1.0 , {"visible":False}  , {} ),
-    ( "pv/solis%d/fakemeter/lag"                         , "s"   , "S%d Fakemeter lag"           , nextcolor       , "solid",    1.0 , {"visible":False}  , {} ),
     ( "pv/solis%d/input_power"                           , "W"   , "S%d Battery Proxy"           , "input"         , "solid",    1.0 , {}                 , {} ),
     ( "pv/solis%d/meter/active_power"                    , "W"   , "S%d Grid port"               , "grid_port"     , "solid",    1.0 , {}                 , {} ),
   # ( "pv/solis%d/dc_bus_voltage"                        , "V"   , "S%d DC Bus"                  , (cat20,8)       , "solid",    1.0 , {}                 , {} ),
@@ -188,18 +187,22 @@ DATA_STREAMS = [
 
 
     # Router
-    ( "cmnd/plugs/tasmota_t4/Power", "ON", "Tasmota T4 Sèche serviette"     , nextcolor(), "solid", 1, {}, {"func":display_bools()} ),
-    ( "cmnd/plugs/tasmota_t2/Power", "ON", "Tasmota T2 Radiateur PF"        , nextcolor(), "solid", 1, {}, {"func":display_bools()} ),
-    ( "cmnd/plugs/tasmota_t1/Power", "ON", "Tasmota T1 Radiateur bureau"    , nextcolor(), "solid", 1, {}, {"func":display_bools()} ),
-    ( "pv/router/mppts_in_drop",     "ON", "MPPT Drops"                     , nextcolor(), "solid", 1, {"visible":False}, {} ),
+    ( "cmnd/plugs/tasmota_t4/Power", "ON", "Tasmota T4 Sèche serviette"     , nextcolor, "solid", 1, {}, {"func":display_bools()} ),
+    ( "cmnd/plugs/tasmota_t2/Power", "ON", "Tasmota T2 Radiateur PF"        , nextcolor, "solid", 1, {}, {"func":display_bools()} ),
+    ( "cmnd/plugs/tasmota_t1/Power", "ON", "Tasmota T1 Radiateur bureau"    , nextcolor, "solid", 1, {}, {"func":display_bools()} ),
+    ( "pv/router/mppts_in_drop",     "ON", "MPPT Drops"                     , nextcolor, "solid", 1, {"visible":False}, {} ),
 
-    ( "tele/plugs/tasmota_t4/SENSOR/ENERGY/Power", "W", "Tasmota T4 Sèche serviette"     , nextcolor(), "solid", 1, {"visible":False}, {} ),
-    ( "tele/plugs/tasmota_t2/SENSOR/ENERGY/Power", "W", "Tasmota T2 Radiateur PF"        , nextcolor(), "solid", 1, {"visible":False}, {} ),
-    ( "tele/plugs/tasmota_t1/SENSOR/ENERGY/Power", "W", "Tasmota T1 Radiateur bureau"    , nextcolor(), "solid", 1, {"visible":False}, {} ),
+    ( "tele/plugs/tasmota_t4/SENSOR/ENERGY/Power", "W", "Tasmota T4 Sèche serviette"     , nextcolor, "solid", 1, {"visible":False}, {} ),
+    ( "tele/plugs/tasmota_t2/SENSOR/ENERGY/Power", "W", "Tasmota T2 Radiateur PF"        , nextcolor, "solid", 1, {"visible":False}, {} ),
+    ( "tele/plugs/tasmota_t1/SENSOR/ENERGY/Power", "W", "Tasmota T1 Radiateur bureau"    , nextcolor, "solid", 1, {"visible":False}, {} ),
 
 
-    ( "pv/meter/req_time",   "s", "SDM630 req time"   , nextcolor(), "solid", 1, {"visible":False}, {} ),
-    ( "pv/meter/req_period", "s", "SDM630 req period" , nextcolor(), "solid", 1, {"visible":False}, {} ),
+    ( "pv/meter/req_time",   "s", "SDM630 req time"        , nextcolor, "solid", 1, {"visible":False}, {"aggregate":"max"} ),
+    ( "pv/meter/req_period", "s", "SDM630 req period"      , nextcolor, "solid", 1, {"visible":False}, {"aggregate":"max"} ),
+    ( "pv/solis%d/req_time",   "s", "Solis%d req time"     , nextcolor, "solid", 1, {"visible":False}, {"aggregate":"max"} ),
+    ( "pv/solis%d/meter/req_time",   "s", "SDM120 %d req time"   , nextcolor, "solid", 1, {"visible":False}, {"aggregate":"max"} ),
+    ( "pv/solis%d/meter/req_period", "s", "SDM120 %d req period" , nextcolor, "solid", 1, {"visible":False}, {"aggregate":"max"} ),
+    ( "pv/solis%d/fakemeter/lag"                         , "s"   , "S%d Fakemeter lag"           , nextcolor       , "solid",    1.0 , {"visible":False}  , {"aggregate":"max"} ),
 
     # SQL
     # ( 
@@ -394,7 +397,10 @@ PLOT_LAYOUTS = [
                 # "pv/bms/max_charge_current",
                 "pv/solis%d/fakemeter/lag",
                 "pv/meter/req_time",
-                "pv/meter/req_period",
+                # "pv/meter/req_period",
+                "pv/solis%d/meter/req_time",
+                "pv/solis%d/req_time",
+                # "pv/solis%d/meter/req_period",
             ],
         ]
     ],
@@ -658,6 +664,7 @@ class PVDashboard():
                     p.fig    = fig
                     p.topic  = topic
                     p.stream = stream = app.data_streams[ topic ]
+                    print( stream.bokeh_attrs )
                     p.line = fig.line( [],[], **stream.bokeh_attrs )
                     p.last_update = 0
                     print("         %20s %s" % (stream.label, topic))

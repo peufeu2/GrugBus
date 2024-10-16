@@ -365,6 +365,8 @@ class EVSEController( Routable ):
         self.start_counter.set_maximum( self.start_time_s )
         self.start_counter.set( self.start_time_s - 10 )     # make it start fast after a configuration change, for quicker testing
         self.stop_counter .set_maximum( self.stop_time_s )
+        if self.is_charge_paused(): self.local_meter.tick.set( config.POLL_PERIOD_EVSE_METER_IDLE )   # less traffic when not charging
+        else:                       self.local_meter.tick.set( config.POLL_PERIOD_EVSE_METER_CHARGING ) # poll meter more often
         # all the other items are timeouts, which are set when used
 
     def is_charge_paused( self ):

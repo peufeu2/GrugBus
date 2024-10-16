@@ -38,7 +38,6 @@ from misc import *
 Reminder:
 git remote set-url origin https://<token>@github.com/peufeu2/GrugBus.git
 """
-# pymodbus.pymodbus_apply_logging_config( logging.DEBUG )
 logging.basicConfig( encoding='utf-8', 
                      level=logging.INFO,
                      format='[%(asctime)s] %(levelname)s:%(message)s',
@@ -48,6 +47,8 @@ logging.basicConfig( encoding='utf-8',
                             logging.StreamHandler(stream=sys.stdout)
                     ])
 log = logging.getLogger(__name__)
+
+# pymodbus.pymodbus_apply_logging_config( logging.DEBUG )
 
 
 class Data:
@@ -149,27 +150,25 @@ class Master():
         try:        await fut
         finally:    log.info("Exit: "+title )
 
-if 1:
-    try:
-        log.info("######################### START #########################")
-        mgr = Master()
-        mgr.start()
-    finally:
-        logging.shutdown()
-else:
-    import cProfile
-    with cProfile.Profile( time.process_time ) as pr:
-        pr.enable()
+def run():
+    mgr = Master()
+    mgr.start()
+
+if __name__ == '__main__':
+    if "profile" not in sys.argv:
         try:
-            mgr = Master()
-            mgr.start()
+            log.info("######################### START #########################")
+            run()
         finally:
             logging.shutdown()
-            pr.dump_stats("profile.dump")
-
-
-
-
-
-
-
+    else:
+        log.info("######################### PROFILING ON #########################")
+        import cProfile
+        with cProfile.Profile( time.process_time ) as pr:
+            pr.enable()
+            try:
+                run()
+            finally:
+                logging.shutdown()
+                p = Path(__file__)
+                pr.dump_stats(p.dirname()/"profile"/(Path(__file__).stem+"_profile.dump"))
