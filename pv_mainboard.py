@@ -297,7 +297,7 @@ class PiPico:
 
 
 try:
-    log.info("######################### START #########################")
+    log.info("######################### START %s #########################", __file__ )
     pico = PiPico()
     pico.start()
 finally:

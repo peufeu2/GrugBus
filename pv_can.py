@@ -452,7 +452,7 @@ def start():
         runner.run(astart())
 
 try:
-    log.info("######################### START #########################")
+    log.info("######################### START %s #########################", __file__ )
     start()
 finally:
     with open("mqtt_stats/test_can.txt","w") as f:

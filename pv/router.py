@@ -288,6 +288,11 @@ class EVSEController( Routable ):
         self.local_meter = evse.local_meter
         self.is_online   = False
 
+        # DO NOT CHANGE as these are set in the ISO standard
+        self.i_pause = 5.0          # current limit in pause mode
+        self.i_start = 6.0          # minimum current limit for charge, lower will pause
+        self.i_max   = 30.0         # maximum current limit
+
         # Incremented/decremented depending on excess power to start/stop charge.
         # Bounds are loaded from config later, so default values below are ignored.
         self.start_counter = BoundedCounter( 0, 0, 10 )  # charge starts when this counter reaches maximum
@@ -302,11 +307,6 @@ class EVSEController( Routable ):
         MQTTSetting( self, "force_charge_minimum_A"     , int  , range( 6, 32 ) , 10 )  # guarantee this charge minimum current    
         MQTTSetting( self, "force_charge_until_kWh"     , int  , range( 0, 81 ) , 0  , self.setting_updated )  # until this energy has been delivered (0 to disable force charge)
         MQTTSetting( self, "stop_charge_after_kWh"      , int  , range( 0, 101 ) , 0  , self.setting_updated )
-
-        # DO NOT CHANGE as these are set in the ISO standard
-        self.i_pause = 5.0          # current limit in pause mode
-        self.i_start = 6.0          # minimum current limit for charge, lower will pause
-        self.i_max   = 30.0         # maximum current limit
 
         # This is used as bounds to clip the 
         self.current_limit_bounds = Interval( self.i_start, self.i_max, round )

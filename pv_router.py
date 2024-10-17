@@ -157,7 +157,7 @@ def run():
 if __name__ == '__main__':
     if "profile" not in sys.argv:
         try:
-            log.info("######################### START #########################")
+            log.info("######################### START %s #########################", __file__ )
             run()
         finally:
             logging.shutdown()

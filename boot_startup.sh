@@ -17,6 +17,6 @@ screen -dmS chauffage bash -c 'python3.11 chauffage_mqtt.py ; exec bash'
 screen -dmS can       bash -c 'python3.11 pv_can.py ; exec bash'
 screen -dmS fakemeter bash -c 'python3.11 pv_controller.py ; exec bash'
 screen -dmS router    bash -c 'python3.11 pv_router.py ; exec bash'
-screen -dmS mainboard bash -c 'python3.11 pv_mainboard.py ; exec bash'
+screen -dmS mainboard bash -c 'python3.11 pv_mainboard.py upload ; exec bash'
 
 # screen -d -m -t ventilation python3.11 ventilation.py

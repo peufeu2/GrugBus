@@ -293,8 +293,6 @@ def fakemeter_on_getvalues( self, fc_as_hex, address, count ):
             # do not serve stale data
             if age <= config.FAKE_METER_MAX_AGE:
                 self.error_count = 0
-                self.active_power.value += (time.monotonic() % 2.0)
-                self.write_regs_to_context([ self.active_power ])
                 return True
             else:
                 self.is_online = False
