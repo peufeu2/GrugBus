@@ -246,18 +246,14 @@ CALIBRATION = {
 # Inverter auto turn on/off settings
 SOLIS_POWERSAVE_CONFIG = {
     "solis1": {
-        "ENABLE_INVERTER"      : True,       # If False, turn inverter off
-        "ENABLE_POWERSAVE"     : True,       # If True, enable following logic:
-        "TURNOFF_BATTERY_SOC"  : 95,         # turn it off when SOC < value
-        "TURNOFF_MPPT_VOLTAGE" : 50,         # ...and MPPT voltage < value
-        "TURNON_MPPT_VOLTAGE"  : 80,         # turn it back on when MPPT voltage > value
+        "MODE"                 : "powersave",   # "on" = always on, "off" = always off, "powersave" = use thresholds below
+        "TURN_OFF"             : lambda mpptv, soc: mpptv < 50 and soc < 95,     # turn off when this is true
+        "TURN_ON"              : lambda mpptv, soc: mpptv > 80,                  # turn it back on when this is true
     },
     "solis2": {
-        "ENABLE_INVERTER"      : True,
-        "ENABLE_POWERSAVE"     : True,
-        "TURNOFF_BATTERY_SOC"  : 8 ,  
-        "TURNOFF_MPPT_VOLTAGE" : 50,  
-        "TURNON_MPPT_VOLTAGE"  : 80,  
+        "MODE"                 : "powersave",   # "on" = always on, "off" = always off, "powersave" = use thresholds below
+        "TURN_OFF"             : lambda mpptv, soc: mpptv < 50 and soc < 8,
+        "TURN_ON"              : lambda mpptv, soc: mpptv > 80,
     }    
 }
 
@@ -425,8 +421,8 @@ ROUTER = {
         "evse": {
             "high_priority_W"       : lambda ctx: 2000, 
             "reserve_for_battery_W" : lambda ctx: 0,
-            "start_threshold_W"     : Interp((50, 1400), (100, 1000),var="soc"),
-            "stop_threshold_W"      : Interp((50, 1000), (100,  500),var="soc"),
+            "start_threshold_W"     : Interp((00, 1400), (100, 1000),var="soc"),
+            "stop_threshold_W"      : Interp((00, 1000), (100,  500),var="soc"),
         },
     },
 }

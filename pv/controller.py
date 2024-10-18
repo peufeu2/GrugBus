@@ -356,6 +356,7 @@ def fakemeter_on_getvalues( self, fc_as_hex, address, count ):
 #
 ########################################################################################
 async def inverter_powersave_coroutine( module_updated, first_start, self, solis ):
+    cfg = config.SOLIS_POWERSAVE_CONFIG
     timeout_power_on  = Timeout( 60, expired=True )
     timeout_power_off = Timeout( 300 )
     power_reg = solis.rwr_power_on_off
@@ -366,34 +367,34 @@ async def inverter_powersave_coroutine( module_updated, first_start, self, solis
         try:
             # Auto on/off: turn it off at night when the battery is below specified SOC
             # so it doesn't keep draining it while doing nothing useful
-            cfg = config.SOLIS_POWERSAVE_CONFIG[ solis.key ]
-
-            if not cfg["ENABLE_INVERTER"]:
+            inverter_cfg = cfg[ solis.key ]
+            
+            if inverter_cfg["MODE"] == "off":
                 await power_reg.write_if_changed( power_reg.value_off )
-            elif not cfg["ENABLE_POWERSAVE"]:
+            elif inverter_cfg["MODE"] == "on":
                 await power_reg.write_if_changed( power_reg.value_on )
             else:
                 mpptv = max( solis.mppt1_voltage.value, solis.mppt2_voltage.value )
-                if power_reg.value == power_reg.value_on:
-                    if mpptv < cfg["TURNOFF_MPPT_VOLTAGE"] and self.bms_soc.value <= cfg["TURNOFF_BATTERY_SOC"]:
-                        timeout_power_on.reset()
+                if power_reg.value == power_reg.value_on:   # It's ON
+                    if inverter_cfg["TURN_OFF"](mpptv, self.bms_soc.value):  # Should we turn it off?
+                        timeout_power_on.reset()    # extend the other timeout to avoid cycling
                         if timeout_power_off.expired():
                             log.info("Powering OFF %s"%solis.key)
                             await power_reg.write_if_changed( power_reg.value_off )
                         else:
                             log.info( "Power off %s in %d s", solis.key, timeout_power_off.remain() )
                     else:
-                        timeout_power_off.reset()
-                else:
-                    if mpptv > cfg["TURNON_MPPT_VOLTAGE"]:
-                        timeout_power_off.reset()
+                        timeout_power_off.reset()   # Stay on, extend timeout
+                else:   # It's OFF
+                    if inverter_cfg["TURN_ON"](mpptv, self.bms_soc.value):   # should we turn it on?
+                        timeout_power_off.reset()    # extend the other timeout to avoid cycling
                         if timeout_power_on.expired():
                             log.info("Powering ON %s"%solis.key)
                             await power_reg.write_if_changed( power_reg.value_on )
                         else:
                             log.info( "Power on %s in %d s", solis.key, timeout_power_on.remain() )
                     else:
-                        timeout_power_on.reset()
+                        timeout_power_on.reset()    # stay off, extend timeout
                     
         except (TimeoutError, ModbusException): pass
         except Exception:

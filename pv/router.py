@@ -357,7 +357,7 @@ class EVSEController( Routable ):
             stop.publish()
             force.publish()
         if setting in (force, stop):    # if it was updated, go back to charging
-            if self.state == STATE_FINISHED:
+            if self.state == self.STATE_FINISHED:
                 self.set_state( self.STATE_UNPLUGGED )
 
     def load_config( self ):
@@ -566,7 +566,7 @@ class EVSEController( Routable ):
             self.router.hair_trigger( 0.5 ) # shut down low priority loads immediately
 
         # Handle soft start by slowly increasing the maximum bound
-        self.current_limit_bounds.set_maximum( max( self.i_start, min( self.i_max, time.monotonic() - self.soft_start_timestamp )))
+        self.current_limit_bounds.set_maximum( max( self.i_start, min( self.i_max, 0.5*(time.monotonic() - self.soft_start_timestamp ))))
 
         # Finally... adjust current.
         # Since the car imposes 1A steps, don't bother with changes smaller than this.
@@ -672,7 +672,7 @@ class Router( ):
 
         # complete configurations (in config.py) can be loaded by MQTT command
         # individual settings are not available, as that would complicate the HA GUI too much
-        MQTTSetting( self, "active_config_names"      , orjson.loads, None, orjson.dumps( config.ROUTER_DEFAULT_CONFIG ), self.mqtt_config_updated_callback )
+        MQTTSetting( self, "active_config"      , orjson.loads, None, orjson.dumps( config.ROUTER_DEFAULT_CONFIG ), self.mqtt_config_updated_callback )
         MQTTSetting( self, "offset", float, None, 0 )
         self.load_config()  # load config once, the devices will use it to initialize
 
@@ -689,7 +689,7 @@ class Router( ):
 
     # callback when config module is reloaded
     def load_config( self ):
-        configs = self.active_config_names.value
+        configs = self.active_config.value
         assert isinstance( configs, list )
         if "default" not in configs:
             configs = ["default"] + configs
@@ -701,7 +701,7 @@ class Router( ):
                 c = config.ROUTER[ cfg_key ]
             except KeyError:
                 log.error( "Router: MQTT configuration %s invalid", cfg_key)
-                self.active_config_names.value = self.active_config_names.prev_value
+                self.active_config.value = self.active_config.prev_value
                 return
             update_dict_recursive( new_config, c )
         # print( new_config )
@@ -850,7 +850,7 @@ class Router( ):
         # Scan from highest to lowest priority and let devices take power calculated above.
         # If no changes occur, each device takes back the power it released at the previous step.
         # If a high priority device takes more power, then a low priority device will have to take less.
-        logs.append(( "%5d start %s bat: %.02fA active %d -> %.02f -> %d soc %d full %d -> %.02f -> %d", ctx.power, self.active_config_names.value, 
+        logs.append(( "%5d start %s bat: %.02fA active %d -> %.02f -> %d soc %d full %d -> %.02f -> %d", ctx.power, self.active_config.value, 
             mgr.bms_current.value, self.battery_active( mgr ), self.battery_active_avg.avg( -1 ), bat_active,
             mgr.bms_soc.value, self.battery_full( mgr, bat_active ), self.battery_full_avg.avg( -1 ), bat_full ))
         for device in self.devices:
