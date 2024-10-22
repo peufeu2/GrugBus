@@ -445,33 +445,27 @@ MQTT_RATE_LIMIT = {
 
 
     # Debug
-    'pv/meter/req_time'                             : (  10,       0.3,   'avg'   ), #  0.026/14.297,
-    'pv/meter/req_period'                           : (  10,       0.3,   'avg'   ), #  0.026/14.297,
-    'pv/solis1/meter/req_time'                      : (  10,       0.3,   'avg'   ), #  0.026/14.297,
-    'pv/solis1/meter/req_period'                    : (  10,       0.3,   'avg'   ), #  0.026/14.297,
-    'pv/solis1/req_time'                            : (  10,       0.5,   'avg'   ), #  0.026/14.297,
-    'pv/solis1/req_period'                          : (  10,       0.5,   'avg'   ), #  0.026/14.297,
-    'pv/evse/meter/req_time'                        : (  10,       0.3,   'avg'   ), #  0.026/14.297,
-    'pv/evse/meter/req_period'                      : (  10,       0.3,   'avg'   ), #  0.026/14.297,
-    'pv/evse/req_time'                              : (  10,       0.5,   'avg'   ), #  0.026/14.297,
-    'pv/evse/req_period'                            : (  10,       0.5,   'avg'   ), #  0.026/14.297,
+    'pv/meter/req_time'                             : (  60,       0.2,   'avg'   ), #  0.026/14.297,
+    'pv/meter/req_period'                           : (  60,       0.2,   'avg'   ), #  0.026/14.297,
+    'pv/solis1/meter/req_time'                      : (  60,       0.2,   'avg'   ), #  0.026/14.297,
+    'pv/solis1/meter/req_period'                    : (  60,       0.2,   'avg'   ), #  0.026/14.297,
+    'pv/solis1/req_time'                            : (  60,       0.2,   'avg'   ), #  0.026/14.297,
+    'pv/solis1/req_period'                          : (  60,       0.2,   'avg'   ), #  0.026/14.297,
+    'pv/evse/meter/req_time'                        : (  60,       0.2,   'avg'   ), #  0.026/14.297,
+    'pv/evse/meter/req_period'                      : (  60,       0.2,   'avg'   ), #  0.026/14.297,
+    'pv/evse/req_time'                              : (  60,       0.5,   'avg'   ), #  0.026/14.297,
+    'pv/evse/req_period'                            : (  60,       0.5,   'avg'   ), #  0.026/14.297,
+
+    'pv/solis1/fakemeter/lag'                       : (  60,      0.40,   'avg'   ), #  0.026/14.297,
+    'pv/solis1/fakemeter/req_per_s'                 : (  30,      0.000,  'avg'   ), #  0.021/ 0.021,
 
 
-    #   PV Controller
-    #
-    'pv/solis1/fakemeter/lag'                       : (  10,      0.40,   'avg'   ), #  0.026/14.297,
-
-    # Compress/threshold heavily
     'pv/meter/is_online'                            : (  60,      0.000, ''      ), #  0.021/ 5.011,
 
-    # Published every minute, do not limit
-    'pv/solis1/fakemeter/req_per_s'                 : (  30,      0.000, ''      ), #  0.021/ 0.021,
-
-    # Master process needs every value, don't limit it, so set margin to -1
-    'pv/meter/total_power'                          : (   0,     25.000, 'avg'      ), #  4.736/ 4.995,
+    'pv/meter/total_power'                          : (   1,     25.000, 'avg'      ), #  4.736/ 4.995,
 
     # This is for debugging only and generates huge traffic, average it
-    'pv/solis1/fakemeter/active_power'              : (   0,     25.000, ''      ), #  4.714/ 4.974,
+    'pv/solis1/fakemeter/active_power'              : (   1,     25.000, ''      ), #  4.714/ 4.974,
 
     # Average voltage
     'pv/meter/phase_1_line_to_neutral_volts'        : (  10,      1.500, 'avg'   ), #  1.250/ 1.250,
@@ -518,28 +512,32 @@ MQTT_RATE_LIMIT = {
 
 
     #   CANBUS BMS INFORMATION
+    #   Controller needs up to date info, so don't compress too much
     #
     # Publish all on change
-    'pv/bms/soc'                                  : (   2,      0.000, ''      ), #  0.483/ 0.981,
-    'pv/bms/voltage'                              : (   1,      0.000, ''      ), #  0.479/ 0.917,
-    'pv/bms/current'                              : (   1,      0.000, ''      ), #  0.481/ 0.902,
-    'pv/bms/power'                                : (   1,      0.000, ''      ), #  0.482/ 0.889,
-    'pv/bms/max_charge_voltage'                   : (  10,      0.000, ''      ), #  0.017/ 0.516,
-    'pv/bms/max_discharge_current'                : (  10,      0.000, ''      ), #  0.017/ 0.516,
-    'pv/bms/protection'                           : (  10,      0.000, ''      ), #  0.017/ 0.516,
-    'pv/bms/alarm'                                : (  10,      0.000, ''      ), #  0.017/ 0.516,
-    'pv/bms/soh'                                  : (  10,      0.000, ''      ), #  0.017/ 0.516,
-    'pv/bms/request_full_charge'                  : (  10,      0.000, ''      ), #  0.017/ 0.516,
-    'pv/bms/request_force_charge_2'               : (  10,      0.000, ''      ), #  0.017/ 0.516,
-    'pv/bms/request_force_charge_1'               : (  10,      0.000, ''      ), #  0.017/ 0.516,
-    'pv/bms/discharge_enable'                     : (  10,      0.000, ''      ), #  0.017/ 0.516,
-    'pv/bms/charge_enable'                        : (  10,      0.000, ''      ), #  0.017/ 0.516,
-    'pv/bms/max_charge_current'                   : (  10,      0.000, ''      ), #  0.017/ 0.515,
-    'pv/bms/temperature'                          : (  10,      0.000, ''      ), #  0.026/ 0.514,
-    'pv/bms/max_charge_power'                     : (  10,      0.000, ''      ), #  0.062/ 0.510,
-    'pv/bms/max_discharge_power'                  : (  10,      0.000, ''      ), #  0.069/ 0.508,
-    'pv/bms/charge_current_limit'                 : (  10,      0.000, ''      ), #  0.000/ 0.000,
-    'pv/bms/discharge_current_limit'              : (  10,      0.000, ''      ), #  0.000/ 0.000,
+    'pv/bms/soc'                                  : (   5,      0.000, ''      ), #  0.483/ 0.981,
+    'pv/bms/voltage'                              : (   5,      0.020, ''      ), #  0.479/ 0.917,
+    'pv/bms/current'                              : (   5,      0.100, ''      ), #  0.481/ 0.902,
+    'pv/bms/power'                                : (   5,     10.000, ''      ), #  0.482/ 0.889,
+
+    'pv/bms/max_charge_voltage'                   : (  60,      0.000, ''      ), #  0.017/ 0.516,
+    'pv/bms/max_discharge_current'                : (  60,      0.000, ''      ), #  0.017/ 0.516,
+    'pv/bms/max_charge_current'                   : (  60,      0.000, ''      ), #  0.017/ 0.515,
+
+    'pv/bms/max_charge_power'                     : (  60,      25.00, ''      ), #  0.062/ 0.510,
+    'pv/bms/max_discharge_power'                  : (  60,      25.00, ''      ), #  0.069/ 0.508,
+
+    'pv/bms/temperature'                          : (  60,      0.200, 'avg'      ), #  0.026/ 0.514,
+
+    'pv/bms/protection'                           : (  60,      0.000, ''      ), #  0.017/ 0.516,
+    'pv/bms/alarm'                                : (  60,      0.000, ''      ), #  0.017/ 0.516,
+    'pv/bms/soh'                                  : (  60,      0.000, ''      ), #  0.017/ 0.516,
+    'pv/bms/request_full_charge'                  : (  60,      0.000, ''      ), #  0.017/ 0.516,
+    'pv/bms/request_force_charge_2'               : (  60,      0.000, ''      ), #  0.017/ 0.516,
+    'pv/bms/request_force_charge_1'               : (  60,      0.000, ''      ), #  0.017/ 0.516,
+    'pv/bms/discharge_enable'                     : (  60,      0.000, ''      ), #  0.017/ 0.516,
+    'pv/bms/charge_enable'                        : (  60,      0.000, ''      ), #  0.017/ 0.516,
+
 
     #   PV Controller
     #

@@ -373,7 +373,7 @@ async def inverter_powersave_coroutine( module_updated, first_start, self, solis
                 await power_reg.write_if_changed( power_reg.value_off )
             elif inverter_cfg["MODE"] == "on":
                 await power_reg.write_if_changed( power_reg.value_on )
-            else:
+            elif self.bms_soc.data_timestamp:   # we received SOC info
                 mpptv = max( solis.mppt1_voltage.value, solis.mppt2_voltage.value )
                 if power_reg.value == power_reg.value_on:   # It's ON
                     if inverter_cfg["TURN_OFF"](mpptv, self.bms_soc.value):  # Should we turn it off?

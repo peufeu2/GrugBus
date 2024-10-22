@@ -127,7 +127,7 @@ class FakeSmartmeter( grugbus.LocalServer ):
         self.last_query_time = 0        # last time the inverter queried
         self.data_timestamp = 0         # timestamp for data in the fake meter, if it is too old return error
         self.error_count = 0
-        self.stat_tick  = Metronome( 10 )
+        self.stat_tick  = Metronome( 60 )
         self.request_count = 0
 
     # This is called when the inverter sends a request to this server
@@ -187,8 +187,8 @@ class Controller:
         await self.mqtt.mqtt.connect( config.MQTT_BROKER_LOCAL )
 
         # Get battery current from BMS
-        MQTTVariable( "pv/bms/current", self, "bms_current", float, None, 0 )
-        MQTTVariable( "pv/bms/power",   self, "bms_power",   float, None, 0 )
+        # MQTTVariable( "pv/bms/current", self, "bms_current", float, None, 0 )
+        # MQTTVariable( "pv/bms/power",   self, "bms_power",   float, None, 0 )
         MQTTVariable( "pv/bms/soc",     self, "bms_soc",     float, None, 0 )
 
         #   Main smartmeter

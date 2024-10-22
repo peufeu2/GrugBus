@@ -249,11 +249,11 @@ class MQTTVariable:
         self.datatype       = datatype
         self.validation     = validation
         self.value          = self.prev_value = value
-        self.data_timestamp = time.monotonic()
         self.mqtt           = container.mqtt
         if callback:
             self.updated_callback = callback
         self.set_value( value )
+        self.data_timestamp = 0     # means it never received any data
         self.mqtt.subscribe_callback( mqtt_prefix+self.mqtt_topic, self.async_callback )
 
     async def async_callback( self, topic, payload, qos=None, properties=None ):
