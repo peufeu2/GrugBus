@@ -12,7 +12,7 @@ Example: the device offers an Int32 register that contains Watts, with a unit va
 
 - Client and server support. In client mode, the register API can read/write to a server.
 In server mode, it can read/write to a pymodbus datastore to prepare data to be served.
-This is used in modbus_mitm.py to man-in-the-middle the link between an inverter and its
+This is used in pv_controller.py to man-in-the-middle the link between an inverter and its
 smartmeter.
 
 - Multiple client support: several Devices can share the same RS485 bus by sharing the same pymodbus instance (protected by mutex).
@@ -55,11 +55,29 @@ to avoid overwriting innocent bystander registers that are not specified in the 
 # Contents of this repository
 
 1) Grugbus library in its directory
-2) All the other files in the root directory are parts of my photovoltaic management, they are provided as examples. The main one is modbus_mitm.py, which implements a man-in-the-middle between the inverter and the house smartmeter, which can allow tweaking the reported power value on the fly, Solis inverter control, MQTT, etc.
+2) All the other files in the root directory are parts of my photovoltaic management, they are provided as examples. 
+
+These run concurrently on my Pi and communicate via MQTT:
+
+- pv_controller.py implements a man-in-the-middle between the inverter and the house smartmeter, which can allow tweaking the reported power value on the fly, Solis inverter control, MQTT, etc.
+
+- pv_router.py controls switchable loads and an EVSE charger to use PV excess power.
+
+- pv_can.py is another MITM which intercept Pylontech CAN BMS messages and divides maximum_charge_current by 2 before forwarding to the inverters. This allows two inverters to work on the same battery stack without exceeding its current limits.
+
+- pv_mainboard.py talks to an extra board which I added to the Pi, it uses PWM to control external fans mounted behind the inverters to keep them cool.
+
+- mqtt_buffer.py logs all MQTT traffic to compressed files and saves them, so everything is logged even if the database PC is down.
+
+These run on a desktop PC:
+
+- mqtt_clickhouse.py reads data from mqtt_buffer.py and writes it to a clickhouse database.
+
+- bokehplot.py plots all the data.
 
 # Controlling Solis inverters via Modbus
 
-I have one (soon two) Solis S5-EH1P-6K inverters. The readable register list is available online, but to get to the interesting writable registers that allow full control of the inverter, a NDA must be signed in blood.
+I have two Solis S5-EH1P-6K inverters. The readable register list is available online, but to get to the interesting writable registers that allow full control of the inverter, a NDA must be signed in blood.
 
 This uses an alternate approach that should allow full control of any inverter featuring a modbus smartmeter port: man-in-the-middle.
 
