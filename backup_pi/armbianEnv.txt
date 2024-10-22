@@ -1,3 +1,8 @@
+
+#
+#	si écran disp_mode=auto
+#
+
 verbosity=1
 bootlogo=false
 console=both

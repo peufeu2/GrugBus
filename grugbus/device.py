@@ -258,6 +258,7 @@ class SlaveDevice( DeviceBase ):
             modbus_time = 0
             mutex_time = 0
             await self.connect()
+            connect_time = time.monotonic() - start_time
             update_list = []
             for fcode, chunk in self.reg_list_to_chunks( read_list, max_hole_size ):
                 # print( fcode, ":", " ".join( "%d-%d" % (c[0],c[1]) for c in chunk ))
@@ -324,7 +325,8 @@ class SlaveDevice( DeviceBase ):
                 if "r" in cfg[0] or slow:
                     self.publish_modbus_timings()
                 if slow:
-                    log.info("%s: slow modbus: [mutex %.03fs modbus %.03fs]/%.03fs %s", self.key, mutex_time, modbus_time, self.last_transaction_duration, [reg.key for reg in read_list])
+                    log.info("%s: slow modbus read: [mutex %.03fs modbus %.03fs connect %.03fs]/%.03fs %s", 
+                        self.key, mutex_time, modbus_time, connect_time, self.last_transaction_duration, [reg.key for reg in read_list])
 
     def _set_timings( self, start_time ):
         t = time.monotonic()
@@ -445,7 +447,7 @@ class SlaveDevice( DeviceBase ):
                 if "w" in cfg[0] or slow:
                     self.publish_modbus_timings()
                 if slow:
-                    log.info("%s: slow modbus: %.03fs %s", self.key, self.last_transaction_duration, [reg.key for reg in write_list])
+                    log.info("%s: slow modbus write: %.03fs %s", self.key, self.last_transaction_duration, [reg.key for reg in write_list])
 
     # for debugging
     def dump_all_regs( self, all=False ):

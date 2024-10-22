@@ -22,17 +22,17 @@ CLICKHOUSE_PASSWORD =
 # debugging tools
 ##################################################################
 
-#   To log request times, use "r", "w", or "rw" for request types.
-#   Second parameter: time in seconds, if it's slower than this, log it 
+#   To log request times, use "r", "w", or "rw" for request types, this logs all requests (subject to rate limit)
+#   Second parameter: time in seconds, logs only if slower than this
 #
 LOG_MODBUS_REQUEST_TIME = {
-    "meter"  : ( "r"   , 0.5 ),
-    "ms1"    : ( "r"   , 0.5 ),
-    "ms2"    : ( "r"   , 0.5 ),
-    "mevse"  : ( ""    , 1.0 ),
-    "evse"   : ( ""    , 1.0 ),
-    "solis1" : ( ""    , 1.0 ),
-    "solis2" : ( ""    , 1.0 ),
+    "meter"  : ( "r"    , 0.5 ),
+    "ms1"    : ( "r"    , 0.5 ),
+    "ms2"    : ( "r"    , 0.5 ),
+    "mevse"  : ( "r"    , 1.0 ),
+    "evse"   : ( "r"    , 1.0 ),
+    "solis1" : ( "r"    , 1.0 ),
+    "solis2" : ( "r"    , 1.0 ),
 }
 
 LOG_MODBUS_REGISTER_CHUNKS = False
@@ -42,7 +42,7 @@ ROUTER_PRINT_DEBUG_INFO    = False
 # Experimental features
 ##################################################################
 
-FAKEMETER_IMPROVE_TRANSIENTS = 0
+FAKEMETER_IMPROVE_TRANSIENTS = 1
 
 ##################################################################
 # mqtt
@@ -445,14 +445,16 @@ MQTT_RATE_LIMIT = {
 
 
     # Debug
-    'pv/meter/req_time'                             : (  10,       0.2,   'avg'   ), #  0.026/14.297,
-    'pv/meter/req_period'                           : (  10,       0.2,   'avg'   ), #  0.026/14.297,
-    'pv/solis1/meter/req_time'                      : (  10,       0.2,   'avg'   ), #  0.026/14.297,
-    'pv/solis1/meter/req_period'                    : (  10,       0.2,   'avg'   ), #  0.026/14.297,
-    'pv/solis1/req_time'                            : (  10,       0.2,   'avg'   ), #  0.026/14.297,
-    'pv/solis1/req_period'                          : (  10,       0.2,   'avg'   ), #  0.026/14.297,
-    'pv/evse/meter/req_time'                        : (  10,       0.2,   'avg'   ), #  0.026/14.297,
-    'pv/evse/meter/req_period'                      : (  10,       0.2,   'avg'   ), #  0.026/14.297,
+    'pv/meter/req_time'                             : (  10,       0.3,   'avg'   ), #  0.026/14.297,
+    'pv/meter/req_period'                           : (  10,       0.3,   'avg'   ), #  0.026/14.297,
+    'pv/solis1/meter/req_time'                      : (  10,       0.3,   'avg'   ), #  0.026/14.297,
+    'pv/solis1/meter/req_period'                    : (  10,       0.3,   'avg'   ), #  0.026/14.297,
+    'pv/solis1/req_time'                            : (  10,       0.5,   'avg'   ), #  0.026/14.297,
+    'pv/solis1/req_period'                          : (  10,       0.5,   'avg'   ), #  0.026/14.297,
+    'pv/evse/meter/req_time'                        : (  10,       0.3,   'avg'   ), #  0.026/14.297,
+    'pv/evse/meter/req_period'                      : (  10,       0.3,   'avg'   ), #  0.026/14.297,
+    'pv/evse/req_time'                              : (  10,       0.5,   'avg'   ), #  0.026/14.297,
+    'pv/evse/req_period'                            : (  10,       0.5,   'avg'   ), #  0.026/14.297,
 
 
     #   PV Controller
