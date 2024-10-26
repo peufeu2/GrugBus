@@ -131,7 +131,7 @@ DATA_STREAMS = [
     ( "pv/bms/current"                                   , "A"   , "BMS"                         , "bms"           , "solid"    , 1.0 , {"visible":False}  , {} ),
     ( "pv/bms/max_charge_current"                        , "A"   , "BMS Max Charge"              , "#008000"       , "dashed"   , 1.0 , {}                 , {} ),
     ( "pv/bms/voltage"                                   , "V"   , "BMS"                         , "bms"           , "solid"    , 1.0 , {"visible":False}  , {} ),
-    ( "pv/bms/soc"                                       , "%"   , "BMS SOC"                     , "soc"           , "solid"    , 1.0 , {}                 , {} ),
+    ( "pv/bms/soc"                                       , "kWh" , "BMS SOC"                     , "soc"           , "solid"    , 0.2 , {}                 , {} ),
     ( "pv/bms/charge_enable"                             , "?"   , "BMS Charge Enable"           , "#00FF00"       , "solid"    , 1.0 , {}                 , {} ),
     ( "pv/bms/temperature"                               , "°C"  , "Battery Temperature"         , "battery"       , "solid",    1.0 , {}                 , {} ),
     ( "pv/bms/max_charge_voltage"  , "V", "Bat max_charge_voltage", nextcolor, "solid", 1.0, {}, {} ),

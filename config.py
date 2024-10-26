@@ -518,7 +518,7 @@ MQTT_RATE_LIMIT = {
     'pv/bms/soc'                                  : (   5,      0.000, ''      ), #  0.483/ 0.981,
     'pv/bms/voltage'                              : (   5,      0.020, ''      ), #  0.479/ 0.917,
     'pv/bms/current'                              : (   5,      0.100, ''      ), #  0.481/ 0.902,
-    'pv/bms/power'                                : (   5,     10.000, ''      ), #  0.482/ 0.889,
+    'pv/bms/power'                                : (   5,     25.000, ''      ), #  0.482/ 0.889,
 
     'pv/bms/max_charge_voltage'                   : (  60,      0.000, ''      ), #  0.017/ 0.516,
     'pv/bms/max_discharge_current'                : (  60,      0.000, ''      ), #  0.017/ 0.516,

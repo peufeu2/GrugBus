@@ -46,6 +46,7 @@ class Led:
     def __init__( self, pin ):
         self.pin = pin
         self.set( 0 )
+        self.mode = None
 
     def update( self ):
         self.pin( self.counter != 0 )
@@ -60,9 +61,12 @@ LEDS = [ Led( pin ) for pin in LED_PINS ]
 LED_MODE = "fan"
 
 def update_leds( t ):
-    if not LED_MODE:
-        for led in LEDS:
+    for led in LEDS:
+        if led.mode:
             led.update()
+
+LEDS[1].mode = 1
+LEDS[4].mode = 1
 
 LEDtimer = machine.Timer()
 LEDtimer.init( mode=machine.Timer.PERIODIC, callback=update_leds, freq=20 ) 
@@ -166,6 +170,7 @@ def cmd_stat( args=None ):
     TACH_COUNTERS = [ 0,0,0,0 ]
     send( ">tach %s\n" % tc )   # send comment line
     send( ">button %s\n" % PIN_BUTTON() )   # send comment line
+    LEDS[1].set(1)
 
 def cmd_led( args ):
     LEDS[int(args[0])].set(int(args[1]))
@@ -205,6 +210,7 @@ def command_line():
             print( line )
             if not line:
                 continue
+            LEDS[4].set(1)
             if parse( line.strip().split() ):
                 break
         except Exception as e:
