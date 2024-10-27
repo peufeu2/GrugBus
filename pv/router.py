@@ -305,8 +305,9 @@ class EVSEController( Routable ):
         #   Note force charge and energy limit settings are reset once the car is unplugged.
         #
         MQTTSetting( self, "force_charge_minimum_A"     , int  , range( 6, 32 ) , 10 )  # guarantee this charge minimum current    
+        MQTTSetting( self, "force_charge_minimum_soc"   , int  , range( 0, 100 ), 0 )  # stop force charge when when SOC below this
         MQTTSetting( self, "force_charge_until_kWh"     , int  , range( 0, 81 ) , 0  , self.setting_updated )  # until this energy has been delivered (0 to disable force charge)
-        MQTTSetting( self, "stop_charge_after_kWh"      , int  , range( 0, 101 ) , 0  , self.setting_updated )
+        MQTTSetting( self, "stop_charge_after_kWh"      , int  , range( 0, 101 ), 0  , self.setting_updated )
 
         # This is used as bounds to clip the 
         self.current_limit_bounds = Interval( self.i_start, self.i_max, round )
@@ -479,7 +480,10 @@ class EVSEController( Routable ):
 
         #   Timer to Start Charge
         #
-        if self.is_online and self.evse.energy.value < self.force_charge_until_kWh.value:   # Force charge?
+        if ( self.is_online 
+             and ctx.soc > self.force_charge_minimum_soc.value
+             and self.evse.energy.value < self.force_charge_until_kWh.value   # Force charge?
+            ):
             self.start_counter.to_maximum() # tweak counters so charge starts immediately and does not stop
             self.stop_counter.to_maximum()
             # set lower bound for charge current to the minimum allowed by force charge

@@ -17,7 +17,7 @@ from misc import *
 STREAMING_LENGTH = 1200         # seconds
 STREAMING_LENGTH_MIN = 200     # seconds
 STREAMING_LENGTH_MAX = 3600    # seconds
-TIME_SHIFT_S = 3600*2          # to shift database timestamps stored in UTC
+TIME_SHIFT_S = 3600*1          # to shift database timestamps stored in UTC
 TIME_SHIFT = np.timedelta64( TIME_SHIFT_S, 's' )
 
 clickhouse = clickhouse_driver.Client('localhost', user=config.CLICKHOUSE_USER, password=config.CLICKHOUSE_PASSWORD )

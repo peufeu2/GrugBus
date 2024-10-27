@@ -189,7 +189,8 @@ class Controller:
         # Get battery current from BMS
         # MQTTVariable( "pv/bms/current", self, "bms_current", float, None, 0 )
         # MQTTVariable( "pv/bms/power",   self, "bms_power",   float, None, 0 )
-        MQTTVariable( "pv/bms/soc",     self, "bms_soc",     float, None, 0 )
+        MQTTVariable( "pv/bms/soc",         self, "bms_soc", float, None, 0 )
+        MQTTVariable( "chauffage/pompe",    self, "chauffage_pac_pompe",     int, None, 0 )
 
         #   Main smartmeter
         #

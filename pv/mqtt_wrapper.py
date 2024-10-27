@@ -285,6 +285,9 @@ class MQTTVariable:
         self.data_timestamp = time.monotonic()
         self.publish()
 
+    def age( self ):
+        return time.monotonic() - self.data_timestamp
+
     def set_value( self, value ):
         return self.callback( value )
 

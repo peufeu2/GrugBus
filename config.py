@@ -243,17 +243,37 @@ CALIBRATION = {
 # Power saving mode (turn off invertes) in pv_controller.py
 ##################################################################
 
+# Return value is added to counter every second. Inverter turns on when counter reaches 100,
+# turns off when counter reaches zero.
+#
+def solis1_power_management( ctx ):
+    if ctx.soc > 10:
+        if ctx.self.chauffage_pac_pompe.value:  # heat pump starts: turn on immediately
+            return "pump", 100
+        if ctx.self.house_power > 3500:  # high power demand: turn on if needed
+            return "need power", 1
+    if ctx.mpptv > 80:      # daytime
+        return "day", 1
+    if ctx.mpptv < 60:      # at night
+        return "night", -0.2
+    return "", 0
+
+def solis2_power_management( ctx ):
+    if ctx.mpptv > 80:  # day: turn on
+        return "day", 1
+    elif ctx.mpptv < 60 and ctx.soc < 8:    # night and battery empty: turn off
+        return "night low battery", -0.2
+    return "", 0
+
 # Inverter auto turn on/off settings
 SOLIS_POWERSAVE_CONFIG = {
     "solis1": {
-        "MODE"                 : "powersave",   # "on" = always on, "off" = always off, "powersave" = use thresholds below
-        "TURN_OFF"             : lambda mpptv, soc: mpptv < 50 and soc < 95,     # turn off when this is true
-        "TURN_ON"              : lambda mpptv, soc: mpptv > 80,                  # turn it back on when this is true
+        "MODE" : "powersave",   # "on" = always on, "off" = always off, "powersave" = use function below
+        "FUNC" : solis1_power_management,
     },
     "solis2": {
-        "MODE"                 : "powersave",   # "on" = always on, "off" = always off, "powersave" = use thresholds below
-        "TURN_OFF"             : lambda mpptv, soc: mpptv < 50 and soc < 8,
-        "TURN_ON"              : lambda mpptv, soc: mpptv > 80,
+        "MODE" : "powersave",   # "on" = always on, "off" = always off, "powersave" = use function below
+        "FUNC" : solis2_power_management,
     }    
 }
 

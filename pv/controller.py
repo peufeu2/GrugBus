@@ -355,46 +355,63 @@ def fakemeter_on_getvalues( self, fc_as_hex, address, count ):
 #   Low battery power save logic
 #
 ########################################################################################
+class PSCtx:
+    pass
+
 async def inverter_powersave_coroutine( module_updated, first_start, self, solis ):
-    cfg = config.SOLIS_POWERSAVE_CONFIG
-    timeout_power_on  = Timeout( 60, expired=True )
-    timeout_power_off = Timeout( 300 )
     power_reg = solis.rwr_power_on_off
+    is_on = lambda: (power_reg.value == power_reg.value_on)
+    chrono = Chrono()
+
     while not module_updated(): # Exit if this module was reloaded
         await solis.event_all.wait()
         if not solis.is_online:
             continue
         try:
+            # Initialize on/off counter on first load
+            if first_start:
+                solis._on_off_counter = BoundedCounter( 100*is_on(), 0, 100 )
+                first_start = False
+
             # Auto on/off: turn it off at night when the battery is below specified SOC
             # so it doesn't keep draining it while doing nothing useful
-            inverter_cfg = cfg[ solis.key ]
+            inverter_cfg = config.SOLIS_POWERSAVE_CONFIG[ solis.key ]
+            counter = solis._on_off_counter
+            elapsed = chrono.lap()
             
+            reason = ""
             if inverter_cfg["MODE"] == "off":
+                counter.to_minimum()
+                reason = "turn off by config"
                 await power_reg.write_if_changed( power_reg.value_off )
             elif inverter_cfg["MODE"] == "on":
+                counter.to_maximum()
+                reason = "turn on by config"
                 await power_reg.write_if_changed( power_reg.value_on )
-            elif self.bms_soc.data_timestamp:   # we received SOC info
-                mpptv = max( solis.mppt1_voltage.value, solis.mppt2_voltage.value )
-                if power_reg.value == power_reg.value_on:   # It's ON
-                    if inverter_cfg["TURN_OFF"](mpptv, self.bms_soc.value):  # Should we turn it off?
-                        timeout_power_on.reset()    # extend the other timeout to avoid cycling
-                        if timeout_power_off.expired():
-                            log.info("Powering OFF %s"%solis.key)
-                            await power_reg.write_if_changed( power_reg.value_off )
-                        else:
-                            log.info( "Power off %s in %d s", solis.key, timeout_power_off.remain() )
-                    else:
-                        timeout_power_off.reset()   # Stay on, extend timeout
-                else:   # It's OFF
-                    if inverter_cfg["TURN_ON"](mpptv, self.bms_soc.value):   # should we turn it on?
-                        timeout_power_off.reset()    # extend the other timeout to avoid cycling
-                        if timeout_power_on.expired():
-                            log.info("Powering ON %s"%solis.key)
-                            await power_reg.write_if_changed( power_reg.value_on )
-                        else:
-                            log.info( "Power on %s in %d s", solis.key, timeout_power_on.remain() )
-                    else:
-                        timeout_power_on.reset()    # stay off, extend timeout
+            elif self.bms_soc.age() < 120:   # we have received SOC
+                ctx = PSCtx()
+                ctx.mpptv = max( solis.mppt1_voltage.value, solis.mppt2_voltage.value )
+                ctx.is_on = power_reg.value == power_reg.value_on
+                ctx.soc   = self.bms_soc.value
+                ctx.solis = solis
+                ctx.self  = self
+                reason, delta = inverter_cfg["FUNC"](ctx)
+                counter.add( delta * elapsed )
+
+            reason = "reason: %s, MPPT %dV SOC %d%% house_power %dW pump %d" % ( reason, ctx.mpptv, ctx.soc, self.house_power, self.chauffage_pac_pompe.value )
+
+            if counter.at_maximum():
+                newval = power_reg.value_on
+                if power_reg.value != newval:
+                    log.info( "%s: Powering ON. (%s)", solis.key, reason )
+                    await power_reg.write_if_changed( newval )
+            elif counter.at_minimum():
+                newval = power_reg.value_off
+                if power_reg.value != newval:
+                    log.info( "%s: Powering OFF. (%s)", solis.key, reason )
+                    await power_reg.write_if_changed( newval )
+            else:
+                log.info( "%s: powersave counter: %.1f", solis.key, counter.value )
                     
         except (TimeoutError, ModbusException): pass
         except Exception:
