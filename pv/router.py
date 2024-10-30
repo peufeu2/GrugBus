@@ -31,8 +31,10 @@ Reminder:
 git remote set-url origin https://<token>@github.com/peufeu2/GrugBus.git
 """
 
+# pymodbus.pymodbus_apply_logging_config("DEBUG")
+
 log = logging.getLogger(__name__)
-log.setLevel(logging.DEBUG)
+log.setLevel(logging.INFO)
 
     # Solis S5 EH1P has several different behaviors to which we should adapt for better routing.
     #
@@ -272,7 +274,7 @@ class Battery( Routable ):
         # Take max charging power regardless of available power, to ensure lower priority loads will shut down
         # and let the battery get its desired charging power
         self.max_power_from_soc = min( ctx.bp_max, self.power_func( ctx ) )  # soc -> power from configuration, then limit to inverter's max battery power
-        self.mqtt.publish_value( self.mqtt_topic+"max_power", self.max_power_from_soc, int )
+        # self.mqtt.publish_value( self.mqtt_topic+"max_power", self.max_power_from_soc, int )
         self.current_power = min( ctx.power, self.max_power_from_soc )
         return self.max_power_from_soc
 
@@ -309,7 +311,7 @@ class EVSEController( Routable ):
         MQTTSetting( self, "force_charge_until_kWh"     , int  , range( 0, 81 ) , 0  , self.setting_updated )  # until this energy has been delivered (0 to disable force charge)
         MQTTSetting( self, "stop_charge_after_kWh"      , int  , range( 0, 101 ), 0  , self.setting_updated )
 
-        # This is used as bounds to clip the 
+        # This is used as bounds to clip the current limit
         self.current_limit_bounds = Interval( self.i_start, self.i_max, round )
 
         #   After each command:
@@ -451,10 +453,10 @@ class EVSEController( Routable ):
         self.start_threshold_W_value = self.start_threshold_W(ctx)
         self.stop_threshold_W_value  = self.stop_threshold_W(ctx)
 
-        self.mqtt.publish_value( self.mqtt_topic+"high_priority_W" , hpp , int )
-        self.mqtt.publish_value( self.mqtt_topic+"reserve_for_battery_W" , resb, int )
-        self.mqtt.publish_value( self.mqtt_topic+"start_threshold_W"   , self.start_threshold_W_value, int )
-        self.mqtt.publish_value( self.mqtt_topic+"stop_threshold_W"    , self.stop_threshold_W_value , int )
+        # self.mqtt.publish_value( self.mqtt_topic+"high_priority_W" , hpp , int )
+        # self.mqtt.publish_value( self.mqtt_topic+"reserve_for_battery_W" , resb, int )
+        # self.mqtt.publish_value( self.mqtt_topic+"start_threshold_W"   , self.start_threshold_W_value, int )
+        # self.mqtt.publish_value( self.mqtt_topic+"stop_threshold_W"    , self.stop_threshold_W_value , int )
 
         # First take our minimum power (if any)
         min_ev_power = min( ctx.power, hpp )
@@ -732,7 +734,11 @@ class Router( ):
     async def stop( self ):
         # await mgr.evse.pause_charge()
         for d in self.devices:
-            await d.stop()
+            try:
+                await d.stop()
+            except Exception:
+                # if EVSE is offline it will raise an exception here
+                log.exception("Router:")        
 
     # Puts the router on a hair trigger for the specified duration in seconds
     def hair_trigger( self, duration ):
@@ -922,7 +928,7 @@ async def route_coroutine( module_updated, first_start, mgr ):
         # wait for startup transient to pass
         # await asyncio.sleep(5)
         if first_start:
-            await mgr.router.stop()
+            await mgr.router.stop() # turn everything off on launch, but not on reload
 
         # If we stop receiving data from PV controller, this will raise TimeoutError and exit
         await asyncio.wait_for( mgr.event_power.wait(), timeout = 10 )

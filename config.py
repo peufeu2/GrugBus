@@ -120,30 +120,52 @@ POLL_PERIOD_EVSE_METER_IDLE      = 10
 #   Note: FTDI FT_PROG utility can change serial number in FT2232 EEPROM, which
 #   allows renaming serial ports.
 
+# How many times grugbus retries on error. This is different from pymodbus retries
+# because a call to connect() is made before retrying, which sometimes fixes the issue...
+GRUGBUS_RETRIES = 1         # it will do GRUGBUS_RETRIES+1 attempts
+GRUGBUS_RETRY_WAIT_S = 0.2  # how long to wait before retrying
+GRUGBUS_RATE_LIMIT_ERRORS = 10  # stop logging errors after this number
+
+def PYMODBUS_CLIENT_TWEAKS( client ):
+    # Prevent pymodbus from disconnecting the port too fast after failed requests
+    # default is to disconnect after 3 attempts, this is too low.
+    if hasattr( client, "accept_no_response_limit" ):
+        client.accept_no_response_limit = 120
+
 _SERIAL_DEFAULTS = {
     "timeout"  : 0.3,
-    "retries"  : 3,
     "baudrate" : 9600,
     "bytesize" : 8,
     "parity"   : "N",
     "stopbits" : 1,
+    # pymodbus parameters
+    "retries"  : 1,
+    "reconnect_delay"     : 0.1,
+    "reconnect_delay_max" : 0.4,
+}
+
+_SOLIS_COM_DEFAULTS = {
+    "timeout" : 0.5,
+}
+
+_FAKE_METER_DEFAULTS = lambda n: {
+    "baudrate"       : 9600,
+    "modbus_address" : 1, 
+    "key"            : "fake_meter_%s"%n, 
+    "name"           : "Fake meter for Solis %s"%n, 
 }
 
 SOLIS = {
     "solis1":  {
         "CAN_PORT"   : 'can_1',
-        "SERIAL"     : _SERIAL_DEFAULTS | { "port"   : "/dev/serial/by-id/usb-FTDI_USB_RS485_1-if01-port0", "timeout":1 },   # Solis1 COM port
+        "SERIAL"     : _SERIAL_DEFAULTS | _SOLIS_COM_DEFAULTS | { "port"   : "/dev/serial/by-id/usb-FTDI_USB_RS485_1-if01-port0", },   # Solis1 COM port
         "PARAMS": {
             "modbus_addr" : 1,
             "key"         : "solis1",
             "name"        : "Solis 1",    
         },
-        "FAKE_METER" : {
+        "FAKE_METER" : _FAKE_METER_DEFAULTS(1) | {
             "port"            : "/dev/serial/by-id/usb-FTDI_USB_RS485_1-if00-port0",   # Solis1 fakemeter
-            "baudrate"        : 9600, 
-            "key"             : "fake_meter_1", 
-            "name"            : "Fake meter for Solis 1", 
-            "modbus_address"  : 1, 
         },
         "LOCAL_METER" : { 
             "SERIAL": _SERIAL_DEFAULTS | { "port" : "/dev/serial/by-id/usb-FTDI_USB_RS485_4-if00-port0" },
@@ -156,18 +178,14 @@ SOLIS = {
     },
     "solis2": {
         "CAN_PORT"   : 'can_2',
-        "SERIAL"     : _SERIAL_DEFAULTS | { "port"   : "/dev/serial/by-id/usb-FTDI_USB_RS485_2-if01-port0", "timeout":1 },   # Solis2 COM port
+        "SERIAL"     : _SERIAL_DEFAULTS | _SOLIS_COM_DEFAULTS | { "port"   : "/dev/serial/by-id/usb-FTDI_USB_RS485_2-if01-port0" },   # Solis2 COM port
         "PARAMS": {
             "modbus_addr" : 1,
             "key"         : "solis2",
             "name"        : "Solis 2",    
         },
-        "FAKE_METER" : {
+        "FAKE_METER" : _FAKE_METER_DEFAULTS(2) | {
             "port"            : "/dev/serial/by-id/usb-FTDI_USB_RS485_2-if00-port0",   # Solis1 fakemeter
-            "baudrate"        : 9600, 
-            "key"             : "fake_meter_2",
-            "name"            : "Fake meter for Solis 2",
-            "modbus_address"  : 1, 
         },
         "LOCAL_METER" : { 
             "SERIAL": _SERIAL_DEFAULTS | { "port" : "/dev/serial/by-id/usb-FTDI_USB_RS485_4-if01-port0", },
@@ -393,7 +411,7 @@ ROUTER = {
             #   EVSE/Battery power management:
             #   First excess power is computed. Then, EVSE takes up to high_priority_W, if available.
             #   This is to avoid frequent start/stop cycles. This should be > start_threshold_W.
-            "high_priority_W"       : Interp((90, 0), (91, 1500), var="soc"),    
+            "high_priority_W"       : Interp((89, 0), (90, 1500), var="soc"),    
 
             # Remaining excess goes to battery up to reserve_for_battery_W
             # Interp(min_soc, max_power, max_soc, min_power) 
@@ -485,7 +503,7 @@ MQTT_RATE_LIMIT = {
     'pv/meter/total_power'                          : (   1,     25.000, 'avg'      ), #  4.736/ 4.995,
 
     # This is for debugging only and generates huge traffic, average it
-    'pv/solis1/fakemeter/active_power'              : (   1,     25.000, ''      ), #  4.714/ 4.974,
+    'pv/solis1/fakemeter/active_power'              : (  10,     25.000, ''      ), #  4.714/ 4.974,
 
     # Average voltage
     'pv/meter/phase_1_line_to_neutral_volts'        : (  10,      1.500, 'avg'   ), #  1.250/ 1.250,

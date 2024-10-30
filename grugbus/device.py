@@ -3,7 +3,7 @@
 
 import logging, functools, asyncio, time
 from pymodbus.pdu import ExceptionResponse
-from pymodbus.exceptions import ModbusException
+from pymodbus.exceptions import ModbusException, ConnectionException
 from asyncio.exceptions import TimeoutError
 import config
 from misc import *
@@ -47,6 +47,7 @@ class DeviceBase( ):
         """
         if not hasattr( modbus, "_async_mutex" ):   # mutex protects serial port if we have more than 1 device banging on it
             modbus._async_mutex = asyncio.Lock()
+        config.PYMODBUS_CLIENT_TWEAKS( modbus )
         self.modbus      = modbus
         self.bus_address = bus_address
         self.name        = name
@@ -63,7 +64,7 @@ class DeviceBase( ):
         self.last_transaction_timestamp = 0
         self.last_transaction_period    = 0
         self.last_transaction_duration  = 0
-        self.default_retries = 1    # 1 means 1 try and no retry
+        self.default_retries = config.GRUGBUS_RETRIES+1    # 1 means 1 try and no retry
 
         # SDM120 does not like "write register", it needs "write multiple registers" even if there is just one
         self.force_multiple_regiters = False
@@ -81,15 +82,16 @@ class DeviceBase( ):
         for reg in registers:
             self.add_register( reg )
 
-    def rate_limit_error( self, old_is_online ):
+    def rate_limit_error( self, old_is_online, increment_counter ):
         if old_is_online:   # it was online and is no longer online.
             self.ratelimit_error_count = 0
             return "[was online]"
         else:
-            self.ratelimit_error_count += 1
-            if self.ratelimit_error_count < 4:
+            if increment_counter:
+                self.ratelimit_error_count += 1
+            if self.ratelimit_error_count < config.GRUGBUS_RATE_LIMIT_ERRORS:
                 return "[%s]" % self.ratelimit_error_count
-            if self.ratelimit_error_count == 4:
+            if self.ratelimit_error_count == config.GRUGBUS_RATE_LIMIT_ERRORS:
                 return "[further messages suppressed]"
 
     def add_register( self, reg ):
@@ -257,8 +259,6 @@ class SlaveDevice( DeviceBase ):
             start_time = time.monotonic()
             modbus_time = 0
             mutex_time = 0
-            await self.connect()
-            connect_time = time.monotonic() - start_time
             update_list = []
             for fcode, chunk in self.reg_list_to_chunks( read_list, max_hole_size ):
                 # print( fcode, ":", " ".join( "%d-%d" % (c[0],c[1]) for c in chunk ))
@@ -270,6 +270,7 @@ class SlaveDevice( DeviceBase ):
                 start_addr  = chunk[0][0]
                 end_addr    = chunk[-1][1]
                 for retry in range( retries ):
+                    await self.connect()
                     try:
                         mutex_time -= time.monotonic()
                         async with self.modbus._async_mutex:    # share same serial port between several tasks
@@ -289,15 +290,17 @@ class SlaveDevice( DeviceBase ):
                                 time.sleep(0.001)  
                         update_list.append( (fcode, chunk, start_addr, reg_data) )
                         break
-                    except (TimeoutError,ModbusException) as e:
-                        await asyncio.sleep(0)  # let other tasks use this serial port
-                        if retry < retries-1:
-                            log.info( "Modbus read error: %s will retry %d/%d (%s)", self.key, retry+1, retries, e )
-                            pass
+                    except (TimeoutError,ModbusException,ConnectionException) as e:
+                        is_err = retry == retries-1
+                        msg = self.rate_limit_error(old_is_online, is_err)
+                        if not is_err:
+                            if msg:
+                                log.info( "Modbus read error: %s will retry %d/%d (%s)", self.key, retry+1, retries, e )
                         else:
-                            if (msg := self.rate_limit_error(old_is_online)) is not None:
+                            if msg:
                                 log.error( "Modbus read error: %s after %d/%d tries (%s) %s", self.key, retry+1, retries, e, msg )
                             raise
+                        await asyncio.sleep(config.GRUGBUS_RETRY_WAIT_S)  # let other tasks use this serial port
 
             # Decode values and assign to registers. Do this in a separate loop after reading,
             # to make sure all registers were processed. Otherwise, due to the await above,
@@ -325,8 +328,8 @@ class SlaveDevice( DeviceBase ):
                 if "r" in cfg[0] or slow:
                     self.publish_modbus_timings()
                 if slow:
-                    log.info("%s: slow modbus read: [mutex %.03fs modbus %.03fs connect %.03fs]/%.03fs %s", 
-                        self.key, mutex_time, modbus_time, connect_time, self.last_transaction_duration, [reg.key for reg in read_list])
+                    log.info("%s: slow modbus read: [mutex %.03fs modbus %.03fs]/%.03fs retry %s", 
+                        self.key, mutex_time, modbus_time, self.last_transaction_duration, retry ) # , [reg.key for reg in read_list])
 
     def _set_timings( self, start_time ):
         t = time.monotonic()
@@ -373,7 +376,6 @@ class SlaveDevice( DeviceBase ):
         old_is_online = self.is_online
         try:
             start_time = time.monotonic()
-            await self.connect()
             update_list = []
             for fcode, chunk in self.reg_list_to_chunks( write_list, 0 ):
                 # check address span of this write operation and build data buffer
@@ -400,6 +402,7 @@ class SlaveDevice( DeviceBase ):
             # otherwise, due to the await, a mix of old and new values could be written.
             for fcode, start_addr, reg_data in update_list:
                 for retry in range( retries ):
+                    await self.connect()
                     try:
                         async with self.modbus._async_mutex:
                             if fcode in (1,5):     # we're dealing with bools (force coil)
@@ -426,15 +429,17 @@ class SlaveDevice( DeviceBase ):
                             raise ModbusException( str( resp ))
                         self.is_online = True
                         break
-                    except (TimeoutError,ModbusException) as e:
-                        await asyncio.sleep(0)  # let other tasks use this serial port
-                        if retry < retries-1:
-                            # log.info( "Modbus write error: %s will retry %d/%d (%s) %s", self.key, retry+1, retries, e, msg )
-                            pass
+                    except (TimeoutError,ModbusException,ConnectionException) as e:
+                        is_err = retry == retries-1
+                        msg = self.rate_limit_error(old_is_online, is_err)
+                        if not is_err:
+                            if msg:
+                                log.info( "Modbus write error: %s will retry %d/%d (%s)", self.key, retry+1, retries, e )
                         else:
-                            if (msg := self.rate_limit_error(old_is_online)) is not None:
+                            if msg:
                                 log.error( "Modbus write error: %s after %d/%d tries (%s) %s", self.key, retry+1, retries, e, msg )
                             raise
+                        await asyncio.sleep(config.GRUGBUS_RETRY_WAIT_S)  # let other tasks use this serial port
 
         except Exception as e:
             self.is_online = False

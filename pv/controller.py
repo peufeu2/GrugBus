@@ -163,8 +163,8 @@ async def power_coroutine( module_updated, first_start, self ):
                         if not bonus and self.bms_soc.value < 97:
                             boost = min( 1, boost + time_since_last*0.3 )
                         else:
-                            if bonus and boost:
-                                print( "boost", fake_power, bonus*boost )
+                            # if bonus and boost:
+                                # print( "boost", fake_power, bonus*boost )
                             fake_power = min( 15000, fake_power+bonus*boost )
                             boost = max( 0, boost - time_since_last*0.3 )
                     elif config.FAKEMETER_IMPROVE_TRANSIENTS == 2:
@@ -397,21 +397,20 @@ async def inverter_powersave_coroutine( module_updated, first_start, self, solis
                 ctx.self  = self
                 reason, delta = inverter_cfg["FUNC"](ctx)
                 counter.add( delta * elapsed )
-
-            reason = "reason: %s, MPPT %dV SOC %d%% house_power %dW pump %d" % ( reason, ctx.mpptv, ctx.soc, self.house_power, self.chauffage_pac_pompe.value )
+                reason = "reason: %s, MPPT %dV SOC %d%% house_power %dW pump %d" % ( reason, ctx.mpptv, ctx.soc, self.house_power, self.chauffage_pac_pompe.value )
 
             if counter.at_maximum():
                 newval = power_reg.value_on
                 if power_reg.value != newval:
-                    log.info( "%s: Powering ON. (%s)", solis.key, reason )
+                    log.info( "%s: Powering ON (%s)", solis.key, reason )
                     await power_reg.write_if_changed( newval )
             elif counter.at_minimum():
                 newval = power_reg.value_off
                 if power_reg.value != newval:
-                    log.info( "%s: Powering OFF. (%s)", solis.key, reason )
+                    log.info( "%s: Powering OFF (%s)", solis.key, reason )
                     await power_reg.write_if_changed( newval )
             else:
-                log.info( "%s: powersave counter: %.1f", solis.key, counter.value )
+                log.debug( "%s: powersave counter: %.1f", solis.key, counter.value )
                     
         except (TimeoutError, ModbusException): pass
         except Exception:
