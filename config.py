@@ -67,11 +67,22 @@ MQTT_BUFFER_IP   = SOLARPI_IP
 MQTT_BUFFER_PORT = 15555
 MQTT_BUFFER_RETENTION = 24*3600*365 # how long to keep log files
 MQTT_BUFFER_FILE_DURATION = 3600	# number of seconds before new log file is created
+MQTT_BUFFER_IGNORE = "nolog/", "z2m/bridge/"
 
 # path on solarpi for storage of mqtt compressed log
 MQTT_BUFFER_PATH = "/home/peufeu/mqtt_buffer"
 # temporary path on PC with clickhouse to copy logs and insert into database
 MQTT_BUFFER_TEMP = "/mnt/ssd/temp/solarpi/mqtt"
+
+#   When a topic matches and the payload is JSON {dict}, mqtt_buffer
+#   will unwrap the dict and republish only contents specified here:
+#
+MQTT_BUFFER_FILTER = [
+    ( re.compile( r"^tele/plugs/tasmota_t.*?/STATE$" ), {} ),
+    ( re.compile( r"^stat/plugs/tasmota_t.*?/RESULT$" ), {"POWER": ( lambda s:int(s=="ON"), ( 60, 0.000, '' )) } ),
+    ( re.compile( r"^tele/plugs/tasmota_t.*?/SENSOR$" ), {"ENERGY":{"Power": ( float, (10, 20, "avg")) }} ),
+    ( re.compile( r"^stat/plugs/tasmota_t.*?/STATUS8$" ), {"StatusSNS":{"ENERGY":{"Power":(float, (1, 20, "avg")) }}} ),
+]
 
 ##################################################################
 # Various features enable/disable
@@ -109,7 +120,7 @@ POLL_PERIOD_SOLIS_METER = 0.2
 POLL_PERIOD_SOLIS       = 0.2
 POLL_PERIOD_EVSE        = 1
 POLL_PERIOD_EVSE_METER_CHARGING  = 0.2
-POLL_PERIOD_EVSE_METER_IDLE      = 10
+POLL_PERIOD_EVSE_METER_IDLE      = 0.2 # 10
 
 
 ##################################################################
@@ -122,7 +133,7 @@ POLL_PERIOD_EVSE_METER_IDLE      = 10
 
 # How many times grugbus retries on error. This is different from pymodbus retries
 # because a call to connect() is made before retrying, which sometimes fixes the issue...
-GRUGBUS_RETRIES = 1         # it will do GRUGBUS_RETRIES+1 attempts
+GRUGBUS_RETRIES = 3         # it will do GRUGBUS_RETRIES+1 attempts
 GRUGBUS_RETRY_WAIT_S = 0.2  # how long to wait before retrying
 GRUGBUS_RATE_LIMIT_ERRORS = 10  # stop logging errors after this number
 
@@ -139,7 +150,8 @@ _SERIAL_DEFAULTS = {
     "parity"   : "N",
     "stopbits" : 1,
     # pymodbus parameters
-    "retries"  : 1,
+    # retries needs to be zero otherwise it locks the bus while retrying
+    "retries"  : 0,
     "reconnect_delay"     : 0.1,
     "reconnect_delay_max" : 0.4,
 }
@@ -489,9 +501,9 @@ MQTT_RATE_LIMIT = {
     'pv/solis1/meter/req_period'                    : (  60,       0.2,   'avg'   ), #  0.026/14.297,
     'pv/solis1/req_time'                            : (  60,       0.2,   'avg'   ), #  0.026/14.297,
     'pv/solis1/req_period'                          : (  60,       0.2,   'avg'   ), #  0.026/14.297,
-    'pv/evse/meter/req_time'                        : (  60,       0.2,   'avg'   ), #  0.026/14.297,
+    'pv/evse/meter/req_time'                        : (  1,       0.2,   'avg'   ), #  0.026/14.297,
     'pv/evse/meter/req_period'                      : (  60,       0.2,   'avg'   ), #  0.026/14.297,
-    'pv/evse/req_time'                              : (  60,       0.5,   'avg'   ), #  0.026/14.297,
+    'pv/evse/req_time'                              : (  1,       0.5,   'avg'   ), #  0.026/14.297,
     'pv/evse/req_period'                            : (  60,       0.5,   'avg'   ), #  0.026/14.297,
 
     'pv/solis1/fakemeter/lag'                       : (  60,      0.40,   'avg'   ), #  0.026/14.297,
@@ -679,18 +691,3 @@ for k,v in tuple(MQTT_RATE_LIMIT.items()):
     if k.startswith("pv/solis1/"):
         MQTT_RATE_LIMIT[k.replace("pv/solis1/","pv/solis2/")] = v
 
-###############################################################
-#
-#   mqtt_buffer.py configuration
-#
-###############################################################
-
-#   When a topic matches and the payload is JSON {dict}, mqtt_buffer
-#   will unwrap the dict and republish only contents specified here:
-#
-MQTT_BUFFER_FILTER = [
-    ( re.compile( r"^tele/plugs/tasmota_t.*?/STATE$" ), {} ),
-    ( re.compile( r"^stat/plugs/tasmota_t.*?/RESULT$" ), {"POWER": ( lambda s:int(s=="ON"), ( 60, 0.000, '' )) } ),
-    ( re.compile( r"^tele/plugs/tasmota_t.*?/SENSOR$" ), {"ENERGY":{"Power": ( float, (10, 20, "avg")) }} ),
-    ( re.compile( r"^stat/plugs/tasmota_t.*?/STATUS8$" ), {"StatusSNS":{"ENERGY":{"Power":(float, (1, 20, "avg")) }}} ),
-]

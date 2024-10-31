@@ -124,8 +124,9 @@ class Buffer( MQTTWrapper ):
 
     async def on_message( self, client, topic, payload, qos, properties ):
         # Do not store high traffic interprocess control messages, for example
-        if topic.startswith("nolog/"):
-            return
+        for prefix in config.MQTT_BUFFER_IGNORE:
+            if topic.startswith(prefix):
+                return
 
         if payload.startswith(b"{"):
             try:
@@ -158,6 +159,9 @@ class Buffer( MQTTWrapper ):
         for topic_filter, pub_config in config.MQTT_BUFFER_FILTER:
             if topic_filter.match( topic ):
                 self.on_message_dict2( topic, value, pub_config )
+                return
+        else:
+            print( "ignored", topic )
 
     def on_message_dict2( self, topic, value, pub_config ):
         topic += "/"

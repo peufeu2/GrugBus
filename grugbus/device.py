@@ -45,8 +45,9 @@ class DeviceBase( ):
             :param  max_regs_in_command:    Maximum number of word registers to read/write in one modbus command
             :param  max_bits_in_command:    Maximum number of bit registers to read/write in one modbus command
         """
-        if not hasattr( modbus, "_async_mutex" ):   # mutex protects serial port if we have more than 1 device banging on it
-            modbus._async_mutex = asyncio.Lock()
+        # pymodbus has its own mutex now
+        # if not hasattr( modbus, "_async_mutex" ):   # mutex protects serial port if we have more than 1 device banging on it
+            # modbus._async_mutex = asyncio.Lock()
         config.PYMODBUS_CLIENT_TWEAKS( modbus )
         self.modbus      = modbus
         self.bus_address = bus_address
@@ -163,7 +164,9 @@ class SlaveDevice( DeviceBase ):
 
     async def connect( self ):
         if not self.modbus.connected:
-            async with self.modbus._async_mutex:
+            # async with self.modbus._async_mutex:
+            # do not connect twice at the same time
+            async with self.modbus._lock:
                 if not self.modbus.connected:
                     log.info( "%s: modbus connect", self.key )
                     await self.modbus.connect()
@@ -250,6 +253,7 @@ class SlaveDevice( DeviceBase ):
             
             All registers need not have the same function code, this will issue the appropriate commands.
 
+            TODO: remove this
             This releases the Modbus mutex between each register chunk (ie, between each modbus command)
             so other tasks trying to access this modbus interface get a chance to run.
         """
@@ -257,8 +261,8 @@ class SlaveDevice( DeviceBase ):
         old_is_online = self.is_online
         try:
             start_time = time.monotonic()
-            modbus_time = 0
-            mutex_time = 0
+            # modbus_time = 0
+            # mutex_time = 0
             update_list = []
             for fcode, chunk in self.reg_list_to_chunks( read_list, max_hole_size ):
                 # print( fcode, ":", " ".join( "%d-%d" % (c[0],c[1]) for c in chunk ))
@@ -272,22 +276,22 @@ class SlaveDevice( DeviceBase ):
                 for retry in range( retries ):
                     await self.connect()
                     try:
-                        mutex_time -= time.monotonic()
-                        async with self.modbus._async_mutex:    # share same serial port between several tasks
-                            st = time.monotonic()
-                            mutex_time += st
-                            resp = await func( start_addr, end_addr-start_addr, self.bus_address )
-                            modbus_time += time.monotonic() - st
-                            if isinstance( resp, ExceptionResponse ):
-                                raise ModbusException( str( resp ) )
-                            if fcode != 2:
-                                reg_data = resp.registers
-                            else:
-                                reg_data = resp.bits
-                            if self.modbus._async_mutex._waiters:
-                                # wait until serial is flushed before releasing lock, 
-                                # do not use asyncio sleep, we're in a hurry to release it
-                                time.sleep(0.001)  
+                        # mutex_time -= time.monotonic()
+                        # async with self.modbus._async_mutex:    # share same serial port between several tasks
+                        # st = time.monotonic()
+                        # mutex_time += st
+                        resp = await func( start_addr, end_addr-start_addr, self.bus_address )
+                        # modbus_time += time.monotonic() - st
+                        if isinstance( resp, ExceptionResponse ):
+                            raise ModbusException( str( resp ) )
+                        if fcode != 2:
+                            reg_data = resp.registers
+                        else:
+                            reg_data = resp.bits
+                        # if self.modbus._async_mutex._waiters:
+                            # wait until serial is flushed before releasing lock, 
+                            # do not use asyncio sleep, we're in a hurry to release it
+                            # time.sleep(0.001)  
                         update_list.append( (fcode, chunk, start_addr, reg_data) )
                         break
                     except (TimeoutError,ModbusException,ConnectionException) as e:
@@ -328,8 +332,10 @@ class SlaveDevice( DeviceBase ):
                 if "r" in cfg[0] or slow:
                     self.publish_modbus_timings()
                 if slow:
-                    log.info("%s: slow modbus read: [mutex %.03fs modbus %.03fs]/%.03fs retry %s", 
-                        self.key, mutex_time, modbus_time, self.last_transaction_duration, retry ) # , [reg.key for reg in read_list])
+                    # log.info("%s: slow modbus read: [mutex %.03fs modbus %.03fs]/%.03fs retry %s", 
+                    #     self.key, mutex_time, modbus_time, self.last_transaction_duration, retry ) # , [reg.key for reg in read_list])
+                    log.info("%s: slow modbus read: %.03fs retry %s", 
+                        self.key, self.last_transaction_duration, retry ) # , [reg.key for reg in read_list])
 
     def _set_timings( self, start_time ):
         t = time.monotonic()
@@ -404,7 +410,8 @@ class SlaveDevice( DeviceBase ):
                 for retry in range( retries ):
                     await self.connect()
                     try:
-                        async with self.modbus._async_mutex:
+                        # async with self.modbus._async_mutex:
+                        if 1:
                             if fcode in (1,5):     # we're dealing with bools (force coil)
                                 if len(reg_data) == 1:    
                                     fcode = 5   # force single coil

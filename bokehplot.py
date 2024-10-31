@@ -197,12 +197,14 @@ DATA_STREAMS = [
     ( "tele/plugs/tasmota_t1/SENSOR/ENERGY/Power", "W", "Tasmota T1 Radiateur bureau"    , nextcolor, "solid", 1, {"visible":False}, {} ),
 
 
-    ( "pv/meter/req_time",   "s", "SDM630 req time"        , nextcolor, "solid", 1, {"visible":False}, {"aggregate":"max"} ),
-    ( "pv/meter/req_period", "s", "SDM630 req period"      , nextcolor, "solid", 1, {"visible":False}, {"aggregate":"max"} ),
-    ( "pv/solis%d/req_time",   "s", "Solis%d req time"     , nextcolor, "solid", 1, {"visible":False}, {"aggregate":"max"} ),
-    ( "pv/solis%d/meter/req_time",   "s", "SDM120 %d req time"   , nextcolor, "solid", 1, {"visible":False}, {"aggregate":"max"} ),
-    ( "pv/solis%d/meter/req_period", "s", "SDM120 %d req period" , nextcolor, "solid", 1, {"visible":False}, {"aggregate":"max"} ),
-    ( "pv/solis%d/fakemeter/lag"                         , "s"   , "S%d Fakemeter lag"           , nextcolor       , "solid",    1.0 , {"visible":False}  , {"aggregate":"max"} ),
+    ( "pv/meter/req_time",   "s", "SDM630 req time"        , nextcolor, "solid", 1, {}, {"aggregate":"max"} ),
+    # ( "pv/meter/req_period", "s", "SDM630 req period"      , nextcolor, "solid", 1, {}, {"aggregate":"max"} ),
+    ( "pv/solis%d/req_time",   "s", "Solis%d req time"     , nextcolor, "solid", 1, {}, {"aggregate":"max"} ),
+    ( "pv/solis%d/meter/req_time",   "s", "SDM120 %d req time"   , nextcolor, "solid", 1, {}, {"aggregate":"max"} ),
+    # ( "pv/solis%d/meter/req_period", "s", "SDM120 %d req period" , nextcolor, "solid", 1, {}, {"aggregate":"max"} ),
+    ( "pv/evse/req_time",   "s", "EVSE req time"     , nextcolor, "solid", 1, {}, {"aggregate":"max"} ),
+    ( "pv/evse/meter/req_time",   "s", "EVSE meter req time"     , nextcolor, "solid", 1, {}, {"aggregate":"max"} ),
+    # ( "pv/solis%d/fakemeter/lag"                         , "s"   , "S%d Fakemeter lag"           , nextcolor       , "solid",    1.0 , {}  , {"aggregate":"max"} ),
 
     # SQL
     # ( 
@@ -395,11 +397,13 @@ PLOT_LAYOUTS = [
                 "pv/bms/alarm",
                 "pv/bms/charge_enable",
                 # "pv/bms/max_charge_current",
-                "pv/solis%d/fakemeter/lag",
+                # "pv/solis%d/fakemeter/lag",
                 "pv/meter/req_time",
                 # "pv/meter/req_period",
                 "pv/solis%d/meter/req_time",
                 "pv/solis%d/req_time",
+                "pv/evse/meter/req_time",
+                "pv/evse/req_time",
                 # "pv/solis%d/meter/req_period",
             ],
         ]
