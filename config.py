@@ -288,12 +288,12 @@ def solis1_power_management( ctx ):
         return "night", -0.2
     return "", 0
 
-def solis2_power_management( ctx ):
-    if ctx.mpptv > 80:  # day: turn on
-        return "day", 1
-    elif ctx.mpptv < 60 and ctx.soc < 8:    # night and battery empty: turn off
-        return "night low battery", -0.2
-    return "", 0
+# def solis2_power_management( ctx ):
+#     if ctx.mpptv > 80:  # day: turn on
+#         return "day", 1
+#     elif ctx.mpptv < 60 and ctx.soc < 8:    # night and battery empty: turn off
+#         return "night low battery", -0.2
+#     return "", 0
 
 # Inverter auto turn on/off settings
 SOLIS_POWERSAVE_CONFIG = {
@@ -302,8 +302,9 @@ SOLIS_POWERSAVE_CONFIG = {
         "FUNC" : solis1_power_management,
     },
     "solis2": {
-        "MODE" : "powersave",   # "on" = always on, "off" = always off, "powersave" = use function below
-        "FUNC" : solis2_power_management,
+        # turning it off cuts off the backup output, so leave it on
+        "MODE" : "on",   # "on" = always on, "off" = always off, "powersave" = use function below
+        # "FUNC" : solis2_power_management,
     }    
 }
 
@@ -501,9 +502,9 @@ MQTT_RATE_LIMIT = {
     'pv/solis1/meter/req_period'                    : (  60,       0.2,   'avg'   ), #  0.026/14.297,
     'pv/solis1/req_time'                            : (  60,       0.2,   'avg'   ), #  0.026/14.297,
     'pv/solis1/req_period'                          : (  60,       0.2,   'avg'   ), #  0.026/14.297,
-    'pv/evse/meter/req_time'                        : (  1,       0.2,   'avg'   ), #  0.026/14.297,
+    'pv/evse/meter/req_time'                        : (  60,       0.2,   'avg'   ), #  0.026/14.297,
     'pv/evse/meter/req_period'                      : (  60,       0.2,   'avg'   ), #  0.026/14.297,
-    'pv/evse/req_time'                              : (  1,       0.5,   'avg'   ), #  0.026/14.297,
+    'pv/evse/req_time'                              : (  60,       0.5,   'avg'   ), #  0.026/14.297,
     'pv/evse/req_period'                            : (  60,       0.5,   'avg'   ), #  0.026/14.297,
 
     'pv/solis1/fakemeter/lag'                       : (  60,      0.40,   'avg'   ), #  0.026/14.297,

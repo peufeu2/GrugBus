@@ -272,7 +272,7 @@ def fakemeter_on_getvalues( self, fc_as_hex, address, count ):
         self.request_count += 1
 
         # Print message if inverter talks to us
-        if self.last_query_time < t-10.0:
+        if self.last_query_time < t-2.0:
             log.info("FakeMeter %s: receiving requests", self.key )
         self.last_query_time = t
 
@@ -370,7 +370,7 @@ async def inverter_powersave_coroutine( module_updated, first_start, self, solis
         try:
             # Initialize on/off counter on first load
             if first_start:
-                solis._on_off_counter = BoundedCounter( 100*is_on(), 0, 100 )
+                solis._on_off_counter = BoundedCounter( 0, 100*is_on(), 100 )
                 first_start = False
 
             # Auto on/off: turn it off at night when the battery is below specified SOC
@@ -425,8 +425,8 @@ async def inverter_powersave_coroutine( module_updated, first_start, self, solis
 async def inverter_fan_coroutine( module_updated, first_start, self ):
     bat_power_avg = { _.key: MovingAverageSeconds(10) for _ in self.inverters }
     tick = Metronome( 2 )
-    if first_start:
-        await asyncio.sleep( 5 )
+    # if first_start:
+    #     await asyncio.sleep( 5 )
     fan_speed = { inverter.key: 100 for inverter in self.inverters }
     fan_timeout = { inverter.key: Timeout() for inverter in self.inverters }
     while not module_updated(): # Exit if this module was reloaded
@@ -436,19 +436,15 @@ async def inverter_fan_coroutine( module_updated, first_start, self ):
                 # run the fan if it is ON and HOT
                 if solis.is_online and solis.rwr_power_on_off.value == solis.rwr_power_on_off.value_on:
                     # get desired fan speed from temperature (reactive) and battery power (proactive)
-                    speeds = ( 
+                    speed = max( 
                         config.FAN_SPEED[ "batp" ]( abs(solis.battery_power.value) ),
                         config.FAN_SPEED[ "temp" ]( solis.temperature.value ),
                     )
-                    speed = max( speeds )
 
                     # attack/release to prevent spurious spin-up and delay fan spindown
-                    speed_prev = fan_speed[ solis.key ]
-                    if speed > speed_prev:
-                        speed = min( speed, speed_prev + config.FAN_SPEED["attack"] * elapsed )
-                    elif speed < speed_prev:
-                        speed = max( speed, speed_prev - config.FAN_SPEED["release"] * elapsed )
-                    speed = min( 100, max( 0, int( speed )))
+                    prev = fan_speed[ solis.key ]
+                    speed = clip( prev-config.FAN_SPEED["release"]*elapsed, speed, prev+config.FAN_SPEED["attack"]*elapsed )
+                    speed = clip( 0, speed, 100 )
                 else:
                     speed = 0
                 fan_speed[ solis.key ] = speed

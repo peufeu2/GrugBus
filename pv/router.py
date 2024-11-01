@@ -299,7 +299,7 @@ class EVSEController( Routable ):
         # Bounds are loaded from config later, so default values below are ignored.
         self.start_counter = BoundedCounter( 0, 0, 10 )  # charge starts when this counter reaches maximum
         self.stop_counter  = BoundedCounter( 0, 0, 60 )  # charge stops  when this counter reaches minimum
-        self.integrator    = BoundedCounter( 0, -160, 160 )    # in Watts
+        self.integrator    = BoundedCounter( -160, 0, 160 )    # in Watts
 
         super().__init__( router, evse.key )    # loads config
         #
@@ -572,7 +572,7 @@ class EVSEController( Routable ):
             self.router.hair_trigger( 0.5 ) # shut down low priority loads immediately
 
         # Handle soft start by slowly increasing the maximum bound
-        self.current_limit_bounds.set_maximum( max( self.i_start, min( self.i_max, 0.5*(time.monotonic() - self.soft_start_timestamp ))))
+        self.current_limit_bounds.set_maximum( clip( self.i_start, 0.5*(time.monotonic()-self.soft_start_timestamp), self.i_max ) )
 
         # Finally... adjust current.
         # Since the car imposes 1A steps, don't bother with changes smaller than this.

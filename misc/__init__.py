@@ -133,7 +133,7 @@ class Interval:
         self.minimum = minimum
 
 class BoundedCounter:
-    def __init__( self, value, minimum, maximum, func=float ):
+    def __init__( self, minimum, value, maximum, func=float ):
         self._func = func
         self.minimum = func( minimum )
         self.maximum = func( maximum )
@@ -266,6 +266,8 @@ def average( l ):
     else:
         return 0
 
+def clip(minimum, x, maximum):
+    return max(minimum, min(x, maximum))
 
 # class RingBuffer:
 #     def __init__( self, length ):
