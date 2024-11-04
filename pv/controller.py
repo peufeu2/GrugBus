@@ -235,14 +235,10 @@ async def power_coroutine( module_updated, first_start, self ):
 
             # publish data for router
             d = { 
-                "m_total_power"            : int( m.total_power.value ),
-                "m_p1_v"                   : round( m.phase_1_line_to_neutral_volts.value, 1 ),
-                "m_p2_v"                   : round( m.phase_2_line_to_neutral_volts.value, 1 ),
-                "m_p3_v"                   : round( m.phase_3_line_to_neutral_volts.value, 1 ),
-                "m_p1_i"                   : round( m.phase_1_current.value, 1),
-                "m_p2_i"                   : round( m.phase_2_current.value, 1),
-                "m_p3_i"                   : round( m.phase_3_current.value, 1),
-
+                "meter_total_power"            : int( m.total_power.value ),
+                "meter_phase_v"            : ( round( m.phase_1_line_to_neutral_volts.value, 1 ), round( m.phase_2_line_to_neutral_volts.value, 1 ), round( m.phase_3_line_to_neutral_volts.value, 1 ) ),
+                "meter_phase_i"            : ( round( m.phase_1_current.value, 1),round( m.phase_2_current.value, 1),round( m.phase_3_current.value, 1) ),
+                "meter_phase_p"            : ( int( m.phase_1_power.value ), int( m.phase_2_power.value ), int( m.phase_3_power.value ) ),
                 "meter_power_tweaked"      : int( self.meter_power_tweaked ),
                 "house_power"              : int( self.house_power ),
                 "total_grid_port_power"    : int( self.total_grid_port_power ),

@@ -67,7 +67,7 @@ MQTT_BUFFER_IP   = SOLARPI_IP
 MQTT_BUFFER_PORT = 15555
 MQTT_BUFFER_RETENTION = 24*3600*365 # how long to keep log files
 MQTT_BUFFER_FILE_DURATION = 3600	# number of seconds before new log file is created
-MQTT_BUFFER_IGNORE = "nolog/", "z2m/bridge/"
+MQTT_BUFFER_IGNORE = "nolog/", "z2m/"
 
 # path on solarpi for storage of mqtt compressed log
 MQTT_BUFFER_PATH = "/home/peufeu/mqtt_buffer"
@@ -326,10 +326,8 @@ ROUTER = {
         # configuration for router itself
         #
         "router": {
-            # For smartplugs: try to not wear out relays
-            # minimum on time and minimum off time
-            "plugs_min_on_time_s"   : 5     ,
-            "plugs_min_off_time_s"  : 20    ,
+            # prevent tripping breaker: if this returns a value > 0, reduce power
+            "breaker_limit"         : 230*22,       # maximum per-phase power
 
             # Set target export power for router
             "p_export_target"       : lambda soc: 100 + soc*1.0,
@@ -372,6 +370,7 @@ ROUTER = {
         #   EVSE must always have higher priority than battery.
         #   EVSE decides how much it leaves to the battery via "battery_interp" setting.
         "evse"      : { 
+            "phase"                     : 1,            # 1-based index
             "priority"                  : 4, 
             "name"                      : "EVSE", 
             "enabled"                   : True,
@@ -407,15 +406,18 @@ ROUTER = {
     #   At min_soc, allocate max_power to battery.
     #   At max_soc, allocate min_power to battery.
     #   Interpolate in between.
-        "bat"       : { "priority": 3, "name": "Battery", "enabled": True, "power_func": Interp((95,10000),(100,1000),var="soc") },
+        "bat"       : { "phase": None, "priority": 3, "name": "Battery", "enabled": True, "power_func": Interp((95,10000),(100,1000),var="soc") },
 
     # Plugs config: 
     #   "estimated_power"   : estimation of power before it is measured at first turn on
     #   "min_power"         : ignore power measurements below this value
     #   "hysteresis"        : on/off power hysteresis
-        "tasmota_t4": { "priority": 2, "enabled": True, "estimated_power": 1000 , "min_power": 500, "hysteresis": 50, "plug_topic": "plugs/tasmota_t4/", "name": "Tasmota T4 Sèche serviette"  },
-        "tasmota_t2": { "priority": 1, "enabled": True, "estimated_power":  800 , "min_power": 500, "hysteresis": 50, "plug_topic": "plugs/tasmota_t2/", "name": "Tasmota T2 Radiateur PF"     },
-        "tasmota_t1": { "priority": 0, "enabled": True, "estimated_power":  800 , "min_power": 500, "hysteresis": 50, "plug_topic": "plugs/tasmota_t1/", "name": "Tasmota T1 Radiateur bureau" },
+        "tasmota_t4": { "phase": 3, "priority": 2, "enabled": True, "estimated_power": 1000 , "min_power": 500, "hysteresis": 50, "min_on_time_s": 5 ,"min_off_time_s": 20, "plug_topic": "plugs/tasmota_t4/", "name": "Tasmota T4 Sèche serviette"  },
+        "tasmota_t2": { "phase": 3, "priority": 1, "enabled": True, "estimated_power":  800 , "min_power": 500, "hysteresis": 50, "min_on_time_s": 5 ,"min_off_time_s": 20, "plug_topic": "plugs/tasmota_t2/", "name": "Tasmota T2 Radiateur PF"     },
+        "tasmota_t1": { "phase": 3, "priority": 0, "enabled": True, "estimated_power":  800 , "min_power": 500, "hysteresis": 50, "min_on_time_s": 5 ,"min_off_time_s": 20, "plug_topic": "plugs/tasmota_t1/", "name": "Tasmota T1 Radiateur bureau" },
+            # For smartplugs: try to not wear out relays
+            # minimum on time and minimum off time
+            
     },
 
     "evse_low": {
@@ -470,10 +472,10 @@ ROUTER = {
     #
     "evse_max": { 
         "evse": {
-            "high_priority_W"       : lambda ctx: 2000, 
+            "high_priority_W"       : Interp((49, 0),  (50, 2000),var="soc"), 
             "reserve_for_battery_W" : lambda ctx: 0,
-            "start_threshold_W"     : Interp((00, 1400), (100, 1000),var="soc"),
-            "stop_threshold_W"      : Interp((00, 1000), (100,  500),var="soc"),
+            "start_threshold_W"     : Interp((50, 1400), (100, 1000),var="soc"),
+            "stop_threshold_W"      : Interp((50, 1000), (100,  500),var="soc"),
         },
     },
 }

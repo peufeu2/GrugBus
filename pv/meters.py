@@ -38,7 +38,12 @@ class SDM630( grugbus.SlaveDevice ):
         # ALL registers every time. Instead, gather the unimportant ones in little groups
         # and frequently read THE important register (total_power) + one group.
         # Unimportant registers will be updated less often, who cares.
-        frequent_regs = [ self.total_power ]
+        frequent_regs = [ 
+            self.total_power    ,
+            self.phase_1_power  ,
+            self.phase_2_power  ,
+            self.phase_3_power  ,
+        ]
         all_regs = [
             self.total_volt_amps                  ,    # required for fakemeter
             self.total_var                        ,    # required for fakemeter
@@ -55,9 +60,6 @@ class SDM630( grugbus.SlaveDevice ):
             self.phase_1_current                  ,    # required for fakemeter
             self.phase_2_current                  ,    # but current has no sign
             self.phase_3_current                  ,
-            self.phase_1_power                    ,
-            self.phase_2_power                    ,
-            self.phase_3_power                    ,
             self.phase_1_volt_amps                ,    # 
             self.phase_2_volt_amps                ,
             self.phase_3_volt_amps                ,

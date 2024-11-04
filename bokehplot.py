@@ -88,6 +88,9 @@ DATA_STREAMS = [
     ( "pv/meter/phase_1_current"                         , "A"   , "Phase 1"                     , color_phase1    , "solid"    , 1.0 , {}                 , {} ),
     ( "pv/meter/phase_2_current"                         , "A"   , "Phase 2"                     , color_phase2    , "solid"    , 1.0 , {}                 , {} ),
     ( "pv/meter/phase_3_current"                         , "A"   , "Phase 3"                     , color_phase3    , "solid"    , 1.0 , {}                 , {} ),
+    ( "pv/meter/phase_1_volt_amps"                       , "VA"  , "Phase 1"                     , color_phase1    , "solid"    , 1.0 , {}                 , {} ),
+    ( "pv/meter/phase_2_volt_amps"                       , "VA"  , "Phase 2"                     , color_phase2    , "solid"    , 1.0 , {}                 , {} ),
+    ( "pv/meter/phase_3_volt_amps"                       , "VA"  , "Phase 3"                     , color_phase3    , "solid"    , 1.0 , {}                 , {} ),
 
     ( "pv/meter/frequency"                               , "Hz"  , "Frequency"                   , nextcolor       , "solid",    1.0, {}, {}),
 
@@ -310,6 +313,16 @@ PLOT_LAYOUTS = [
             #     "pv/meter/phase_2_line_to_neutral_volts",
             #     "pv/meter/phase_3_line_to_neutral_volts",
             # ],
+            [
+                "pv/meter/phase_1_power",
+                "pv/meter/phase_2_power",
+                "pv/meter/phase_3_power",
+            ],            
+            [
+                "pv/meter/phase_1_volt_amps",
+                "pv/meter/phase_2_volt_amps",
+                "pv/meter/phase_3_volt_amps",
+            ],            
             [
                 "pv/meter/phase_1_current",
                 "pv/meter/phase_2_current",

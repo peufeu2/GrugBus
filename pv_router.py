@@ -128,11 +128,26 @@ class Master():
 
     async def mqtt_update_callback( self, param ):
         for k in (
-            "m_total_power", "m_p1_v", "m_p2_v", "m_p3_v", "m_p1_i", "m_p2_i", "m_p3_i", 
-            "meter_power_tweaked", "house_power", "total_pv_power", "total_input_power", 
-            "total_grid_port_power", "total_battery_power", "battery_max_charge_power",
+            "data_timestamp",
+            
+            # meter
+            "meter_total_power", 
+            "meter_phase_v",
+            "meter_phase_i",
+            "meter_phase_p",
+            "meter_power_tweaked", 
+
+            # house
+            "house_power", 
+
+            # inverters
+            "total_pv_power", 
+            "total_input_power", 
+            "total_grid_port_power", 
+            "total_battery_power",
+            "battery_max_charge_power",
             "mppt_power",
-            "data_timestamp"):
+            ):
             setattr( self, k, param.value.get(k) )
 
         self.event_power.set()

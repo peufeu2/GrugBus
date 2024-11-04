@@ -125,7 +125,7 @@ class Routable():
         The router puts this into the pool, to distribute among other devices
         according to priority.
     """
-    def get_releaseable_power( self ):
+    def get_releaseable_power( self, ctx ):
         pass
 
     """( power in watts, pretend=True )
@@ -193,7 +193,7 @@ class TasmotaPlug( Routable ):
         if not self.is_on:
             log.info( "Route ON  %s %s", self.name, self.plug_topic )
             self.current_power = self.last_power_when_on
-            self.switch_timeout.reset( self.router.plugs_min_on_time_s ) # stay on during minimum time
+            self.switch_timeout.reset( self.min_on_time_s ) # stay on during minimum time
             self.is_on = True
             self.send_power_command()
 
@@ -201,7 +201,7 @@ class TasmotaPlug( Routable ):
         if self.is_on:
             log.info( "Route OFF %s %s", self.name, self.plug_topic )
             self.current_power = 0
-            self.switch_timeout.reset( self.router.plugs_min_off_time_s ) # stay off during minimum time
+            self.switch_timeout.reset( self.min_off_time_s ) # stay off during minimum time
             self.is_on = False
             self.send_power_command()
 
@@ -226,21 +226,32 @@ class TasmotaPlug( Routable ):
     def get_power( self ):
         return self.current_power
 
-    def get_releaseable_power( self ):
-        return self.get_power()
+    def get_releaseable_power( self, ctx ):
+        p = self.get_power()
+        ctx.power += p
+        ctx.phase_power[ self.phase ] += p
 
     async def take_power( self, ctx ):
+        p = self.get_power()
+        ph = self.phase
+
         if self.can_switch:
             if self.is_on:
-                if ctx.power <= self.current_power - self.hysteresis:
+                thr = self.current_power - self.hysteresis
+                if ctx.power <= thr or ctx.phase_power[ph] <= thr:
                     ctx.changes.append( self.off )
-                    return 0
+                    p = 0
             else:
                 # It is off.
-                if ctx.power >= self.last_power_when_on + self.hysteresis:
+                thr = self.current_power + self.hysteresis
+                if ctx.power >= thr and ctx.phase_power[ph] >= thr:
                     ctx.changes.append( self.on )
-                    return self.last_power_when_on
-        return self.get_power()
+                    p = self.last_power_when_on
+
+        # remove used power from available power
+        ctx.power -= p
+        ctx.phase_power[ ph ] -= p
+        return p
 
     # republish power commands periodically
     def publish( self ):
@@ -265,10 +276,10 @@ class Battery( Routable ):
     def get_power( self ):
         return self.current_power
 
-    def get_releaseable_power( self ):
+    def get_releaseable_power( self, ctx ):
         # special case for battery: we put all the battery power into excess calculation at the beginning,
         # so there's no need to add it again here.
-        return 0
+        pass
 
     async def take_power( self, ctx ):
         # Take max charging power regardless of available power, to ensure lower priority loads will shut down
@@ -276,7 +287,9 @@ class Battery( Routable ):
         self.max_power_from_soc = min( ctx.bp_max, self.power_func( ctx ) )  # soc -> power from configuration, then limit to inverter's max battery power
         # self.mqtt.publish_value( self.mqtt_topic+"max_power", self.max_power_from_soc, int )
         self.current_power = min( ctx.power, self.max_power_from_soc )
-        return self.max_power_from_soc
+        p = self.max_power_from_soc
+        ctx.power -= p
+        return p
 
 
 #################################################################################################
@@ -306,7 +319,7 @@ class EVSEController( Routable ):
         #   Parameters
         #   Note force charge and energy limit settings are reset once the car is unplugged.
         #
-        MQTTSetting( self, "force_charge_minimum_A"     , int  , range( 6, 32 ) , 10 )  # guarantee this charge minimum current    
+        MQTTSetting( self, "force_charge_minimum_A"     , int  , range( 6, 32 ) , 25 )  # guarantee this charge minimum current    
         MQTTSetting( self, "force_charge_minimum_soc"   , int  , range( 0, 100 ), 0 )  # stop force charge when when SOC below this
         MQTTSetting( self, "force_charge_until_kWh"     , int  , range( 0, 81 ) , 0  , self.setting_updated )  # until this energy has been delivered (0 to disable force charge)
         MQTTSetting( self, "stop_charge_after_kWh"      , int  , range( 0, 101 ), 0  , self.setting_updated )
@@ -444,8 +457,10 @@ class EVSEController( Routable ):
     def _get_power( self ):
         return self.local_meter.active_power.value
 
-    def get_releaseable_power( self ):
-        return self.get_power()
+    def get_releaseable_power( self, ctx ):
+        p = self.get_power()
+        ctx.power += p
+        ctx.phase_power[ self.phase ] += p
 
     async def take_power( self, ctx ):
         hpp  = self.high_priority_W(ctx)
@@ -467,11 +482,16 @@ class EVSEController( Routable ):
 
         # Take everything else
         avail_power = ctx.power - bat
-        # log.debug( "EVSE: hp %d min %d remain %d resbat %d start %d stop %d", self.high_priority_W(ctx), min_ev_power, remain, self.reserve_for_battery_W(ctx), self.start_threshold_W(ctx), self.stop_threshold_W(ctx) )
+        # print( "EVSE: ctx.power %d phase %d breaker %d" % (ctx.power, ctx.phase_power[ self.phase ], self.router.breaker_limit))
+        # print( "EVSE: hpp %d min %d remain %d resbat %d bat %d avail %d start %d stop %d" %( hpp, min_ev_power, remain, resb, bat, avail_power, self.start_threshold_W_value, self.stop_threshold_W_value ))
 
         p = await self._take_power( avail_power, ctx )
         if p == None:
-            return self.get_power()
+            p = self.get_power()
+
+        # remove used power from available power
+        ctx.power -= p
+        ctx.phase_power[ self.phase ] -= p
         return p
 
     async def _take_power( self, avail_power, ctx ):
@@ -591,6 +611,10 @@ class EVSEController( Routable ):
         self.integrator.add( excess * self.control_gain_i * time_since_last_call )
         new_limit = (avail_power + self.integrator.value) * self.control_gain_p / voltage
         new_limit = self.current_limit_bounds.clip( new_limit )                # clip it so we keep charging until stop_counter says we stop
+
+        # do not trip breaker
+        new_limit = min( new_limit, ctx.phase_power[ self.phase ] / voltage )
+
         delta_i = new_limit - cur_limit
         new_power = ev_power + delta_i * voltage
 
@@ -809,6 +833,8 @@ class Router( ):
         ctx = RouterCtx()
         ctx.bp_max = bp_max
         ctx.soc    = soc
+        ctx.router = self
+        ctx.mgr    = self.mgr
 
         #
         #   MPPT check
@@ -850,23 +876,28 @@ class Router( ):
 
         # calculate excess power as if all routable devices were off, to let
         # higher priority devices take that power from lower priority devices
-        excess = excess_avg
-        for device in self.devices:
-            excess += device.get_releaseable_power( )
+        ctx.power  = excess_avg     # total excess power to share 
 
-        ctx.power  = excess
-        ctx.total  = excess
+        # per-phase calculation to avoid tripping breaker: phase_power does not represent
+        # excess power, but how much power we can use  before tripping breaker
+        ctx.phase_power = [0] + [ self.breaker_limit-p for p in self.mgr.meter_phase_p ]
+        # print( "phase_power", ctx.phase_power )
+        for device in self.devices:
+            # old_p = ctx.power
+            # old_pp = list(ctx.phase_power)
+            device.get_releaseable_power( ctx )
+            # print( "release %10s: %5d %20s -> %5d %20s" % (device.key, old_p, old_pp, ctx.power, ctx.phase_power))
 
         # Scan from highest to lowest priority and let devices take power calculated above.
         # If no changes occur, each device takes back the power it released at the previous step.
         # If a high priority device takes more power, then a low priority device will have to take less.
-        logs.append(( "%5d start %s bat: %.02fA active %d -> %.02f -> %d soc %d full %d -> %.02f -> %d", ctx.power, self.active_config.value, 
+        logs.append(( "%5d %5d %s start %s bat: %.02fA active %d -> %.02f -> %d soc %d full %d -> %.02f -> %d", excess_avg, ctx.power, ctx.phase_power, self.active_config.value, 
             mgr.bms_current.value, self.battery_active( mgr ), self.battery_active_avg.avg( -1 ), bat_active,
             mgr.bms_soc.value, self.battery_full( mgr, bat_active ), self.battery_full_avg.avg( -1 ), bat_full ))
         for device in self.devices:
+            old_p = ctx.power
             p = await device.take_power( ctx )  # if the device wants to make a change, it is added to ctx.changes
-            logs.append(( "%-6d take %5d for %s", ctx.power, p, device.dump()))
-            ctx.power -= p
+            logs.append(( "%-6d take %5d for %s", old_p, p, device.dump()))
 
         # self.mqtt.publish_value( self.mqtt_topic+"excess", ctx.power, int )
 
