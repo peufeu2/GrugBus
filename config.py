@@ -67,7 +67,7 @@ MQTT_BUFFER_IP   = SOLARPI_IP
 MQTT_BUFFER_PORT = 15555
 MQTT_BUFFER_RETENTION = 24*3600*365 # how long to keep log files
 MQTT_BUFFER_FILE_DURATION = 3600	# number of seconds before new log file is created
-MQTT_BUFFER_IGNORE = "nolog/", "z2m/"
+MQTT_BUFFER_IGNORE = [ "nolog/" ]
 
 # path on solarpi for storage of mqtt compressed log
 MQTT_BUFFER_PATH = "/home/peufeu/mqtt_buffer"
@@ -77,12 +77,26 @@ MQTT_BUFFER_TEMP = "/mnt/ssd/temp/solarpi/mqtt"
 #   When a topic matches and the payload is JSON {dict}, mqtt_buffer
 #   will unwrap the dict and republish only contents specified here:
 #
-MQTT_BUFFER_FILTER = [
-    ( re.compile( r"^tele/plugs/tasmota_t.*?/STATE$" ), {} ),
-    ( re.compile( r"^stat/plugs/tasmota_t.*?/RESULT$" ), {"POWER": ( lambda s:int(s=="ON"), ( 60, 0.000, '' )) } ),
-    ( re.compile( r"^tele/plugs/tasmota_t.*?/SENSOR$" ), {"ENERGY":{"Power": ( float, (10, 20, "avg")) }} ),
-    ( re.compile( r"^stat/plugs/tasmota_t.*?/STATUS8$" ), {"StatusSNS":{"ENERGY":{"Power":(float, (1, 20, "avg")) }}} ),
-]
+# MQTT_BUFFER_FILTER = [
+#     ( re.compile( r"^tele/plugs/tasmota_t.*?/STATE$" ), {} ),
+#     ( re.compile( r"^stat/plugs/tasmota_t.*?/RESULT$" ), {"POWER": ( lambda s:int(s=="ON"), ( 60, 0.000, '' )) } ),
+#     ( re.compile( r"^tele/plugs/tasmota_t.*?/SENSOR$" ), {"ENERGY":{"Power": ( float, (10, 20, "avg")) }} ),
+#     ( re.compile( r"^stat/plugs/tasmota_t.*?/STATUS8$" ), {"StatusSNS":{"ENERGY":{"Power":(float, (1, 20, "avg")) }}} ),
+#     ( re.compile( r"^stat/plugs/tasmota_t.*?/STATUS8$" ), {"StatusSNS":{"ENERGY":{"Power":(float, (1, 20, "avg")) }}} ),
+# ]
+
+MQTT_BUFFER_FILTER = {}
+# temperature probes
+for _topic in "z2m/Temp3", "z2m/rc/pf/sde/temp":
+    MQTT_BUFFER_FILTER[_topic] = { "humidity":( float, (10, 10, "avg")), "temperature": ( float, (10, 1, "avg")) }
+# tasmota wifi smartplugs
+for _tasmota in range( 1, 7 ):
+    MQTT_BUFFER_FILTER[ "tele/plugs/tasmota_t%d/STATE" ]    = {}
+    MQTT_BUFFER_FILTER[ "stat/plugs/tasmota_t%d/RESULT" ]   = {"POWER": ( lambda s:int(s=="ON"), ( 60, 0.000, '' )) }
+    MQTT_BUFFER_FILTER[ "tele/plugs/tasmota_t%d/SENSOR" ]   = {"ENERGY":{"Power": ( float, (10, 20, "avg")) }}
+    MQTT_BUFFER_FILTER[ "stat/plugs/tasmota_t%d/STATUS8" ]  = {"StatusSNS":{"ENERGY":{"Power":(float, (1, 20, "avg")) }}}
+    MQTT_BUFFER_FILTER[ "stat/plugs/tasmota_t%d/STATUS8" ]  = {"StatusSNS":{"ENERGY":{"Power":(float, (1, 20, "avg")) }}}
+
 
 ##################################################################
 # Various features enable/disable
@@ -121,7 +135,6 @@ POLL_PERIOD_SOLIS       = 0.2
 POLL_PERIOD_EVSE        = 1
 POLL_PERIOD_EVSE_METER_CHARGING  = 0.2
 POLL_PERIOD_EVSE_METER_IDLE      = 0.2 # 10
-
 
 ##################################################################
 # Modbus configuration

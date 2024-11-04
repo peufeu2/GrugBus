@@ -167,8 +167,10 @@ class TasmotaPlug( Routable ):
         # We can also request it to post power with cmnd/plugs/tasmota_t2/Status 8
         # It is published in stat/plugs/tasmota_t2/STATUS8/StatusSNS/ENERGY/Power
         MQTTVariable( "tele/"+self.plug_topic+"LWT", self, "is_online", lambda s:s==b"Online", None, False )
-        MQTTVariable( "tele/"+self.plug_topic+"SENSOR/ENERGY/Power", self, "_sensor_power", float, None, 0, self._mqtt_sensor_callback )
-        MQTTVariable( "stat/"+self.plug_topic+"STATUS8/StatusSNS/ENERGY/Power", self, "_status_power", float, None, 0, self._mqtt_sensor_callback )
+        # MQTTVariable( "tele/"+self.plug_topic+"SENSOR/ENERGY/Power", self, "_sensor_power", float, None, 0, self._mqtt_sensor_callback )
+        # MQTTVariable( "stat/"+self.plug_topic+"STATUS8/StatusSNS/ENERGY/Power", self, "_status_power", float, None, 0, self._mqtt_sensor_callback )
+        MQTTVariable( "tele/"+self.plug_topic+"SENSOR", self, "_sensor_power", orjson.loads, None, b'{"ENERGY":{"Power":0}}', self._mqtt_sensor_callback )
+        MQTTVariable( "stat/"+self.plug_topic+"STATUS8/StatusSNS", self, "_status_power", orjson.loads, None, b'{"ENERGY":{"Power":0}}', self._mqtt_sensor_callback )
 
         # Request power updates on load power changes, to know when the heater turns off from its thermostat
         self.mqtt.publish( "cmnd/"+self.plug_topic+"PowerDelta", 101 )
@@ -180,9 +182,10 @@ class TasmotaPlug( Routable ):
 
     # get power reported by plug, and remember it
     async def _mqtt_sensor_callback( self, param ):
-        log.debug( "%s: is %s MQTT Power %f W" % (self.plug_topic, ('OFF','ON')[self.is_on], param.value ) )
-        if self.is_on and param.value > self.min_power:    # remember how much it uses
-            self.power_measurements.append( param.value )
+        p = param.value["ENERGY"]["Power"]
+        log.debug( "%s: is %s MQTT Power %f W" % (self.plug_topic, ('OFF','ON')[self.is_on], p ) )
+        if self.is_on and p > self.min_power:    # remember how much it uses
+            self.power_measurements.append( p )
             self.current_power = self.last_power_when_on = max( self.power_measurements ) # ignore low readings just after turning on
 
     def send_power_command( self ):

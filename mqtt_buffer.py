@@ -155,13 +155,16 @@ class Buffer( MQTTWrapper ):
     # Unnest and republish Tasmota dictionaries so they can be
     # compressed properly into clickhouse and plotted in real time
     def on_message_dict( self, topic, value ):
-        # get finters from configuration
-        for topic_filter, pub_config in config.MQTT_BUFFER_FILTER:
-            if topic_filter.match( topic ):
-                self.on_message_dict2( topic, value, pub_config )
-                return
-        else:
-            print( "ignored", topic )
+        # get filters from configuration
+        if pub_config := config.MQTT_BUFFER_FILTER.get( topic ):
+            # print( topic, pub_config )
+            self.on_message_dict2( topic, value, pub_config )
+            return
+        # for topic_filter, pub_config in config.MQTT_BUFFER_FILTER:
+        #     if topic_filter.match( topic ):
+        #         self.on_message_dict2( topic, value, pub_config )
+        #         return
+        print( "ignored", topic )
 
     def on_message_dict2( self, topic, value, pub_config ):
         topic += "/"
@@ -176,7 +179,7 @@ class Buffer( MQTTWrapper ):
                     v = parser(v)
                     topic2 = topic+k
                     config.MQTT_RATE_LIMIT[topic2] = ratelimit
-                    if isinstance( v, (int, float)):
+                    if isinstance( v, (int, float) ):
                         self.publish_value( topic2, v )
                     else:
                         self.publish( topic2, v )
