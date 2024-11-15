@@ -369,7 +369,7 @@ class EVSEController( Routable ):
         force = self.force_charge_until_kWh
         if stop.value and force.value:
             if stop.value < force.value:
-                if setting is force:    
+                if setting is force:
                     stop.value = force.value = max( stop.value, force.value )
                 elif setting is stop:
                     stop.value = force.value = min( stop.value, force.value )
@@ -501,37 +501,39 @@ class EVSEController( Routable ):
         time_since_last_call = min( 1, self.last_call.lap() )
         # log.debug( "evse: start %-2d stop %-2d power %d avail %d", self.start_counter.value, self.stop_counter.value, self.local_meter.active_power.value, avail_power )
 
-        # TODO: do not trip breaker     mgr.meter.phase_1_current
-
-        #   Timer to Start Charge
-        #
-        if ( self.is_online 
-             and ctx.soc > self.force_charge_minimum_soc.value
-             and self.evse.energy.value < self.force_charge_until_kWh.value   # Force charge?
-            ):
-            self.start_counter.to_maximum() # tweak counters so charge starts immediately and does not stop
-            self.stop_counter.to_maximum()
-            # set lower bound for charge current to the minimum allowed by force charge
-            # it is still allowed to use more power if there is more available
-            self.current_limit_bounds.set_minimum( self.force_charge_minimum_A.value )
-        else:
-            # monitor excess power to decide if we can start charge
-            # do it before checking the socket state so when we plug in, it starts immediately
-            # if power is available
-            self.start_counter.addsub( avail_power >= self.start_threshold_W_value, time_since_last_call )
-            self.current_limit_bounds.set_minimum( self.i_start )   # set lower bound at minimum allowed current
+        # monitor excess power to decide if we can start charge
+        # do it before checking the socket state so when we plug in, it starts immediately if power is available
+        self.start_counter.addsub( avail_power >= self.start_threshold_W_value, time_since_last_call )
+        self.current_limit_bounds.set_minimum( self.i_start )   # set lower bound at minimum allowed current
 
         # Are we connected? If RS485 fails, EVSE will timeout and stop charge.
         if not self.is_online:
             return
 
+        # Force charge
+        force = ( self.evse.energy.value < self.force_charge_until_kWh.value   # Force charge?
+                  and ctx.soc >= self.force_charge_minimum_soc.value )
+
+        if self.force_charge_until_kWh.value and not force:       # end of force charge condition reached: reset settings
+            self.force_charge_until_kWh.set( 0 )
+            self.force_charge_minimum_soc.set( 0 )
+
+        #   Timer to Start Charge
+        #
+        if force:
+            self.start_counter.to_maximum() # tweak counters so charge starts immediately and does not stop
+            self.stop_counter.to_maximum()
+            # set lower bound for charge current to the minimum allowed by force charge
+            # it is still allowed to use more power if there is more available
+            self.current_limit_bounds.set_minimum( self.force_charge_minimum_A.value )
+
         #   Plug/Unplug
         #
         car_ready = (self.evse.socket_state.value == 0x111)  # EV plugged and ready to charge
         if not car_ready:          # EV is not plugged in.
-            if self.unplug_timeout.expired_once():
+            if self.unplug_timeout.expired_once(): # execute once when unplugging car
                 log.info("EVSE: EV unplugged. Reset settings.")
-                self.force_charge_until_kWh.set( 0 ) # reset it after unplugging car
+                self.force_charge_until_kWh.set( 0 )
                 self.stop_charge_after_kWh .set( 0 )
                 await self.pause_charge( self.STATE_UNPLUGGED )
             return
@@ -672,8 +674,11 @@ class EVSEController( Routable ):
         return max( new_power, self.local_meter.active_power.value )    
 
     def publish( self ):
+        paused = self.is_charge_paused()
         self.mqtt.publish_value( self.mqtt_topic+"state", self.state )
-
+        self.mqtt.publish_value( self.mqtt_topic+"paused", int(paused) )
+        if paused:    self.mqtt.publish_value( "nolog/pv/router/evse/countdown", round( self.start_counter.value, 1 ))
+        else:         self.mqtt.publish_value( "nolog/pv/router/evse/countdown", round( self.stop_counter.value , 1 ))
 
 class RouterCtx:
     def __init__( self ):
@@ -708,6 +713,7 @@ class Router( ):
         MQTTSetting( self, "active_config"      , orjson.loads, None, orjson.dumps( config.ROUTER_DEFAULT_CONFIG ), self.mqtt_config_updated_callback )
         MQTTSetting( self, "offset", float, None, 0 )
         self.load_config()  # load config once, the devices will use it to initialize
+        self.mqtt.subscribe_callback( "cmnd/"+self.mqtt_topic+"settings", self.publish_settings_async )   # publish settings description when requested
 
         self.evse = EVSEController( self, mgr.evse )
         self.battery = Battery( self, key="bat" )
@@ -719,6 +725,12 @@ class Router( ):
             self.evse,
         ] 
         self.sort_devices_by_priority()
+
+    async def publish_settings_async( self, topic="", payload="", qos="", properties="" ):
+        self.publish_settings()
+
+    def publish_settings( self ):
+        self.mqtt.publish( "nolog/"+self.mqtt_topic+"config_description", self.config_description )
 
     # callback when config module is reloaded
     def load_config( self ):
@@ -750,6 +762,7 @@ class Router( ):
         for ma in self.mppt_power_avg.values():
             ma.time_window = self.mppt_drop_average_duration
         self.mppt_drop_timeout.set_duration( self.mppt_drop_max_duration )
+        self.publish_settings()
 
     def sort_devices_by_priority( self ):
         self.devices = sorted( [ device for device in self.all_devices if device.enabled ], key=lambda d:-d.priority )

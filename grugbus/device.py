@@ -348,7 +348,7 @@ class SlaveDevice( DeviceBase ):
     def publish_modbus_timings( self ):
         if self.last_transaction_duration:
             self.mqtt.publish_value( self.mqtt_topic+"req_time",   round( self.last_transaction_duration, 2 ))
-        if self.last_transaction_period:
+        if config.LOG_MODBUS_REQUEST_PERIOD and self.last_transaction_period:
             self.mqtt.publish_value( self.mqtt_topic+"req_period", round( self.last_transaction_period, 2 ))
 
 

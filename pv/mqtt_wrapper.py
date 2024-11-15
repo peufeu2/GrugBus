@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-import time, gmqtt, logging, functools
+import time, gmqtt, logging, functools, orjson
 from path import Path
 from misc import *
 import config
@@ -55,8 +55,8 @@ class RateLimit:
 class MQTTWrapper:
     _callbacks_generated = set()
 
-    def __init__( self, identifier ):
-        self.mqtt = gmqtt.Client( identifier, clean_session=False  )
+    def __init__( self, identifier, clean_session=False ):
+        self.mqtt = gmqtt.Client( identifier, clean_session  )
         self.mqtt.on_connect    = self.on_connect
         self.mqtt.on_message    = self.on_message
         self.mqtt.on_disconnect = self.on_disconnect
@@ -137,7 +137,7 @@ class MQTTWrapper:
     #
     def publish( self, topic, text, qos=0 ):
         if not self.mqtt.is_connected:
-            log.error( "Trying to publish %s on unconnected MQTT" % prefix )
+            log.error( "Trying to publish %s on unconnected MQTT" % topic )
             return
 
         # rate limit constant data
@@ -318,5 +318,8 @@ class MQTTSetting( MQTTVariable ):
     def publish( self ):
         log.info( "MQTTSetting: %s = %s", self.mqtt_topic, self.value )
         # MQTTSetting does not go through rate limiting, it always publishes.
-        self.mqtt.mqtt.publish( self.mqtt_topic, str(self.value), qos=0 )
+        v = self.value
+        if isinstance( v, (list, dict)):
+            v = orjson.dumps( v )
+        self.mqtt.mqtt.publish( self.mqtt_topic, v, qos=0 )
 

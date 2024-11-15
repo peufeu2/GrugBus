@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-import re
+import re, orjson
 
 from config_secret import *
 from misc.interpolate import Interp
@@ -34,6 +34,8 @@ LOG_MODBUS_REQUEST_TIME = {
     "solis1" : ( "r"    , 1.0 ),
     "solis2" : ( "r"    , 1.0 ),
 }
+# If the above decides to log request time, also log period between requests
+LOG_MODBUS_REQUEST_PERIOD  = False
 
 LOG_MODBUS_REGISTER_CHUNKS = False
 ROUTER_PRINT_DEBUG_INFO    = False
@@ -67,7 +69,7 @@ MQTT_BUFFER_IP   = SOLARPI_IP
 MQTT_BUFFER_PORT = 15555
 MQTT_BUFFER_RETENTION = 24*3600*365 # how long to keep log files
 MQTT_BUFFER_FILE_DURATION = 3600	# number of seconds before new log file is created
-MQTT_BUFFER_IGNORE = [ "nolog/" ]
+MQTT_BUFFER_IGNORE = [ "nolog/", "z2m/bridge" ]
 
 # path on solarpi for storage of mqtt compressed log
 MQTT_BUFFER_PATH = "/home/peufeu/mqtt_buffer"
@@ -91,11 +93,11 @@ for _topic in "z2m/Temp3", "z2m/rc/pf/sde/temp":
     MQTT_BUFFER_FILTER[_topic] = { "humidity":( float, (10, 10, "avg")), "temperature": ( float, (10, 1, "avg")) }
 # tasmota wifi smartplugs
 for _tasmota in range( 1, 7 ):
-    MQTT_BUFFER_FILTER[ "tele/plugs/tasmota_t%d/STATE" ]    = {}
-    MQTT_BUFFER_FILTER[ "stat/plugs/tasmota_t%d/RESULT" ]   = {"POWER": ( lambda s:int(s=="ON"), ( 60, 0.000, '' )) }
-    MQTT_BUFFER_FILTER[ "tele/plugs/tasmota_t%d/SENSOR" ]   = {"ENERGY":{"Power": ( float, (10, 20, "avg")) }}
-    MQTT_BUFFER_FILTER[ "stat/plugs/tasmota_t%d/STATUS8" ]  = {"StatusSNS":{"ENERGY":{"Power":(float, (1, 20, "avg")) }}}
-    MQTT_BUFFER_FILTER[ "stat/plugs/tasmota_t%d/STATUS8" ]  = {"StatusSNS":{"ENERGY":{"Power":(float, (1, 20, "avg")) }}}
+    MQTT_BUFFER_FILTER[ "tele/plugs/tasmota_t%d/STATE"   % _tasmota ]    = {}
+    MQTT_BUFFER_FILTER[ "stat/plugs/tasmota_t%d/RESULT"  % _tasmota ]   = {"POWER": ( lambda s:int(s=="ON"), ( 60, 0.000, '' )) }
+    MQTT_BUFFER_FILTER[ "tele/plugs/tasmota_t%d/SENSOR"  % _tasmota ]   = {"ENERGY":{"Power": ( float, (10, 20, "avg")) }}
+    MQTT_BUFFER_FILTER[ "stat/plugs/tasmota_t%d/STATUS8" % _tasmota ]  = {"StatusSNS":{"ENERGY":{"Power":(float, (1, 20, "avg")) }}}
+    MQTT_BUFFER_FILTER[ "stat/plugs/tasmota_t%d/STATUS8" % _tasmota ]  = {"StatusSNS":{"ENERGY":{"Power":(float, (1, 20, "avg")) }}}
 
 
 ##################################################################
@@ -378,10 +380,13 @@ ROUTER = {
             "mppt_drop_max_duration"         : 3.5,
             "mppt_drop_average_duration"     : 20,
 
+            "config_description"        : orjson.dumps({"desc":"Conditions de charge VE:\n- Priorité Batterie maison"}),
+
         },
         #
         #   EVSE must always have higher priority than battery.
         #   EVSE decides how much it leaves to the battery via "battery_interp" setting.
+
         "evse"      : { 
             "phase"                     : 1,            # 1-based index
             "priority"                  : 4, 
@@ -447,7 +452,8 @@ ROUTER = {
             "reserve_for_battery_W" : Interp((90, 10000), (95, 0), var="soc"),
             "start_threshold_W"     : Interp((90, 2000), (100, 1400),var="soc"), # minimum excess power to start charging
             "stop_threshold_W"      : Interp((90, 1400), (100, 1000),var="soc"), # excess power to stop charging
-        }
+        },
+        "router": { "config_description"    : orjson.dumps({"desc":"Conditions de charge VE:\n- \<90%: Priorité Batterie\n- 90-95%: transition\n- \>95% Priorité VE"}), },
     },
 
     #   Charge the car and battery at the same time to maximize self consumption
@@ -463,6 +469,7 @@ ROUTER = {
             "start_threshold_W"     : Interp((80, 2000), (100, 1200),var="soc"),
             "stop_threshold_W"      : Interp((80, 1400), (100,  800),var="soc"),     # allow it to discharge battery a little
         },
+        "router": { "config_description"    : orjson.dumps({"desc":"Conditions de charge VE:\n- \<80%: Priorité Batterie\n- 80-90%: transition\n- \>90% Priorité VE"}), },
     },
 
     #   Charge the car and battery at the same time to maximize self consumption
@@ -478,6 +485,7 @@ ROUTER = {
             "start_threshold_W"     : Interp((60, 2000), (100, 1200),var="soc"),
             "stop_threshold_W"      : Interp((70, 1400), (100,  800),var="soc"),     # allow it to discharge battery a little
         },
+        "router": { "config_description"    : orjson.dumps({"desc":"Conditions de charge VE:\n- \<50%: Priorité Batterie\n- 50-95%: transition\n- \>95% Priorité VE"}), },
     },
 
     #   Maximum PV power for EV, allows a bit of battery discharge.
@@ -485,15 +493,16 @@ ROUTER = {
     #
     "evse_max": { 
         "evse": {
-            "high_priority_W"       : Interp((49, 0),  (50, 2000),var="soc"), 
+            "high_priority_W"       : Interp((10, 0),  (11, 2000),var="soc"), 
             "reserve_for_battery_W" : lambda ctx: 0,
             "start_threshold_W"     : Interp((50, 1400), (100, 1000),var="soc"),
             "stop_threshold_W"      : Interp((50, 1000), (100,  500),var="soc"),
         },
+        "router": { "config_description"    : orjson.dumps({"desc":"Conditions de charge VE:\n- \<=10%: Priorité Batterie\n- \>10% Priorité VE"}), },
     },
 }
 
-ROUTER_DEFAULT_CONFIG = ["default", "evse_mid"]
+ROUTER_DEFAULT_CONFIG = ["evse_mid"]
 
 
 
@@ -517,8 +526,8 @@ MQTT_RATE_LIMIT = {
     'pv/solis1/meter/req_period'                    : (  60,       0.2,   'avg'   ), #  0.026/14.297,
     'pv/solis1/req_time'                            : (  60,       0.2,   'avg'   ), #  0.026/14.297,
     'pv/solis1/req_period'                          : (  60,       0.2,   'avg'   ), #  0.026/14.297,
-    'pv/evse/meter/req_time'                        : (  60,       0.2,   'avg'   ), #  0.026/14.297,
-    'pv/evse/meter/req_period'                      : (  60,       0.2,   'avg'   ), #  0.026/14.297,
+    'pv/evse/meter/req_time'                        : (  60,       0.5,   'avg'   ), #  0.026/14.297,
+    'pv/evse/meter/req_period'                      : (  60,       0.5,   'avg'   ), #  0.026/14.297,
     'pv/evse/req_time'                              : (  60,       0.5,   'avg'   ), #  0.026/14.297,
     'pv/evse/req_period'                            : (  60,       0.5,   'avg'   ), #  0.026/14.297,
 
@@ -608,7 +617,7 @@ MQTT_RATE_LIMIT = {
     #   PV Controller
     #
 
-    'pv/evse/meter/active_power'               : (   1,     50.000, 'avg'      ), #  0.019/ 0.937,
+    'pv/evse/meter/active_power'               : (  60,     50.000, 'avg'      ), #  0.019/ 0.937,
     'pv/evse/rwr_current_limit'                : (  60,      0.000, ''      ), #  0.019/ 0.112,
 
     'pv/evse/energy'                           : (  60,      0.010, ''      ), #  0.019/ 1.012,
@@ -618,6 +627,7 @@ MQTT_RATE_LIMIT = {
     'pv/evse/meter/voltage'                    : (  60,      1.000, 'avg'      ), #  0.341/ 0.838,
 
     'pv/router/evse/state'                     : (60.000000, 0.000, ''      ), #  0.204/ 4.087,
+    'nolog/pv/router/evse/countdown'           : (2, 1, ''),
     'pv/evse/error_code'                       : (60.000000, 0.000, ''      ), #  0.204/ 1.022,
     'pv/evse/socket_state'                     : (60.000000, 0.000, ''      ), #  0.204/ 1.022,
     'pv/evse/charge_state'                     : (60.000000, 0.000, ''      ), #  0.204/ 1.022,

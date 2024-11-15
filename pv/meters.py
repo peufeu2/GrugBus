@@ -67,6 +67,8 @@ class SDM630( grugbus.SlaveDevice ):
             self.total_kvarh                      ,    # required for fakemeter
             self.average_line_to_neutral_volts_thd,
             self.average_line_current_thd         ,
+            self.total_import_kwh,
+            self.total_export_kwh,
         ]
 
         self.reg_sets = list( self.reg_list_interleave( frequent_regs, all_regs ) )

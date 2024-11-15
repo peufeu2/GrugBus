@@ -93,6 +93,8 @@ DATA_STREAMS = [
     ( "pv/meter/phase_3_volt_amps"                       , "VA"  , "Phase 3"                     , color_phase3    , "solid"    , 1.0 , {}                 , {} ),
 
     ( "pv/meter/frequency"                               , "Hz"  , "Frequency"                   , nextcolor       , "solid",    1.0, {}, {}),
+    ( "pv/meter/total_import_kwh"                        , "kWh" , "Grid Import"                 , nextcolor       , "solid",    1.0, {}, {"mode":"delta"}),
+    ( "pv/meter/total_export_kwh"                        , "kWh" , "Grid Export"                 , nextcolor       , "solid",    1.0, {}, {"mode":"delta"}),
 
     # Totals across inverters
     ( "pv/total_input_power"                             , "W"   , "Battery Proxy"               , "input"         , "solid",    1.0 , {"visible":False}                 , {} ),
@@ -125,8 +127,8 @@ DATA_STREAMS = [
     # ( "pv/solis%d/bms_battery_discharge_current_limit"   , "A"   , "S%d BMS max discharge"       , "bms"       , "dotted",   1.0 , {}                 , {} ),
 
     # Solis1 history
-    ( "pv/solis1/bms_battery_current"                   , "A"   , "S%d BMS Battery current"     , "bms"       , "solid",    1.0 , {"visible":False}  , {} ),
-    ( "pv/solis1/bms_battery_soc"                       , "%"   , "S%d Battery SOC"             , "soc"           , "solid",    1.0 , {"visible":False}  , {} ),
+    ( "pv/solis1/bms_battery_current"                   , "A"   , "S1 BMS Battery current"     , "bms"       , "solid",    1.0 , {"visible":False}  , {} ),
+    ( "pv/solis1/bms_battery_soc"                       , "%"   , "S1 Battery SOC"             , "soc"           , "solid",    1.0 , {"visible":False}  , {} ),
 
     # BMS
     ( "pv/bms/power"                                     , "W"   , "BMS"                         , "bms"           , "solid"    , 1.0 , {}  , {} ),
@@ -341,6 +343,8 @@ PLOT_LAYOUTS = [
                 "pv/solis%d/meter/export_active_energy",
                 "pv/energy_generated_today",
                 "pv/battery_charge_energy_today",
+                "pv/meter/total_import_kwh",
+                "pv/meter/total_export_kwh",
             ]
         ]
     ],[ "Machine",

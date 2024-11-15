@@ -278,7 +278,7 @@ def fakemeter_on_getvalues( self, fc_as_hex, address, count ):
         # Publish requests/second statistics
         age = t - self.data_timestamp
         if (elapsed := self.stat_tick.ticked()) and self.mqtt_topic:
-            self.mqtt.publish_value( self.mqtt_topic + "req_per_s", self.request_count/max(elapsed,1) )
+            self.mqtt.publish_value( self.mqtt_topic + "req_per_s", int(self.request_count/max(elapsed,1)) )
             self.request_count = 0
 
         # Do not serve stale data
