@@ -183,13 +183,12 @@ class DiscoveryTest(  ):
                 mqtt.mqtt.publish( topic, s, qos=1, retain=True, message_expiry_interval=3600*25 )
                 await asyncio.sleep( 0.001 )    # send queued messages
 
-        await mqtt.mqtt.disconnect()
-
-
         # ask router to publish settings
-        # await asyncio.sleep( 1 )
         mqtt.mqtt.publish( "cmnd/pv/router/evse/settings", "", qos=0 )
         mqtt.mqtt.publish( "cmnd/pv/router/settings", "", qos=0 )
+
+        await mqtt.mqtt.disconnect()
+
 
 
 if __name__ == '__main__':
