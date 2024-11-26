@@ -75,9 +75,6 @@ class Chrono:
         return dt
 
 class Timeout:
-    """
-        Simple class to periodically trigger an event
-    """
     def __init__( self, duration=1, expired=False ):
         self.duration = duration
         self.reset( duration )
@@ -111,7 +108,7 @@ class Timeout:
     def expired_once( self ):
         return self.expiry and self.expired()
 
-    def remain( self ):
+    def remaining( self ):
         return max(0, self.expiry - time.monotonic())
 
     def elapsed( self ):

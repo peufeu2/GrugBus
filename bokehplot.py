@@ -136,12 +136,16 @@ DATA_STREAMS = [
     ( "pv/bms/current"                                   , "A"   , "BMS"                         , "bms"           , "solid"    , 1.0 , {"visible":False}  , {} ),
     ( "pv/bms/max_charge_current"                        , "A"   , "BMS Max Charge"              , "#008000"       , "dashed"   , 1.0 , {}                 , {} ),
     ( "pv/bms/voltage"                                   , "V"   , "BMS"                         , "bms"           , "solid"    , 1.0 , {"visible":False}  , {} ),
-    ( "pv/bms/soc"                                       , "kWh" , "BMS SOC"                     , "soc"           , "solid"    , 0.2 , {}                 , {} ),
+    ( "pv/bms/soc"                                       , "%" , "BMS SOC"                     , "soc"           , "solid"    , 1.0 , {}                 , {} ),
     ( "pv/bms/charge_enable"                             , "?"   , "BMS Charge Enable"           , "#00FF00"       , "solid"    , 1.0 , {}                 , {} ),
     ( "pv/bms/temperature"                               , "°C"  , "Battery Temperature"         , "battery"       , "solid",    1.0 , {}                 , {} ),
     ( "pv/bms/max_charge_voltage"  , "V", "Bat max_charge_voltage", nextcolor, "solid", 1.0, {}, {} ),
     ( "pv/bms/protection"          , "?", "Bat protection",         nextcolor, "solid", 1.0, {}, {} ),
     ( "pv/bms/alarm"               , "?", "Bat alarm",              nextcolor, "solid", 1.0, {}, {} ),
+    
+    ( "pv/bms/request_force_charge_1"               , "?", "request_force_charge_1",              nextcolor, "solid", 1.0, {}, {} ),
+    ( "pv/bms/request_force_charge_2"               , "?", "request_force_charge_2",              nextcolor, "solid", 1.0, {}, {} ),
+    
 
     # Router
     # ( "pv/router/battery_min_charge_power"               , "W"   , "Battery Min Charge"          , "battery"       , "dashed",   1.0 , {}                 , {} ),
@@ -413,6 +417,8 @@ PLOT_LAYOUTS = [
                 "pv/bms/protection",
                 "pv/bms/alarm",
                 "pv/bms/charge_enable",
+                "pv/bms/request_force_charge_1",
+                "pv/bms/request_force_charge_2",
                 # "pv/bms/max_charge_current",
                 # "pv/solis%d/fakemeter/lag",
                 "pv/meter/req_time",

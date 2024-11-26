@@ -260,6 +260,12 @@ EVSE = {
     }
 }
 
+##################################################################
+# Inverter control
+##################################################################
+
+# Correction factor to keep both inverters balanced
+INVERTER_BALANCE_FACTOR = 0.10
 
 ##################################################################
 # CAN
@@ -292,7 +298,7 @@ CALIBRATION = {
 # turns off when counter reaches zero.
 #
 def solis1_power_management( ctx ):
-    if ctx.soc > 10:
+    if ctx.soc > 40:
         if ctx.self.chauffage_pac_pompe.value:  # heat pump starts: turn on immediately
             return "pump", 100
         if ctx.self.house_power > 3500:  # high power demand: turn on if needed
@@ -303,12 +309,14 @@ def solis1_power_management( ctx ):
         return "night", -0.2
     return "", 0
 
-# def solis2_power_management( ctx ):
-#     if ctx.mpptv > 80:  # day: turn on
-#         return "day", 1
-#     elif ctx.mpptv < 60 and ctx.soc < 8:    # night and battery empty: turn off
-#         return "night low battery", -0.2
-#     return "", 0
+def solis2_power_management( ctx ):
+    if ctx.soc <= 4:
+        return "force charge", 100
+    if ctx.mpptv > 80:  # day: turn on
+        return "day", 1
+    elif ctx.mpptv < 60 and ctx.soc < 11:    # night and battery empty: turn off
+        return "night low battery", -0.2
+    return "", 0
 
 # Inverter auto turn on/off settings
 SOLIS_POWERSAVE_CONFIG = {
@@ -318,8 +326,9 @@ SOLIS_POWERSAVE_CONFIG = {
     },
     "solis2": {
         # turning it off cuts off the backup output, so leave it on
-        "MODE" : "on",   # "on" = always on, "off" = always off, "powersave" = use function below
-        # "FUNC" : solis2_power_management,
+        # "MODE" : "on",   # "on" = always on, "off" = always off, "powersave" = use function below
+        "MODE" : "powersave",
+        "FUNC" : solis2_power_management,
     }    
 }
 
@@ -438,6 +447,16 @@ ROUTER = {
             
     },
 
+    "evse_off": {
+        "evse": {
+            "high_priority_W"       : lambda ctx: 0,    
+            "reserve_for_battery_W" : lambda ctx: 10000,
+            "start_threshold_W"     : lambda ctx: 10000,
+            "stop_threshold_W"      : lambda ctx: 10000,
+        },
+        "router": { "config_description"    : orjson.dumps({"desc":"Conditions de charge VE:\n- \<90%: Priorité Batterie\n- 90-95%: transition\n- \>95% Priorité VE"}), },
+    },
+
     "evse_low": {
         "evse": {
             #
@@ -449,7 +468,7 @@ ROUTER = {
             # Remaining excess goes to battery up to reserve_for_battery_W
             # Interp(min_soc, max_power, max_soc, min_power) 
             # Then what remains after that goes to EVSE.
-            "reserve_for_battery_W" : Interp((90, 10000), (95, 0), var="soc"),
+            "reserve_for_battery_W" : Interp((90, 10000), (95, 500), var="soc"),
             "start_threshold_W"     : Interp((90, 2000), (100, 1400),var="soc"), # minimum excess power to start charging
             "stop_threshold_W"      : Interp((90, 1400), (100, 1000),var="soc"), # excess power to stop charging
         },

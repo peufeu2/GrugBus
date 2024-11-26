@@ -10,6 +10,6 @@ which python3.11
 cd /home/peufeu/dev/arduino/solaire
 pwd
 screen -d -m -S bokehs python3.11 bokehplot.py
-screen -d -m -S bokehc python3.11 bokehplot_chauffage.py
+# screen -d -m -S bokehc python3.11 bokehplot_chauffage.py
 screen -d -m -S click  python3.11 mqtt_clickhouse.py
 echo "Done."

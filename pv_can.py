@@ -384,6 +384,11 @@ class PylonCAN( AsyncCAN ):
         mqtt.publish_value( "pv/bms/soc",    pm.soc )
         mqtt.publish_value( "pv/bms/soh",    pm.soh )
 
+        # for inverter in self.can_inverters:
+        #     pm2 = PylonMessage.load(pm.can_msg)  # copy message
+        #     pm2.soc = min( 97, pm.soc )
+        #     inverter.trysend( pm2 )
+
         for inverter in self.can_inverters:
             inverter.trysend( pm )
 

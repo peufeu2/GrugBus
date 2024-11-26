@@ -246,7 +246,7 @@ class TasmotaPlug( Routable ):
                     p = 0
             else:
                 # It is off.
-                thr = self.current_power + self.hysteresis
+                thr = self.last_power_when_on + self.hysteresis
                 if ctx.power >= thr and ctx.phase_power[ph] >= thr:
                     ctx.changes.append( self.on )
                     p = self.last_power_when_on
@@ -623,11 +623,11 @@ class EVSEController( Routable ):
         delta_i = new_limit - cur_limit
         new_power = ev_power + delta_i * voltage
 
-        # self.mqtt.publish_value( self.mqtt_topic+"command_interval_small",  round(self.command_interval_small.remain(),1) )
-        # self.mqtt.publish_value( self.mqtt_topic+"command_interval",        round(self.command_interval.remain(),1) )
+        # self.mqtt.publish_value( self.mqtt_topic+"command_interval_small",  round(self.command_interval_small.remaining(),1) )
+        # self.mqtt.publish_value( self.mqtt_topic+"command_interval",        round(self.command_interval.remaining(),1) )
 
         if config.ROUTER_PRINT_DEBUG_INFO:
-            log.debug( "power %4d voltage %4d current %5.02f integ %.02f limit %d -> %d timeouts %.02f %.02f", ev_power, voltage, ev_power/voltage, self.integrator.value, cur_limit, new_limit, self.command_interval.remain(), self.command_interval_small.remain() )
+            log.info( "power %4d voltage %4d current %5.02f integ %.02f limit %d -> %d timeouts %.02f %.02f", ev_power, voltage, ev_power/voltage, self.integrator.value, cur_limit, new_limit, self.command_interval.remaining(), self.command_interval_small.remaining() )
 
         # no change
         if not delta_i:
@@ -934,16 +934,19 @@ class Router( ):
                     await func()
                 self.confirm_timeout.reset()    # reset counter so meter can settle after this change
             else:
-                logs.append(( "confirm_timeout %.02f", self.confirm_timeout.remain() ))
+                logs.append(( "confirm_timeout %.02f", self.confirm_timeout.remaining() ))
         else:
             logs.append(( "no change", ))
             self.confirm_timeout.reset()
 
         for fmt in logs:
-            if ctx.changes:
+            if config.ROUTER_PRINT_DEBUG_INFO:
+                if ctx.changes:
+                    log.info( *fmt )
+                else:
+                    log.debug( *fmt )
+            elif ctx.changes:
                 log.debug( *fmt )
-            elif config.ROUTER_PRINT_DEBUG_INFO:
-                print( fmt[0] % fmt[1:] )
 
         # publish results
         for device in self.devices:

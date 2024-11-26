@@ -14,6 +14,13 @@ from pv.mqtt_wrapper import MQTTWrapper
 
 mqtt = MQTTWrapper( __file__, clean_session=True )
 
+#
+#   Send MQTT discovery messages for Home Assistant
+#
+#
+
+HA_DISCOVERY_TOPIC = "ha"
+
 class DiscoveryTest(  ):
     def __init__( self ):
         pass
@@ -25,10 +32,12 @@ class DiscoveryTest(  ):
     async def astart( self ):
         await mqtt.mqtt.connect( config.MQTT_BROKER )
 
+        # Stuff to publish on MQTT
         to_publish = {}
 
-        def func( device_id, entity_class, topic, config ):
-            print( topic )
+        # add something to the list
+        def add_message( device_id, entity_class, topic, config ):
+            print( "Topic:", topic )
             pprint.pprint( config )
             s = orjson.dumps( config )
             to_publish.setdefault( device_id, [] ).append( (topic, s) )
@@ -37,15 +46,18 @@ class DiscoveryTest(  ):
             "qos": 0,
             "retain": False,
         }
+
+        #   Home Assistant wants the full device info in the first message about this device.
+        #   Then next messages can have just the device id without the extra info.
+        #   Keep a list of device id's for which we already sent the full info.
         created_devices = set()
 
-        #   Envoie par MQTT la config en JSON pour fanriquer une entité
-        #   Envoie le nom de l'appareil (device_id) lors du premier appel avec ce nom
+        #   Build MQTT discovery message for an entity.
         #
         def entity( entity_class, device_id, entity_id, **kwargs ):
             if device_id not in created_devices:
-                created_devices.add( device_id )
-                device_dict = {"name": device_id}
+                created_devices.add( device_id )    # On first message about this device, send the full info
+                device_dict = {"name": device_id}   # ie, just the name.
             else:
                 device_dict = {}
 
@@ -58,8 +70,7 @@ class DiscoveryTest(  ):
                 else:
                     kwargs["value_template"] = "{{ value | round(%d)}}" % decimals
 
-
-            func( device_id, entity_class, f"ha/{entity_class}/{device_id}_{entity_id}/config",  defaults | {
+            add_message( device_id, entity_class, topic=f"{HA_DISCOVERY_TOPIC}/{entity_class}/{device_id}_{entity_id}/config",  config = defaults | {
                 "name": entity_id,
                 "unique_id": f"{device_id}_{entity_id}",
                 "device": device_dict | {"identifiers": [f"{device_id}"],},
@@ -68,16 +79,18 @@ class DiscoveryTest(  ):
 
             # time.sleep( 0.1 )
 
-        #   Envoie une entité "sensor"
+        #   Builds "sensor" entity
         #
         def sensor( device_id, entity_id, **kwargs ):
             entity( "sensor", device_id, entity_id, **kwargs )
 
+        #   Builds "binary_sensor" entity
+        #
         def binary_sensor( device_id, entity_id, **kwargs ):
             entity( "binary_sensor", device_id, entity_id, **kwargs )
 
-        #   Envoie une entité "number"
-        #   rajoute "state_topic" et "command_topic" avec des valeurs par défaut si un paramètre "topic" est donné
+        #   Builds "number" entity
+        #   If "topic" parameter is present, adds "state_topic" and "command_topic"
         def number( device_id, entity_id, **kwargs ):
             if topic := kwargs.pop( "topic" ):
                 kwargs["state_topic" ]   = f"{topic}/{entity_id}"
@@ -86,12 +99,8 @@ class DiscoveryTest(  ):
             entity( "number", device_id, entity_id, **kwargs )
 
         #################################################
-        #           Charge forcée
+        #           EV forced charge
         #################################################
-
-        #   Paramètres :
-        #   device_id  : id de l'appareil à créer dans home assistant, unique
-        #   name    : id 
 
         number( "pv_router_evse", "force_charge_minimum_A"  , topic = "pv/router/evse", unit="A"  , min=6, max=30  , step=3  , mode="slider", icon="mdi:flash" )
         number( "pv_router_evse", "force_charge_minimum_soc", topic = "pv/router/evse", unit="%"  , min=0, max=100 , step=10 , mode="slider", icon="mdi:battery-lock" )
@@ -111,14 +120,15 @@ class DiscoveryTest(  ):
 
 
         #################################################
-        #           Routeur
+        #           Router
         #################################################
     
+        # Create home assistant select for the charger config
         device_id = "pv_router"
         entity_id = "active_config"
         topic = f"pv/router/{entity_id}"
         entity_class = "select"
-        func( device_id, entity_class, f"ha/{entity_class}/{device_id}_{entity_id}/config",  defaults | {
+        add_message( device_id, entity_class, f"{HA_DISCOVERY_TOPIC}/{entity_class}/{device_id}_{entity_id}/config",  defaults | {
             "name": "active_config",
             "unique_id": f"{device_id}_{entity_id}",
             "device": {
@@ -127,16 +137,15 @@ class DiscoveryTest(  ):
             },
 
             "icon": "mdi:priority-high",
-            "options": [ '["evse_low"]','["evse_mid"]','["evse_high"]','["evse_max"]' ],
+            "options": [ '["evse_off"]', '["evse_low"]','["evse_mid"]','["evse_high"]','["evse_max"]' ],
             "state_topic"  : topic,
             "command_topic": f"cmnd/{topic}",
             "command_template"  : "{{value}}"
         } )
         sensor( "pv_router", "config_description", icon="mdi:note-text-outline", state_topic="nolog/pv/router/config_description" ) #, value_template='{{value_json.desc|replace("\n","<br>")}}' )
 
-
         #################################################
-        #           Affichage PV
+        #           PV information display
         #################################################
 
         sensor( "pv_pv",     "total_pv_power"               , unit="W"  , decimals=0, icon="mdi:white-balance-sunny"        , state_topic="pv/total_pv_power"     )
@@ -162,9 +171,8 @@ class DiscoveryTest(  ):
         binary_sensor( "pv_solis2", "rwr_power_on_off", icon="mdi:power", state_topic="pv/solis2/rwr_power_on_off", payload_on=str(0xBE), payload_off=str(0xDE) )
         binary_sensor( "pv_solis2", "rwr_backup_output_enabled", icon="mdi:power", state_topic="pv/solis2/rwr_backup_output_enabled", payload_on="1", payload_off="0" )
 
-
         # publish grouped by device, otherwise home assistant bugs out
-        print( """To remove retained messages, issue: \n mosquitto_sub -h 192.168.0.27 -u peufeu -P g8FYGG3fFnIlUNMu9V0ASaLon4t -t "ha/#" -v --remove-retained""")
+        print( f"""To remove retained messages, issue: \n mosquitto_sub -h host -u user -P password -t "{HA_DISCOVERY_TOPIC}/#" -v --remove-retained""")
         for device_id, messages in to_publish.items():
             print( "%20s: %d entities"%(device_id, len(messages)) )
             for topic, s in messages:

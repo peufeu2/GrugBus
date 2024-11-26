@@ -150,7 +150,7 @@ async def power_coroutine( module_updated, first_start, self ):
                     #                     + 0.05*(solis.battery_power.value - total_battery_power*0.5)
                     #                     - 0.01*(solis.pv_power.value - total_pv_power*0.5) )
                     # else:
-                    fake_power = meter_power_tweaked * 0.5 + 0.05*(solis.input_power.value - total_input_power*0.5)
+                    fake_power = meter_power_tweaked * 0.5 + config.INVERTER_BALANCE_FACTOR*(solis.input_power.value - total_input_power*0.5)
 
                 try:
 
@@ -334,7 +334,7 @@ def fakemeter_on_getvalues( self, fc_as_hex, address, count ):
     #                 await solis.rwr_energy_storage_mode  .write_if_changed( 0x32 )   # mode = Backup, optimal revenue, charge from grid
     #                 timeout_blackout.reset()
     #             elif not timeout_blackout.expired():        # stay in backup mode with backup output enabled for a while
-    #                 log.info( "Remain in backup mode for %d s", timeout_blackout.remain() )
+    #                 log.info( "Remain in backup mode for %d s", timeout_blackout.remaining() )
     #                 timeout_power_on.reset()
     #                 timeout_power_off.reset()
     #             else:
