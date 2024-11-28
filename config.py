@@ -267,6 +267,13 @@ EVSE = {
 # Correction factor to keep both inverters balanced
 INVERTER_BALANCE_FACTOR = 0.10
 
+# tweak meter power to export a little when battery is near full
+def METER_POWER_TWEAKED( self, meter_power_tweaked, total_battery_power ):
+    if total_battery_power > 200:
+        return meter_power_tweaked + self.bms_soc.value*total_battery_power*0.0001
+    else:
+        return meter_power_tweaked
+
 ##################################################################
 # CAN
 ##################################################################

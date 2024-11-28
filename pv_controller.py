@@ -179,6 +179,12 @@ class Controller:
         with asyncio.Runner(loop_factory=uvloop.new_event_loop) as runner:
             runner.run(self.astart())
 
+    async def on_emergency_stop( self, param ):
+        for solis in self.inverters:
+            # Fire the event to trigger the powersave coroutine to look at the button state
+            solis.event_all.set()
+            solis.event_all.clear()
+
     async def astart( self ):    
         self.error_tick = Metronome( 10 )
 
@@ -189,8 +195,9 @@ class Controller:
         # Get battery current from BMS
         # MQTTVariable( "pv/bms/current", self, "bms_current", float, None, 0 )
         # MQTTVariable( "pv/bms/power",   self, "bms_power",   float, None, 0 )
-        MQTTVariable( "pv/bms/soc",         self, "bms_soc", float, None, 0 )
-        MQTTVariable( "chauffage/pompe",    self, "chauffage_pac_pompe",     int, None, 0 )
+        MQTTVariable( "pv/bms/soc",          self, "bms_soc", float, None, 0 )
+        MQTTVariable( "chauffage/pompe",     self, "chauffage_pac_pompe",   int, None, 0 )
+        MQTTVariable( "pv/mainboard/button", self, "emergency_stop_button", int, None, 0, self.on_emergency_stop )
 
         #   Main smartmeter
         #

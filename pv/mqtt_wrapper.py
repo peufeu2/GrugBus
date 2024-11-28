@@ -93,7 +93,7 @@ class MQTTWrapper:
 
     #   Publish numeric value, rate limit when changes are small, average
     #
-    def publish_value( self, topic, value, format=str, qos=0 ):
+    def publish_value( self, topic, value, format=str, **mqtt_args ):
         if not self.mqtt.is_connected:
             log.error( "Trying to publish %s on unconnected MQTT" % topic )
             return
@@ -107,7 +107,7 @@ class MQTTWrapper:
             # If value moved more than p.margin, we must publish. 
             # Previous unpublished values within p.margin are discarded.
             if abs(value - p.last_pub)>p.margin:
-                self.mqtt.publish( topic, format(value), qos=0 )
+                self.mqtt.publish( topic, format(value), **mqtt_args )
                 p.reset( value )
                 return
 
@@ -121,21 +121,21 @@ class MQTTWrapper:
             # periodic interval elapsed, so publish it
             if p.mode == "avg":
                 pub = p.avg()
-                self.mqtt.publish( topic, format(pub), qos=0 )
+                self.mqtt.publish( topic, format(pub), **mqtt_args )
                 p.reset( value, pub )
             else:
-                self.mqtt.publish( topic, format(value), qos=0 )
+                self.mqtt.publish( topic, format(value), **mqtt_args )
                 p.reset( value )
 
         else:
             p = self._published_data[topic] = self.get_rate_limit( topic )
             p.reset( value )
             log.info( "MQTT: No ratelimit for %s", topic )
-            self.mqtt.publish( topic, format( value ), qos=0 )
+            self.mqtt.publish( topic, format( value ), **mqtt_args )
 
     #   Publish text value, rate limit
     #
-    def publish( self, topic, text, qos=0 ):
+    def publish( self, topic, text, **mqtt_args ):
         if not self.mqtt.is_connected:
             log.error( "Trying to publish %s on unconnected MQTT" % topic )
             return
@@ -152,7 +152,7 @@ class MQTTWrapper:
         p.published_count += 1
         p.text      = text
         p.start_time = time.monotonic()
-        self.mqtt.publish( topic, text, qos=qos )
+        self.mqtt.publish( topic, text, **mqtt_args )
 
     def on_connect(self, client, flags, rc, properties):
         log.info("MQTT connected")

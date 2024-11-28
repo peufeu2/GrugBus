@@ -24,6 +24,9 @@ log = logging.getLogger(__name__)
 def on_module_unload():
     pass
 
+class Ctx:
+    pass
+
 ########################################################################################
 #
 #   - Compute and publish totals across inverters
@@ -126,8 +129,7 @@ async def power_coroutine( module_updated, first_start, self ):
 
             #   Fake Meter
             # shift slightly to avoid import when we can afford it
-            if total_battery_power > 200:
-                meter_power_tweaked += self.bms_soc.value*total_battery_power*0.0001
+            meter_power_tweaked = config.METER_POWER_TWEAKED( self, meter_power_tweaked, total_battery_power )
 
             try:
                 # hack area for meter tweaks
@@ -361,6 +363,12 @@ async def inverter_powersave_coroutine( module_updated, first_start, self, solis
 
     while not module_updated(): # Exit if this module was reloaded
         await solis.event_all.wait()
+        self.mqtt.publish_value( "pv/emergency_stop", self.emergency_stop_button.value )
+        if self.emergency_stop_button.value:
+            if await power_reg.write_if_changed( power_reg.value_off ):
+                log.info( "%s: Powering OFF (Emergency stop button)", solis.key )
+            continue
+
         if not solis.is_online:
             continue
         try:
@@ -377,13 +385,13 @@ async def inverter_powersave_coroutine( module_updated, first_start, self, solis
             
             reason = ""
             if inverter_cfg["MODE"] == "off":
+                reason = "Turn off by config"
                 counter.to_minimum()
-                reason = "turn off by config"
-                await power_reg.write_if_changed( power_reg.value_off )
+
             elif inverter_cfg["MODE"] == "on":
+                reason = "Turn on by config"
                 counter.to_maximum()
-                reason = "turn on by config"
-                await power_reg.write_if_changed( power_reg.value_on )
+
             elif self.bms_soc.age() < 120:   # we have received SOC
                 ctx = PSCtx()
                 ctx.mpptv = max( solis.mppt1_voltage.value, solis.mppt2_voltage.value )
@@ -396,15 +404,11 @@ async def inverter_powersave_coroutine( module_updated, first_start, self, solis
                 reason = "reason: %s, MPPT %dV SOC %d%% house_power %dW pump %d" % ( reason, ctx.mpptv, ctx.soc, self.house_power, self.chauffage_pac_pompe.value )
 
             if counter.at_maximum():
-                newval = power_reg.value_on
-                if power_reg.value != newval:
+                if await power_reg.write_if_changed( power_reg.value_on ):
                     log.info( "%s: Powering ON (%s)", solis.key, reason )
-                    await power_reg.write_if_changed( newval )
             elif counter.at_minimum():
-                newval = power_reg.value_off
-                if power_reg.value != newval:
+                if await power_reg.write_if_changed( power_reg.value_off ):
                     log.info( "%s: Powering OFF (%s)", solis.key, reason )
-                    await power_reg.write_if_changed( newval )
             else:
                 log.debug( "%s: powersave counter: %.1f", solis.key, counter.value )
                     

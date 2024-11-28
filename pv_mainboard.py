@@ -133,14 +133,15 @@ class PiPico:
         key, value = line.split(" ",1)
         if key == "button":
             button = int( value )
-            if self.button_state != None and self.button_state != button:
+            if self.button_state != button:
+                self.on_button( button )
                 self.button_state = button
-                self.on_button( )
+            self.mqtt.publish_value( "pv/mainboard/button", self.button_state, int, qos=1, retain=True, message_expiry_interval=120 )
         elif key == "tach":
             self.on_tach( orjson.loads( value ) )
 
-    def on_button( self ):
-        print( "Button", self.button_state )
+    def on_button( self, new_state ):
+        print( f"Button {self.button_state} -> {new_state}" )
 
     def on_tach( self, tach ):
         t = time.monotonic()
@@ -172,6 +173,10 @@ class PiPico:
             await self.send( cmd )
         return cb
 
+    async def on_emergency_stop( self, topic, payload, qos, properties ):
+        cmd = "led %d %d\n" % (8, int(payload))
+        await self.send( cmd )
+
     async def log_coroutine( self, title, fut ):
         log.info("Start:"+title )
         try:        await fut
@@ -196,6 +201,7 @@ class PiPico:
         #   Upload code. Command/response communication.
         #
         if "upload" in sys.argv:
+            sys.argv.remove("upload")
             log.info("######################### UPLOAD #########################")
             await self.hard_reset()
             await self.wait_ready()               # consume garbage generated on serial during reset
@@ -216,12 +222,13 @@ class PiPico:
 
         MQTTVariable( "nolog/pv/solis1/fan_speed", self, "solis1_fan", float, None, 0, self.on_mqtt_update_fan )
         MQTTVariable( "nolog/pv/solis2/fan_speed", self, "solis2_fan", float, None, 0, self.on_mqtt_update_fan )
-        self.mqtt.subscribe_callback( "nolog/pv/event/solis1"   , self.on_mqtt_event_led( 0 ) )
-        self.mqtt.subscribe_callback( "nolog/pv/event/ms1"      , self.on_mqtt_event_led( 3 ) )
-        self.mqtt.subscribe_callback( "nolog/pv/event/solis2"   , self.on_mqtt_event_led( 1 ) )
-        self.mqtt.subscribe_callback( "nolog/pv/event/ms2"      , self.on_mqtt_event_led( 4 ) )
-        self.mqtt.subscribe_callback( "nolog/pv/event/meter"    , self.on_mqtt_event_led( 2 ) )
-        self.mqtt.subscribe_callback( "nolog/pv/event/evse"     , self.on_mqtt_event_led( 5 ) )
+        # self.mqtt.subscribe_callback( "nolog/pv/event/solis1"   , self.on_mqtt_event_led( 0 ) )
+        # self.mqtt.subscribe_callback( "nolog/pv/event/ms1"      , self.on_mqtt_event_led( 3 ) )
+        # self.mqtt.subscribe_callback( "nolog/pv/event/solis2"   , self.on_mqtt_event_led( 1 ) )
+        # self.mqtt.subscribe_callback( "nolog/pv/event/ms2"      , self.on_mqtt_event_led( 4 ) )
+        # self.mqtt.subscribe_callback( "nolog/pv/event/meter"    , self.on_mqtt_event_led( 2 ) )
+        # self.mqtt.subscribe_callback( "nolog/pv/event/evse"     , self.on_mqtt_event_led( 5 ) )
+        self.mqtt.subscribe_callback( "pv/emergency_stop"     , self.on_emergency_stop )
 
         pv.reload.add_module_to_reload( "config", self.mqtt.load_rate_limit ) # reload rate limit configuration
 

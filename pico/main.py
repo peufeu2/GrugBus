@@ -65,8 +65,10 @@ def update_leds( t ):
         if led.mode:
             led.update()
 
+# If LED.mode==1, then LED.update() is called periodically
 LEDS[1].mode = 1
 LEDS[4].mode = 1
+LEDS[6].mode = 1
 
 LEDtimer = machine.Timer()
 LEDtimer.init( mode=machine.Timer.PERIODIC, callback=update_leds, freq=20 ) 
@@ -96,10 +98,21 @@ def cb_tach4(p):
     if LED_MODE == "fan":
         LEDS[5].set( TACH_COUNTERS[3] & 2 )
 
+def cb_button(p):
+    if PIN_BUTTON():
+        UART0.write( b">button 1\n" )
+        LEDS[7].set( 1 )
+    else:
+        UART0.write( b">button 0\n" )
+        LEDS[7].set( 0 )
+    LEDS[6].set(10)
+
+
 PIN_TACH1.irq( trigger=machine.Pin.IRQ_RISING, handler=cb_tach1 )
 PIN_TACH2.irq( trigger=machine.Pin.IRQ_RISING, handler=cb_tach2 )
 PIN_TACH3.irq( trigger=machine.Pin.IRQ_RISING, handler=cb_tach3 )
 PIN_TACH4.irq( trigger=machine.Pin.IRQ_RISING, handler=cb_tach4 )
+PIN_BUTTON.irq( trigger=machine.Pin.IRQ_RISING | machine.Pin.IRQ_FALLING, handler=cb_button )
 
 # UART
 PIN_UART0_TX = machine.Pin( 0 )
