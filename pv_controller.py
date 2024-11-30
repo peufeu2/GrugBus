@@ -198,6 +198,10 @@ class Controller:
         MQTTVariable( "pv/bms/soc",          self, "bms_soc", float, None, 0 )
         MQTTVariable( "chauffage/pompe",     self, "chauffage_pac_pompe",   int, None, 0 )
         MQTTVariable( "pv/mainboard/button", self, "emergency_stop_button", int, None, 0, self.on_emergency_stop )
+        MQTTVariable( "pv/bms/alarm"                 , self, "bms_alarm", int, None, 0 )
+        MQTTVariable( "pv/bms/request_full_charge"   , self, "bms_request_full_charge", int, None, 0 )
+        MQTTVariable( "pv/bms/request_force_charge_1", self, "bms_request_force_charge_1", int, None, 0 )
+        MQTTVariable( "pv/bms/request_force_charge_2", self, "bms_request_force_charge_2", int, None, 0 )
 
         #   Main smartmeter
         #

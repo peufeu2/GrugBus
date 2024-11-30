@@ -401,7 +401,7 @@ async def inverter_powersave_coroutine( module_updated, first_start, self, solis
                 ctx.self  = self
                 reason, delta = inverter_cfg["FUNC"](ctx)
                 counter.add( delta * elapsed )
-                reason = "reason: %s, MPPT %dV SOC %d%% house_power %dW pump %d" % ( reason, ctx.mpptv, ctx.soc, self.house_power, self.chauffage_pac_pompe.value )
+                reason = "%s, MPPT %dV SOC %d%% house_power %dW pump %d" % ( reason, ctx.mpptv, ctx.soc, self.house_power, self.chauffage_pac_pompe.value )
 
             if counter.at_maximum():
                 if await power_reg.write_if_changed( power_reg.value_on ):

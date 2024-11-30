@@ -317,7 +317,11 @@ def solis1_power_management( ctx ):
     return "", 0
 
 def solis2_power_management( ctx ):
-    if ctx.soc <= 4:
+    if (ctx.soc <= 4 
+        or ctx.self.bms_alarm.value 
+        or ctx.self.bms_request_full_charge.value 
+        or ctx.self.bms_request_force_charge_1.value 
+        or ctx.self.bms_request_force_charge_2.value):
         return "force charge", 100
     if ctx.mpptv > 80:  # day: turn on
         return "day", 1
