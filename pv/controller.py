@@ -382,7 +382,7 @@ async def inverter_powersave_coroutine( module_updated, first_start, self, solis
             inverter_cfg = config.SOLIS_POWERSAVE_CONFIG[ solis.key ]
             counter = solis._on_off_counter
             elapsed = chrono.lap()
-            
+
             reason = ""
             if inverter_cfg["MODE"] == "off":
                 reason = "Turn off by config"
@@ -406,11 +406,13 @@ async def inverter_powersave_coroutine( module_updated, first_start, self, solis
             if counter.at_maximum():
                 if await power_reg.write_if_changed( power_reg.value_on ):
                     log.info( "%s: Powering ON (%s)", solis.key, reason )
+
             elif counter.at_minimum():
                 if await power_reg.write_if_changed( power_reg.value_off ):
                     log.info( "%s: Powering OFF (%s)", solis.key, reason )
+
             else:
-                log.debug( "%s: powersave counter: %.1f", solis.key, counter.value )
+                print( "%s: powersave counter: %.1f" %( solis.key, counter.value ))
                     
         except (TimeoutError, ModbusException): pass
         except Exception:

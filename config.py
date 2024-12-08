@@ -317,6 +317,9 @@ def solis1_power_management( ctx ):
     return "", 0
 
 def solis2_power_management( ctx ):
+    #
+    #   If battery is at dangerously low SOC and requests force charge,
+    #   don't turn off the inverter
     if (ctx.soc <= 4 
         or ctx.self.bms_alarm.value 
         or ctx.self.bms_request_full_charge.value 

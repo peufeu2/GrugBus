@@ -846,13 +846,15 @@ https://diysolarforum.com/threads/modbus-register-backflow-power-for-solis-hybri
 3,43132,,"U16",,"Remote Control Grid Adjustment",,"int",,"0=OFF
 1=ON with ‘system grid connection point’
 2=ON with ‘inverter AC grid port’
-Default 0. Resets to 0 after 5 min unless written.
+Default 0. 
+Dead man’s switch: Resets to 0 after 5 min. Re-writing resets timer.
 When set to ON, «Remote Control Force Battery Charge» will set to OFF
 https://community.openenergymonitor.org/t/getting-data-from-inverters-via-an-rs485-connection/8377/26",,,,
 3,43133,,"U16","10W ","Remote Control Active Power on System Grid Connection Point",,"float",,"Positive Export, Negative Import, Available when Remote Control Grid Adjustment is ON – System Grid Connection Point",,,,
 3,43134,,"U16","10W ","Remote Control Reactive Power on System Grid Connection Point",,"float",,"Positive Export, Negative Import, Available when Remote Control Grid Adjustment is ON – System Grid Connection Point",,,,
 3,43135,,"U16",,"Remote Control Force Battery Charge Discharge",,"float",,"0=OFF, 1=Battery charge, 2=Battery discharge, default 0
-When set to ON, Remote Control Grid Adjustment will set to OFF",,,,
+When set to ON, Remote Control Grid Adjustment will set to OFF
+Dead man’s switch: Resets to 0 after 5 min. Re-writing resets timer.",,,,
 3,43136,,"U16","10W ","Remote Control Force Battery Charge Power",,"float",,"Available when 43135 is Force Charge
 10W up to Device back-up output power ; default 0 
 Battery is discharged and power is exported
