@@ -227,7 +227,7 @@ SOLIS = {
 
 METER = {
     "SERIAL": _SERIAL_DEFAULTS | {
-        "port"     : "/dev/serial/by-id/usb-FTDI_USB_RS485_3-if01-port0",
+        "port"     : "/dev/serial/by-id/usb-FTDI_USB_RS485_3-if00-port0",
         "baudrate" : 19200,
     },
     "PARAMS": {
@@ -242,7 +242,7 @@ FAKE_METER_MAX_AGE = 1.5
 
 EVSE = {
     "SERIAL": _SERIAL_DEFAULTS | { 
-        "port"    : "/dev/serial/by-id/usb-FTDI_USB_RS485_3-if00-port0",        
+        "port"    : "/dev/serial/by-id/usb-FTDI_USB_RS485_3-if01-port0",        
         "timeout" : 0.5,
     },
     "PARAMS": {

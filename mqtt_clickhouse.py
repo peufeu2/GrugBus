@@ -353,21 +353,24 @@ class InsertPooler():
                         if self.notdupe( ts,k,v ):
                             return self.insert_str.append((k,ts,False,v))
 
-    def flush( self ):
-        st = time.time()
-        l = len(self.insert_str)+len(self.insert_floats)
-        try:
-            if self.insert_floats:
-                clickhouse.execute( "INSERT INTO %s (topic,ts,is_int,value) VALUES" % self.table_float, self.insert_floats )
-                self.insert_floats = []
-            if self.insert_str:
-                clickhouse.execute( "INSERT INTO %s (topic,ts,is_exception,value) VALUES"%self.table_str, self.insert_str )
-                self.insert_str    = []
-        except Exception as e:
-            print( "Lost connection to Clickhouse, %d rows pending" % l )
-        else:
-            r = self.reset( l, st )
-            print( "INSERT %f ms %s" % ((time.time()-st)*1000, r ))
+    async def flush( self ):
+        async with asyncio.timeout( 10 ):
+            st = time.time()
+            l = len(self.insert_str)+len(self.insert_floats)
+            try:
+                if self.insert_floats:
+                    clickhouse.execute( "INSERT INTO %s (topic,ts,is_int,value) VALUES" % self.table_float, self.insert_floats )
+                    self.insert_floats = []
+                if self.insert_str:
+                    clickhouse.execute( "INSERT INTO %s (topic,ts,is_exception,value) VALUES"%self.table_str, self.insert_str )
+                    self.insert_str    = []
+            except Exception as e:
+                print( "Lost connection to Clickhouse, %d rows pending" % l )
+                print( e )
+                raise
+            else:
+                r = self.reset( l, st )
+                print( "INSERT %f ms %s" % ((time.time()-st)*1000, r ))
 
 
 async def cleanup_coroutine( ):
@@ -444,9 +447,11 @@ async def astart():
             await transfer_data( mqtt )
         except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
             return abort()
+        except asyncio.TimeoutError:
+            log.error( "Exception: Timeout" )
         except:
             log.error( "Exception: %s", traceback.format_exc() )
-            await asyncio.sleep(1)
+        await asyncio.sleep(1)
 
 async def transfer_data( mqtt ):
     # setup local
@@ -460,15 +465,17 @@ async def transfer_data( mqtt ):
 
     # connect to log server
     log.info("Connecting to log server")
-    rsock,wsock = await asyncio.open_connection( config.MQTT_BUFFER_IP, config.MQTT_BUFFER_PORT )
-    wsock.write(b"%d\n" % start_timestamp)        # send timestamp
+    async with asyncio.timeout( 60 ):
+        rsock,wsock = await asyncio.open_connection( config.MQTT_BUFFER_IP, config.MQTT_BUFFER_PORT )
+        wsock.write(b"%d\n" % start_timestamp)        # send timestamp
 
     pool = InsertPooler()
     st = time.time()
     length2 = 0.
     total_rows = 0
     while True:
-        line = (await rsock.readline()).split()
+        async with asyncio.timeout( 60 ):
+            line = (await rsock.readline()).split()
         file_ts = float(line[0])
         length  = int(line[1])            
         log.debug("Got length:%d", length)
@@ -478,7 +485,7 @@ async def transfer_data( mqtt ):
             #   We could stream decompress... but if there's an error, we'll have to
             #   make sure we read up to the next chunk, too complicated!
             #   just use temp file
-            try:
+            async with asyncio.timeout( 300 ):
                 with open( tmp_path := tmp_dir/("%.02f.json.zst"%file_ts), "wb" ) as zf:
                     length2 += length/1024
                     while length>0:
@@ -498,16 +505,16 @@ async def transfer_data( mqtt ):
                             except Exception as e:
                                 print("Error on line %s: %s\n> %s" % (n, e, line[:80]))                        
                             if not (n&0x3FFFF):
-                                pool.flush()
+                                await pool.flush()
                 except Exception as e:
                     print("Error on file %s: %s" % (tmp_path, e))
-            finally:
-                pass
+            # finally:
+            #     pass
                 # tmp_path.unlink()
         else:
             #   Get real time data
             #
-            pool.flush()
+            await pool.flush()
             timer = Metronome( config.CLICKHOUSE_INSERT_PERIOD_SECONDS )
             while True:
                 async with asyncio.timeout( 60 ):
@@ -521,7 +528,7 @@ async def transfer_data( mqtt ):
 
                 # print( len( pool.insert_floats ))
                 if timer.ticked():
-                    pool.flush()
+                    await pool.flush()
 
 
 RETRIEVE_SECONDS = 4*3600
