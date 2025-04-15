@@ -111,6 +111,8 @@ class Solis( grugbus.SlaveDevice ):
 
                 self.rwr_energy_storage_mode              ,
                 self.rwr_backup_output_enabled            ,
+
+                self.leakage_current
             ]
 
         # Build modbus requests: read frequent_regs on every request, plus one chunk out of all_regs

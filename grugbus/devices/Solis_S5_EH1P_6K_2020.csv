@@ -465,8 +465,8 @@ Not usable !",,,,
 4,33212,,"U16",,"Battery Voltage Droop ",,"int",,"1-Enable 0-Disable",,,,
 4,33213,,"U16","1,00 %","Battery Over discharge SOC ",,"float",,,,,,
 4,33214,,"U16","1,00 %","Battery Force charge SOC",,"float",,,,,,
-4,33215,,"U16",,"Reserved ",,"float",,"always zero",,,,
-4,33216,,"U16",,"Reserved ",,"float",,"always zero",,,,
+4,33215,,"U16",,"AFCI Fault String",,"int",,"0: No fault 1-2: AFCI fault on this string",,,,
+4,33216,,"U16","0.001A","Leakage Current",,"float",,,,,,
 4,33217,,"U16","0.1A","Battery Current",,"float",,"New register from 2024 firmware
 Battery current measured by inverter.
 Fast update (<1s)

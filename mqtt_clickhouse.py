@@ -354,20 +354,23 @@ class InsertPooler():
                             return self.insert_str.append((k,ts,False,v))
 
     async def flush( self ):
+        print("Flush...")
         async with asyncio.timeout( 10 ):
             st = time.time()
             l = len(self.insert_str)+len(self.insert_floats)
+            settings={ "max_execution_time": 20 }
+
             try:
                 if self.insert_floats:
-                    clickhouse.execute( "INSERT INTO %s (topic,ts,is_int,value) VALUES" % self.table_float, self.insert_floats )
+                    clickhouse.execute( "INSERT INTO %s (topic,ts,is_int,value) VALUES" % self.table_float, self.insert_floats, settings=settings )
                     self.insert_floats = []
                 if self.insert_str:
-                    clickhouse.execute( "INSERT INTO %s (topic,ts,is_exception,value) VALUES"%self.table_str, self.insert_str )
+                    clickhouse.execute( "INSERT INTO %s (topic,ts,is_exception,value) VALUES"%self.table_str, self.insert_str, settings=settings )
                     self.insert_str    = []
             except Exception as e:
                 print( "Lost connection to Clickhouse, %d rows pending" % l )
                 print( e )
-                raise
+                # raise
             else:
                 r = self.reset( l, st )
                 print( "INSERT %f ms %s" % ((time.time()-st)*1000, r ))
@@ -376,8 +379,8 @@ class InsertPooler():
 async def cleanup_coroutine( ):
     while True:
         try:
-            for table in "system.trace_log", "system.metric_log", "system.asynchronous_metric_log", "system.session_log":
-                print("Cleanup", table, clickhouse.execute("SELECT count(*) FROM "+table ))
+            for table in "system.trace_log", "system.metric_log", "system.asynchronous_metric_log", "system.session_log", "system.text_log":
+                print("Cleanup", table )
                 clickhouse.execute( "TRUNCATE TABLE "+table )
                 await asyncio.sleep(20)
         except (KeyboardInterrupt, asyncio.exceptions.CancelledError):

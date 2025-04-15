@@ -134,9 +134,9 @@ FAN_SPEED = {
 POLL_PERIOD_METER       = 0.2
 POLL_PERIOD_SOLIS_METER = 0.2
 POLL_PERIOD_SOLIS       = 0.2
-POLL_PERIOD_EVSE        = 1
+POLL_PERIOD_EVSE        = 0.5
 POLL_PERIOD_EVSE_METER_CHARGING  = 0.2
-POLL_PERIOD_EVSE_METER_IDLE      = 0.2 # 10
+POLL_PERIOD_EVSE_METER_IDLE      = 1 # 10
 
 ##################################################################
 # Modbus configuration
@@ -368,7 +368,7 @@ ROUTER = {
             "breaker_limit"         : 230*22,       # maximum per-phase power
 
             # Set target export power for router
-            "p_export_target"       : lambda soc: 100 + soc*1.0,
+            "p_export_target"       : lambda soc: soc*1.0,
 
             # When battery is inactive, we pretend its current is zero,
             # which removes BMS offset error
@@ -498,11 +498,11 @@ ROUTER = {
     "evse_mid": { 
         "evse": {
             "high_priority_W"       : Interp((79, 0),  (80, 2000),var="soc"), 
-            "reserve_for_battery_W" : Interp((80, 6000),  (90, 1000),var="soc"),
+            "reserve_for_battery_W" : Interp((80, 6000),  (94, 1000), (95,-5000),var="soc"),
             "start_threshold_W"     : Interp((80, 2000), (100, 1200),var="soc"),
             "stop_threshold_W"      : Interp((80, 1400), (100,  800),var="soc"),     # allow it to discharge battery a little
         },
-        "router": { "config_description"    : orjson.dumps({"desc":"Conditions de charge VE:\n- \<80%: Priorité Batterie\n- 80-90%: transition\n- \>90% Priorité VE"}), },
+        "router": { "config_description"    : orjson.dumps({"desc":"Conditions de charge VE:\n- \<80%: Priorité Batterie\n- 80-95%: transition\n- \>95% Batterie->VE"}), },
     },
 
     #   Charge the car and battery at the same time to maximize self consumption
@@ -514,24 +514,26 @@ ROUTER = {
     "evse_high": { 
         "evse": {
             "high_priority_W"       : Interp((49, 0),  (50, 2000),var="soc"), 
-            "reserve_for_battery_W" : Interp((50, 6000),  (95, 1000),var="soc"),
+            "reserve_for_battery_W" : Interp((50, 6000),  (89, 0), (90,-6000),var="soc"),
             "start_threshold_W"     : Interp((60, 2000), (100, 1200),var="soc"),
             "stop_threshold_W"      : Interp((70, 1400), (100,  800),var="soc"),     # allow it to discharge battery a little
         },
-        "router": { "config_description"    : orjson.dumps({"desc":"Conditions de charge VE:\n- \<50%: Priorité Batterie\n- 50-95%: transition\n- \>95% Priorité VE"}), },
+        "router": { "config_description"    : orjson.dumps({"desc":"Conditions de charge VE:\n- \<50%: Priorité Batterie\n- 50-90%: transition\n- \>90% Batterie -> VE"}), },
     },
 
-    #   Maximum PV power for EV, allows a bit of battery discharge.
+    #   Maximum PV power for EV.
+    #   Allows battery discharge at high SOC to prevent battery from reaching 100%
+    #   so battery can charge on >6kW peaks
     #   For more power to EV, use force charge.
     #
     "evse_max": { 
         "evse": {
             "high_priority_W"       : Interp((10, 0),  (11, 2000),var="soc"), 
-            "reserve_for_battery_W" : lambda ctx: 0,
+            "reserve_for_battery_W" : Interp((70, 0),  (80, -7000),var="soc"),
             "start_threshold_W"     : Interp((50, 1400), (100, 1000),var="soc"),
             "stop_threshold_W"      : Interp((50, 1000), (100,  500),var="soc"),
         },
-        "router": { "config_description"    : orjson.dumps({"desc":"Conditions de charge VE:\n- \<=10%: Priorité Batterie\n- \>10% Priorité VE"}), },
+        "router": { "config_description"    : orjson.dumps({"desc":"Conditions de charge VE:\n- \<=10%: Priorité Batterie\n- \>10% Priorité VE\n - SOC>80% Batterie -> VE"}), },
     },
 }
 
@@ -704,6 +706,7 @@ MQTT_RATE_LIMIT = {
 
     'pv/solis1/phase_a_voltage'                : (  60,      2.000, 'avg'      ), #  0.161/ 0.267,
     'pv/solis1/temperature'                    : (  60,      0.200, 'avg'      ), #  0.068/ 0.273,
+    'pv/solis1/leakage_current'                : (  600,     0.005, 'avg'      ), #  0.068/ 0.273,
 
     # publish only on change
     'pv/battery_max_charge_power'              : (  60,    100.000, ''      ), #  0.050/ 4.749,

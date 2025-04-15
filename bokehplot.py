@@ -17,8 +17,10 @@ from misc import *
 STREAMING_LENGTH = 1200         # seconds
 STREAMING_LENGTH_MIN = 200     # seconds
 STREAMING_LENGTH_MAX = 3600    # seconds
-TIME_SHIFT_S = 3600*1          # to shift database timestamps stored in UTC
+TIME_SHIFT_S = 3600*2          # to shift database timestamps stored in UTC
 TIME_SHIFT = np.timedelta64( TIME_SHIFT_S, 's' )
+
+ENABLE_GAUGES = False
 
 clickhouse = clickhouse_driver.Client('localhost', user=config.CLICKHOUSE_USER, password=config.CLICKHOUSE_PASSWORD )
 
@@ -125,6 +127,8 @@ DATA_STREAMS = [
     ( "pv/solis%d/battery_max_discharge_current"         , "A"   , "S%d Bat max discharge"       , "battery"       , "dotted",   1.0 , {"visible":False}  , {} ),
     # ( "pv/solis%d/bms_battery_charge_current_limit"      , "A"   , "S%d BMS max charge"          , "bms"       , "dashed",   1.0 , {}                 , {} ),
     # ( "pv/solis%d/bms_battery_discharge_current_limit"   , "A"   , "S%d BMS max discharge"       , "bms"       , "dotted",   1.0 , {}                 , {} ),
+
+    ( "pv/solis%d/leakage_current"                      , "mA"   , "S%d leakage current"       , nextcolor      , "solid",   1000.0 , {"visible":True}  , {} ),
 
     # Solis1 history
     ( "pv/solis1/bms_battery_current"                   , "A"   , "S1 BMS Battery current"     , "bms"       , "solid",    1.0 , {"visible":False}  , {} ),
@@ -292,6 +296,8 @@ PLOT_LAYOUTS = [
             ],[
                 "pv/solis%d/mppt1_current"                       ,
                 "pv/solis%d/mppt2_current"                       ,
+            ],[
+                "pv/solis%d/leakage_current"
             ]
 
         ]
@@ -314,21 +320,21 @@ PLOT_LAYOUTS = [
         ]
     ],[ "Grid",
         [
-            # [
-            #     "pv/meter/phase_1_line_to_neutral_volts",
-            #     "pv/meter/phase_2_line_to_neutral_volts",
-            #     "pv/meter/phase_3_line_to_neutral_volts",
-            # ],
+            [
+                "pv/meter/phase_1_line_to_neutral_volts",
+                "pv/meter/phase_2_line_to_neutral_volts",
+                "pv/meter/phase_3_line_to_neutral_volts",
+            ],
             [
                 "pv/meter/phase_1_power",
                 "pv/meter/phase_2_power",
                 "pv/meter/phase_3_power",
             ],            
-            [
-                "pv/meter/phase_1_volt_amps",
-                "pv/meter/phase_2_volt_amps",
-                "pv/meter/phase_3_volt_amps",
-            ],            
+            # [
+            #     "pv/meter/phase_1_volt_amps",
+            #     "pv/meter/phase_2_volt_amps",
+            #     "pv/meter/phase_3_volt_amps",
+            # ],            
             [
                 "pv/meter/phase_1_current",
                 "pv/meter/phase_2_current",
@@ -362,19 +368,19 @@ PLOT_LAYOUTS = [
                 "pv/solis%d/fan_rpm"     ,
             ]
         ]
-    ],["S1 history", 
-        [
-            [
-                "pv/total_pv_power"                              ,
-                "pv/meter/house_power"                           ,
-                "pv/meter/total_power"                           ,
-                "pv/solis1/battery_power"                        ,
-                "pv/solis1/meter/active_power"                   ,
-            ],[
-                "pv/solis1/bms_battery_soc"                      ,
-                "pv/solis1/bms_battery_current"                  ,
-            ]
-        ]
+    # ],["S1 history", 
+    #     [
+    #         [
+    #             "pv/total_pv_power"                              ,
+    #             "pv/meter/house_power"                           ,
+    #             "pv/meter/total_power"                           ,
+    #             "pv/solis1/battery_power"                        ,
+    #             "pv/solis1/meter/active_power"                   ,
+    #         ],[
+    #             "pv/solis1/bms_battery_soc"                      ,
+    #             "pv/solis1/bms_battery_current"                  ,
+    #         ]
+    #     ]
     ],["Chauffage",
         [
             [
@@ -403,34 +409,34 @@ PLOT_LAYOUTS = [
             ]
         ]
     ],
-    ["TEST", 
-        [
-            [
-                # "pv/solis%d/battery_current",
-                # "pv/bms/current",
-                # "pv/solis%d/reserved_33191",
-                "pv/solis%d/fakemeter/active_power",
-                "pv/meter/house_power",
-                "pv/meter/total_power",
-                "pv/solis%d/meter/active_power",
-            ],[
-                "pv/bms/protection",
-                "pv/bms/alarm",
-                "pv/bms/charge_enable",
-                "pv/bms/request_force_charge_1",
-                "pv/bms/request_force_charge_2",
-                # "pv/bms/max_charge_current",
-                # "pv/solis%d/fakemeter/lag",
-                "pv/meter/req_time",
-                # "pv/meter/req_period",
-                "pv/solis%d/meter/req_time",
-                "pv/solis%d/req_time",
-                "pv/evse/meter/req_time",
-                "pv/evse/req_time",
-                # "pv/solis%d/meter/req_period",
-            ],
-        ]
-    ],
+    # ["TEST", 
+    #     [
+    #         [
+    #             # "pv/solis%d/battery_current",
+    #             # "pv/bms/current",
+    #             # "pv/solis%d/reserved_33191",
+    #             "pv/solis%d/fakemeter/active_power",
+    #             "pv/meter/house_power",
+    #             "pv/meter/total_power",
+    #             "pv/solis%d/meter/active_power",
+    #         ],[
+    #             "pv/bms/protection",
+    #             "pv/bms/alarm",
+    #             "pv/bms/charge_enable",
+    #             "pv/bms/request_force_charge_1",
+    #             "pv/bms/request_force_charge_2",
+    #             # "pv/bms/max_charge_current",
+    #             # "pv/solis%d/fakemeter/lag",
+    #             "pv/meter/req_time",
+    #             # "pv/meter/req_period",
+    #             "pv/solis%d/meter/req_time",
+    #             "pv/solis%d/req_time",
+    #             "pv/evse/meter/req_time",
+    #             "pv/evse/req_time",
+    #             # "pv/solis%d/meter/req_period",
+    #         ],
+    #     ]
+    # ],
     ["MQTT",
         [
             [
@@ -726,26 +732,27 @@ class PVDashboard():
         #
         #   Power Gauges
         #
-        power_gauge_topics = (
-                "pv/total_pv_power"                              ,
-                "pv/total_battery_power"                         ,
-                "pv/meter/house_power"                           ,
-                "pv/evse/meter/active_power"                     ,
-                "pv/meter/total_power"                           ,
-            )
-        self.gauge_tab_power_gauge_datastreams = [ self.app.data_streams[k] for k in power_gauge_topics ]
-        power_gauge_labels = [ ds.label for ds in self.gauge_tab_power_gauge_datastreams ]
+        if ENABLE_GAUGES:
+            power_gauge_topics = (
+                    "pv/total_pv_power"                              ,
+                    "pv/total_battery_power"                         ,
+                    "pv/meter/house_power"                           ,
+                    "pv/evse/meter/active_power"                     ,
+                    "pv/meter/total_power"                           ,
+                )
+            self.gauge_tab_power_gauge_datastreams = [ self.app.data_streams[k] for k in power_gauge_topics ]
+            power_gauge_labels = [ ds.label for ds in self.gauge_tab_power_gauge_datastreams ]
 
-        # Gauge tab
-        p = self.power_gauge_fig = bokeh.plotting.figure( y_range=bokeh.models.FactorRange(factors=list(reversed(power_gauge_labels))), sizing_mode   = "stretch_both", x_range=(-5000,12000), title="Realtime", toolbar_location=None)
-        tabs.append( TabPanel( child=self.power_gauge_fig, title="Gauges" ))
-        self.gauge_tab_power_gauges = p.hbar( 
-            y           =power_gauge_labels, 
-            left        = [ ds.realtime() for ds in self.gauge_tab_power_gauge_datastreams ], 
-            right       = [ ds.realtime() for ds in self.gauge_tab_power_gauge_datastreams ], 
-            fill_color  = [ ds.bokeh_attrs["line_color"] for ds in self.gauge_tab_power_gauge_datastreams ],
-            height      = 0.9, 
-            line_width  = 0)
+            # Gauge tab
+            p = self.power_gauge_fig = bokeh.plotting.figure( y_range=bokeh.models.FactorRange(factors=list(reversed(power_gauge_labels))), sizing_mode   = "stretch_both", x_range=(-5000,12000), title="Realtime", toolbar_location=None)
+            tabs.append( TabPanel( child=self.power_gauge_fig, title="Gauges" ))
+            self.gauge_tab_power_gauges = p.hbar( 
+                y           =power_gauge_labels, 
+                left        = [ ds.realtime() for ds in self.gauge_tab_power_gauge_datastreams ], 
+                right       = [ ds.realtime() for ds in self.gauge_tab_power_gauge_datastreams ], 
+                fill_color  = [ ds.bokeh_attrs["line_color"] for ds in self.gauge_tab_power_gauge_datastreams ],
+                height      = 0.9, 
+                line_width  = 0)
         # p.y_range.range_padding = 0.1
         # p.ygrid.grid_line_color = None
         # p.legend.location = "top_left"
@@ -839,7 +846,9 @@ class PVDashboard():
         ds.trigger("data",ds.data,ds.data)
 
     def streaming_update( self, force=False ):
-        self.update_gauges()
+        if ENABLE_GAUGES:
+            self.update_gauges()
+
         if not self.streaming:
             return
 
