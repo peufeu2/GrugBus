@@ -340,9 +340,9 @@ PLOT_LAYOUTS = [
                 "pv/meter/phase_2_current",
                 "pv/meter/phase_3_current",
             ],
-            # [
-            #     "pv/meter/frequency",
-            # ]
+            [
+                "pv/meter/frequency",
+            ]
         ]
     ],[ "Energy", 
         [

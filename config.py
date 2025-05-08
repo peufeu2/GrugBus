@@ -498,7 +498,7 @@ ROUTER = {
     "evse_mid": { 
         "evse": {
             "high_priority_W"       : Interp((79, 0),  (80, 2000),var="soc"), 
-            "reserve_for_battery_W" : Interp((80, 6000),  (94, 1000), (95,-5000),var="soc"),
+            "reserve_for_battery_W" : Interp((80, 6000),  (100,-5000),var="soc"),
             "start_threshold_W"     : Interp((80, 2000), (100, 1200),var="soc"),
             "stop_threshold_W"      : Interp((80, 1400), (100,  800),var="soc"),     # allow it to discharge battery a little
         },
@@ -514,7 +514,7 @@ ROUTER = {
     "evse_high": { 
         "evse": {
             "high_priority_W"       : Interp((49, 0),  (50, 2000),var="soc"), 
-            "reserve_for_battery_W" : Interp((50, 6000),  (89, 0), (90,-6000),var="soc"),
+            "reserve_for_battery_W" : Interp((50, 6000),  (90,-6000),var="soc"),
             "start_threshold_W"     : Interp((60, 2000), (100, 1200),var="soc"),
             "stop_threshold_W"      : Interp((70, 1400), (100,  800),var="soc"),     # allow it to discharge battery a little
         },
@@ -529,7 +529,7 @@ ROUTER = {
     "evse_max": { 
         "evse": {
             "high_priority_W"       : Interp((10, 0),  (11, 2000),var="soc"), 
-            "reserve_for_battery_W" : Interp((70, 0),  (80, -7000),var="soc"),
+            "reserve_for_battery_W" : Interp((65, 0),  (85, -6000),var="soc"),
             "start_threshold_W"     : Interp((50, 1400), (100, 1000),var="soc"),
             "stop_threshold_W"      : Interp((50, 1000), (100,  500),var="soc"),
         },

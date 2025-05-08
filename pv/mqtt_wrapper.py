@@ -15,6 +15,9 @@ log = logging.getLogger(__name__)
 
 logging.getLogger("gmqtt").setLevel(logging.ERROR)
 
+"""
+        Rate Limiter for MQTT
+"""
 class RateLimit:
     __slots__ = "text","value","last_pub","margin","start_time","period","sum","count","mode","total_count","published_count","is_constant","from_config"
     def __init__( self, margin, period, mode, from_config=False):
@@ -188,7 +191,7 @@ class MQTTWrapper:
             await try_topic( parent / "#" )
             cur = parent
         return 0
-# """
+    #
     #   Decorates a method as a MQTT callback
     #
     @classmethod
@@ -237,7 +240,16 @@ class MQTTWrapper:
                         self.subscribe_callback( mqtt_topic + obj.mqtt_topic + method.mqtt_topic, method )
 
 """
-    A value that can be updated by MQTT.
+    A value that is updated by MQTT subscription.
+
+    This is setup at initialization. It adds a member variable to "container" with the specified name,
+    registers a MQTT listen on the specified topic, with a callback to update the variable
+    when a MQTT message is received.
+
+    MQTT data is text, so it first passes through the "datatype" function to convert to the desired type,
+    then through "validation" function to accept or reject it (ie range check etc) and if correct,
+    "callback" will be called if present.
+
 """
 class MQTTVariable:
     def __init__( self, mqtt_topic, container, name, datatype, validation, value, callback = None, mqtt_prefix="" ):
@@ -305,7 +317,7 @@ class MQTTVariable:
         - update the value
         - publish it so everyone knows
 
-    In addition it creates a /setting callback in the parent to list all settings.
+    In addition it creates a /setting callback topic in the parent to publish all settings.
 """
 class MQTTSetting( MQTTVariable ):
     def __init__( self, container, name, datatype, validation, value, callback = None, mqtt_prefix="cmnd/" ):
