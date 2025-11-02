@@ -1,7 +1,7 @@
 "function","addr","addr_end","type","unit","name","name_for_id","usertype","decimals","description"
-4,"    0x000",,"Float","V","Phase 1 line to neutral volts",,"float",0,
-4,"    0x002",,"Float","V","Phase 2 line to neutral volts",,"float",0,
-4,"    0x004",,"Float","V","Phase 3 line to neutral volts",,"float",0,
+4,"    0x000",,"Float","V","Phase 1 line to neutral volts",,"float",1,
+4,"    0x002",,"Float","V","Phase 2 line to neutral volts",,"float",1,
+4,"    0x004",,"Float","V","Phase 3 line to neutral volts",,"float",1,
 4,"     0x006",,"Float","A","Phase 1 current",,"float",3,
 4,"     0x008",,"Float","A","Phase 2 current",,"float",3,
 4,"     0x00A",,"Float","A","Phase 3 current",,"float",3,

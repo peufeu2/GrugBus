@@ -5,6 +5,9 @@
 #   Register data from datasheet PDF
 #   Extracted from Eastron_SDM120.csv
 #
+#   According to SeaGal, alos works fine
+#   with SDM230
+#
 
 from grugbus.registers import *
 

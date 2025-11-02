@@ -19,7 +19,7 @@ mqtt = MQTTWrapper( __file__, clean_session=True )
 #
 #
 
-HA_DISCOVERY_TOPIC = "ha"
+HA_DISCOVERY_TOPIC = "z2m_discovery"
 
 class DiscoveryTest(  ):
     def __init__( self ):
@@ -110,14 +110,14 @@ class DiscoveryTest(  ):
         #           Charge
         #################################################
 
-        number( "pv_router_evse", "stop_charge_after_kWh", topic = "pv/router/evse", unit="kWh", min=0, max=40, step=5, mode="slider", icon="mdi:fuel" )
+        # mode = "slider" or "box"
+        number( "pv_router_evse", "stop_charge_after_kWh", topic = "pv/router/evse", unit="kWh", min=0, max=100, step=1, mode="box", icon="mdi:fuel" )
         binary_sensor( "pv_router_evse", "paused", icon="mdi:power" , state_topic="pv/router/evse/paused", payload_on="0", payload_off="1" )
 
         sensor( "pv_router_evse", "state"    , icon="mdi:state-machine" ,             state_topic="pv/router/evse/state", value_template="{{ ['Débranché', 'Branché', 'Démarrage', 'Charge', 'Finalisation', 'Terminé'][int(value)] }}" )
-        sensor( "pv_router_evse", "power"    , unit="W"  , decimals=0, icon="mdi:lightning-bolt", state_topic="pv/evse/meter/active_power" )
-        sensor( "pv_router_evse", "energy"   , unit="kWh", decimals=3, icon="mdi:battery-50"    , state_topic="pv/evse/energy" )
-        sensor( "pv_router_evse", "countdown", unit="s"  , decimals=0, icon="mdi:clock-outline" , state_topic="nolog/pv/router/evse/countdown" )
-
+        sensor( "pv_router_evse", "power"    , unit="W"  , decimals=0, icon="mdi:lightning-bolt", state_class="measurement", device_class="power"   , state_topic="pv/evse/meter/active_power" )
+        sensor( "pv_router_evse", "energy"   , unit="kWh", decimals=3, icon="mdi:battery-50"    , state_class="measurement", device_class="energy"  , state_topic="pv/evse/energy" )
+        sensor( "pv_router_evse", "countdown", unit="s"  , decimals=0, icon="mdi:clock-outline" , state_class="measurement", device_class="duration", state_topic="nolog/pv/router/evse/countdown" )
 
         #################################################
         #           Router
@@ -137,7 +137,7 @@ class DiscoveryTest(  ):
             },
 
             "icon": "mdi:priority-high",
-            "options": [ '["evse_off"]', '["evse_low"]','["evse_mid"]','["evse_high"]','["evse_max"]' ],
+            "options": [ '["evse_off"]', '["evse_low"]','["evse_mid"]','["evse_high"]','["evse_max"]','["evse_pvmax"]' ],
             "state_topic"  : topic,
             "command_topic": f"cmnd/{topic}",
             "command_template"  : "{{value}}"
@@ -148,24 +148,25 @@ class DiscoveryTest(  ):
         #           PV information display
         #################################################
 
-        sensor( "pv_pv",     "total_pv_power"               , unit="W"  , decimals=0, icon="mdi:white-balance-sunny"        , state_topic="pv/total_pv_power"     )
-        sensor( "pv_pv",     "house_power"                  , unit="W"  , decimals=0, icon="mdi:home"                       , state_topic="pv/meter/house_power"  )
-        sensor( "pv_pv",     "grid_power"                   , unit="W"  , decimals=0, icon="mdi:transmission-tower"         , state_topic="pv/meter/total_power"  )
-        sensor( "pv_pv",     "battery_power"                , unit="W"  , decimals=0, icon="mdi:home-battery"               , state_topic="pv/bms/power"          )
-        sensor( "pv_pv",     "battery_soc"                  , unit="%"  , decimals=0, icon="mdi:battery-50"                 , state_topic="pv/bms/soc"            )
-        sensor( "pv_pv",     "battery_soh"                  , unit="%"  , decimals=0, icon="mdi:bottle-tonic-plus"          , state_topic="pv/bms/soh"            )
-        sensor( "pv_pv",     "energy_generated_today"       , unit="kWh", decimals=3, icon="mdi:white-balance-sunny"        , state_topic="pv/energy_generated_today" )
-        sensor( "pv_pv",     "battery_charge_energy_today"  , unit="kWh", decimals=3, icon="mdi:home-battery"               , state_topic="pv/battery_charge_energy_today" )
-        sensor( "pv_pv",     "battery_temperature"          , unit="°C" , decimals=1, icon="mdi:thermometer"                , state_topic="pv/bms/temperature" )
-        sensor( "pv_solis1", "mppt1_power"                  , unit="W"  , decimals=0, icon="mdi:solar-power-variant-outline", state_topic="pv/solis1/mppt1_power" )
-        sensor( "pv_solis1", "mppt2_power"                  , unit="W"  , decimals=0, icon="mdi:solar-power-variant-outline", state_topic="pv/solis1/mppt2_power" )
-        sensor( "pv_solis2", "mppt1_power"                  , unit="W"  , decimals=0, icon="mdi:solar-power-variant-outline", state_topic="pv/solis2/mppt1_power" )
-        sensor( "pv_solis2", "mppt2_power"                  , unit="W"  , decimals=0, icon="mdi:solar-power-variant-outline", state_topic="pv/solis2/mppt2_power" )
-        sensor( "pv_solis1", "meter_active_power"           , unit="W"  , decimals=0, icon="mdi:lightning-bolt"             , state_topic="pv/solis1/meter/active_power" )
-        sensor( "pv_solis2", "meter_active_power"           , unit="W"  , decimals=0, icon="mdi:lightning-bolt"             , state_topic="pv/solis2/meter/active_power" )
-        sensor( "pv_solis1", "temperature"                  , unit="°C" , decimals=1, icon="mdi:thermometer"                , state_topic="pv/solis1/temperature" )
-        sensor( "pv_solis2", "temperature"                  , unit="°C" , decimals=1, icon="mdi:thermometer"                , state_topic="pv/solis2/temperature" )
-        sensor( "pv_solis2", "backup_load_power"            , unit="W"  , decimals=1, icon="mdi:lightning-bolt"             , state_topic="pv/solis2/backup_load_power" )
+        sensor( "pv_pv",     "total_pv_power"               , unit="W"  , decimals=0, icon="mdi:white-balance-sunny"        , state_class="measurement", device_class="power", state_topic="pv/total_pv_power"     )
+        sensor( "pv_pv",     "house_power"                  , unit="W"  , decimals=0, icon="mdi:home"                       , state_class="measurement", device_class="power", state_topic="pv/meter/house_power"  )
+        sensor( "pv_pv",     "grid_power"                   , unit="W"  , decimals=0, icon="mdi:transmission-tower"         , state_class="measurement", device_class="power", state_topic="pv/meter/total_power"  )
+        sensor( "pv_pv",     "battery_power"                , unit="W"  , decimals=0, icon="mdi:home-battery"               , state_class="measurement", device_class="power", state_topic="pv/bms/power"          )
+        sensor( "pv_solis1", "mppt1_power"                  , unit="W"  , decimals=0, icon="mdi:solar-power-variant-outline", state_class="measurement", device_class="power", state_topic="pv/solis1/mppt1_power" )
+        sensor( "pv_solis1", "mppt2_power"                  , unit="W"  , decimals=0, icon="mdi:solar-power-variant-outline", state_class="measurement", device_class="power", state_topic="pv/solis1/mppt2_power" )
+        sensor( "pv_solis2", "mppt1_power"                  , unit="W"  , decimals=0, icon="mdi:solar-power-variant-outline", state_class="measurement", device_class="power", state_topic="pv/solis2/mppt1_power" )
+        sensor( "pv_solis2", "mppt2_power"                  , unit="W"  , decimals=0, icon="mdi:solar-power-variant-outline", state_class="measurement", device_class="power", state_topic="pv/solis2/mppt2_power" )
+        sensor( "pv_solis1", "meter_active_power"           , unit="W"  , decimals=0, icon="mdi:lightning-bolt"             , state_class="measurement", device_class="power", state_topic="pv/solis1/meter/active_power" )
+        sensor( "pv_solis2", "meter_active_power"           , unit="W"  , decimals=0, icon="mdi:lightning-bolt"             , state_class="measurement", device_class="power", state_topic="pv/solis2/meter/active_power" )
+        sensor( "pv_solis2", "backup_load_power"            , unit="W"  , decimals=1, icon="mdi:lightning-bolt"             , state_class="measurement", device_class="power", state_topic="pv/solis2/backup_load_power" )
+
+        sensor( "pv_pv",     "battery_soc"                  , unit="%"  , decimals=0, icon="mdi:battery-50"                 , state_class="measurement"     , device_class="battery"    , state_topic="pv/bms/soc"            )
+        sensor( "pv_pv",     "battery_soh"                  , unit="%"  , decimals=0, icon="mdi:bottle-tonic-plus"          , state_class="measurement"     , device_class="battery"    , state_topic="pv/bms/soh"            )
+        sensor( "pv_pv",     "energy_generated_today"       , unit="kWh", decimals=3, icon="mdi:white-balance-sunny"        , state_class="total_increasing", device_class="energy"     , state_topic="pv/energy_generated_today" )
+        sensor( "pv_pv",     "battery_charge_energy_today"  , unit="kWh", decimals=3, icon="mdi:home-battery"               , state_class="total_increasing", device_class="energy"     , state_topic="pv/battery_charge_energy_today" )
+        sensor( "pv_pv",     "battery_temperature"          , unit="°C" , decimals=1, icon="mdi:thermometer"                , state_class="measurement"     , device_class="temperature", state_topic="pv/bms/temperature" )
+        sensor( "pv_solis1", "temperature"                  , unit="°C" , decimals=1, icon="mdi:thermometer"                , state_class="measurement"     , device_class="temperature", state_topic="pv/solis1/temperature" )
+        sensor( "pv_solis2", "temperature"                  , unit="°C" , decimals=1, icon="mdi:thermometer"                , state_class="measurement"     , device_class="temperature", state_topic="pv/solis2/temperature" )
 
         binary_sensor( "pv_solis1", "rwr_power_on_off", icon="mdi:power", state_topic="pv/solis1/rwr_power_on_off", payload_on=str(0xBE), payload_off=str(0xDE) )
         binary_sensor( "pv_solis2", "rwr_power_on_off", icon="mdi:power", state_topic="pv/solis2/rwr_power_on_off", payload_on=str(0xBE), payload_off=str(0xDE) )

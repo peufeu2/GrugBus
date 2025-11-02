@@ -836,7 +836,7 @@ Maximum: 70A，Default: 70A, Accuracy: 1A",,,,
 3,43128,,"U16","10W ","Remote Control Active Power on Grid Port",,"float",,"Positive Export, Negative Import",,,,
 3,43129,,"U16","10W ","Remote Control Force Battery Discharge Power",,"float",,"Available when 43135 is Force Discharge
 10W up to Device back-up output power ; default 0 
-Battery is charged using PV+Grid
+Battery is discharged and power is exported
 Limit registers 43130 43131 take priority over Force registers",,,,
 3,43130,,"U16","10W ","Battery Charge Power Limit",,"float",,"10W up to Device back-up output power ; default 0 invalid ; not saved in flash
 Limit registers 43130 43131 take priority over Force registers",,,,
@@ -857,7 +857,7 @@ When set to ON, Remote Control Grid Adjustment will set to OFF
 Dead man’s switch: Resets to 0 after 5 min. Re-writing resets timer.",,,,
 3,43136,,"U16","10W ","Remote Control Force Battery Charge Power",,"float",,"Available when 43135 is Force Charge
 10W up to Device back-up output power ; default 0 
-Battery is discharged and power is exported
+Battery is charged using PV+Grid
 Limit registers 43130 43131 take priority over Force registers",,,,
 3,43137,,"U16","1,00 %","Off grid overdischarge SOC",,"int",,,,,,
 3,43138,,"U16","1,00 %","EPS Overdischarge SOC",,"int",,,,,,
@@ -988,8 +988,9 @@ It’s actually bit 1 that matters for timed charge mode","TODO",,,
 3,43245,,"U16",,"Reserved ",,"int",,"register mentioned in changelog but not documented 		2020-06-21 		Add 43221-43248",,,,
 3,43246,,"U16",,"Reserved ",,"int",,"register mentioned in changelog but not documented 		2020-06-21 		Add 43221-43248",,,,
 3,43247,,"U16",,"Reserved ",,"int",,"register mentioned in changelog but not documented 		2020-06-21 		Add 43221-43248",,,,
-3,43248,,"U16",,"Reserved ",,"int",,"register mentioned in changelog but not documented 		2020-06-21 		Add 43221-43248",,,,
-3,43249,,"U16",,"Reserved ",,"int",,"register mentioned in changelog but not documented 		43249 Special Settings – MPPTparallel & IgFollow",,,,
+3,43248,,"U16","1V ","mppt_constant_voltage",,"int",,"Target voltage for mppt tracking. used when inverter is in constant voltage mode, for example set to 3900 for 390.0 Volts",,,,
+3,43249,,"U16","1V ","mppt_constant_voltage_mode",,"int",,"0x2A: disabled constant voltage mode
+0xAA : constant voltage enabled for the special settings register ( bit 7 )",,,,
 3,43250,43251,"U32 ",,"Data logger S/N ","Data logger SN","int",,"Convert the uploaded S/N to decimal and display it again",,,,
 3,43252,,"U16 ",,"Reserved ",,"int",,"Reserved for data logger S/N",,,,
 3,43253,,"U16 ",,"Reserved ",,"int",,"Reserved for data logger S/N",,,,

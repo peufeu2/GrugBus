@@ -37,8 +37,8 @@ LOG_MODBUS_REQUEST_TIME = {
 # If the above decides to log request time, also log period between requests
 LOG_MODBUS_REQUEST_PERIOD  = False
 
-LOG_MODBUS_REGISTER_CHUNKS = False
-ROUTER_PRINT_DEBUG_INFO    = False
+LOG_MODBUS_REGISTER_CHUNKS = False  # Log grugbus internal register chunking (for debugging only)
+ROUTER_PRINT_DEBUG_INFO    = False  # Set power router to print a lot more info for debugging
 
 ##################################################################
 # Experimental features
@@ -69,7 +69,7 @@ MQTT_BUFFER_IP   = SOLARPI_IP
 MQTT_BUFFER_PORT = 15555
 MQTT_BUFFER_RETENTION = 24*3600*365 # how long to keep log files
 MQTT_BUFFER_FILE_DURATION = 3600	# number of seconds before new log file is created
-MQTT_BUFFER_IGNORE = [ "nolog/", "z2m/bridge" ]
+# MQTT_BUFFER_IGNORE = [ "nolog/", "z2m/bridge" ]
 
 # path on solarpi for storage of mqtt compressed log
 MQTT_BUFFER_PATH = "/home/peufeu/mqtt_buffer"
@@ -87,17 +87,13 @@ MQTT_BUFFER_TEMP = "/mnt/ssd/temp/solarpi/mqtt"
 #     ( re.compile( r"^stat/plugs/tasmota_t.*?/STATUS8$" ), {"StatusSNS":{"ENERGY":{"Power":(float, (1, 20, "avg")) }}} ),
 # ]
 
-MQTT_BUFFER_FILTER = {}
-# temperature probes
-for _topic in "z2m/Temp3", "z2m/rc/pf/sde/temp":
-    MQTT_BUFFER_FILTER[_topic] = { "humidity":( float, (10, 10, "avg")), "temperature": ( float, (10, 1, "avg")) }
-# tasmota wifi smartplugs
-for _tasmota in range( 1, 7 ):
-    MQTT_BUFFER_FILTER[ "tele/plugs/tasmota_t%d/STATE"   % _tasmota ]    = {}
-    MQTT_BUFFER_FILTER[ "stat/plugs/tasmota_t%d/RESULT"  % _tasmota ]   = {"POWER": ( lambda s:int(s=="ON"), ( 60, 0.000, '' )) }
-    MQTT_BUFFER_FILTER[ "tele/plugs/tasmota_t%d/SENSOR"  % _tasmota ]   = {"ENERGY":{"Power": ( float, (10, 20, "avg")) }}
-    MQTT_BUFFER_FILTER[ "stat/plugs/tasmota_t%d/STATUS8" % _tasmota ]  = {"StatusSNS":{"ENERGY":{"Power":(float, (1, 20, "avg")) }}}
-    MQTT_BUFFER_FILTER[ "stat/plugs/tasmota_t%d/STATUS8" % _tasmota ]  = {"StatusSNS":{"ENERGY":{"Power":(float, (1, 20, "avg")) }}}
+# MQTT_BUFFER_FILTER = {}
+# # tasmota wifi smartplugs
+# for _tasmota in range( 1, 7 ):
+#     MQTT_BUFFER_FILTER[ "tele/plugs/tasmota_t%d/STATE"   % _tasmota ]  = {}
+#     MQTT_BUFFER_FILTER[ "stat/plugs/tasmota_t%d/RESULT"  % _tasmota ]  = {"POWER": ( lambda s:int(s=="ON"), ( 60, 0.000, '' )) }
+#     MQTT_BUFFER_FILTER[ "tele/plugs/tasmota_t%d/SENSOR"  % _tasmota ]  = {"ENERGY":{"Power": ( float, (10, 20, "avg")) }}
+#     MQTT_BUFFER_FILTER[ "stat/plugs/tasmota_t%d/STATUS8" % _tasmota ]  = {"StatusSNS":{"ENERGY":{"Power":(float, (1, 20, "avg")) }}}
 
 
 ##################################################################
@@ -321,16 +317,21 @@ def solis2_power_management( ctx ):
     #   If battery is at dangerously low SOC and requests force charge,
     #   don't turn off the inverter
     if (ctx.soc <= 4 
+        # Force charge from grid
         or ctx.self.bms_alarm.value 
         or ctx.self.bms_request_full_charge.value 
         or ctx.self.bms_request_force_charge_1.value 
         or ctx.self.bms_request_force_charge_2.value):
-        return "force charge", 100
-    if ctx.mpptv > 80:  # day: turn on
-        return "day", 1
-    elif ctx.mpptv < 60 and ctx.soc < 11:    # night and battery empty: turn off
-        return "night low battery", -0.2
-    return "", 0
+        return "Force Charge", 100
+    elif ctx.soc > 10:
+        # Battery has usable charge, keep it on
+        return "SOC OK", 1
+    elif ctx.mpptv > 80:  
+        # Day: turn it on
+        return "Day", 1
+    else:
+        # Night and battery empty: turn off
+        return "Night Low Battery", -0.2
 
 # Inverter auto turn on/off settings
 SOLIS_POWERSAVE_CONFIG = {
@@ -353,8 +354,6 @@ SOLIS_POWERSAVE_CONFIG = {
 # "default" is  automatically added to the runtime-selected configuration, no need to copy these settings
 # Note EVSE force charge will override these settings
 #
-# _increase_soc_when_charging = 5
-
 ROUTER = {
     #
     #   Default configuration: priority to battery charging, then EV, then the rest.
@@ -422,7 +421,7 @@ ROUTER = {
             "start_threshold_W"         : lambda ctx: 1500, 
             "stop_threshold_W"          : lambda ctx: 1400, 
 
-            # "increase_soc_when_charging": _increase_soc_when_charging,        # when EVSE is charging, pretend SOC is X% higher to avoid stopping too early
+            # "increase_soc_when_charging": 5,        # when EVSE is charging, pretend SOC is X% higher to avoid stopping too early
 
             "start_time_s"              : 120,      # how long above minimum excess power before starting
             "stop_time_s"               : 600,      # how long before stopping when we don't have enough power
@@ -468,7 +467,7 @@ ROUTER = {
             "start_threshold_W"     : lambda ctx: 10000,
             "stop_threshold_W"      : lambda ctx: 10000,
         },
-        "router": { "config_description"    : orjson.dumps({"desc":"Conditions de charge VE:\n- \<90%: Priorité Batterie\n- 90-95%: transition\n- \>95% Priorité VE"}), },
+        "router": { "config_description"    : orjson.dumps({"desc":"Conditions de charge VE:\n- Priorité Batterie"}), },
     },
 
     "evse_low": {
@@ -482,11 +481,12 @@ ROUTER = {
             # Remaining excess goes to battery up to reserve_for_battery_W
             # Interp(min_soc, max_power, max_soc, min_power) 
             # Then what remains after that goes to EVSE.
-            "reserve_for_battery_W" : Interp((90, 10000), (95, 500), var="soc"),
+            # "reserve_for_battery_W" : Interp((90, 10000), (95, 500), var="soc"),
+            "reserve_for_battery_W" : Interp((80, 8000), (90,0), (95,0), (100,-5000),var="soc"),
             "start_threshold_W"     : Interp((90, 2000), (100, 1400),var="soc"), # minimum excess power to start charging
             "stop_threshold_W"      : Interp((90, 1400), (100, 1000),var="soc"), # excess power to stop charging
         },
-        "router": { "config_description"    : orjson.dumps({"desc":"Conditions de charge VE:\n- \<90%: Priorité Batterie\n- 90-95%: transition\n- \>95% Priorité VE"}), },
+        "router": { "config_description"    : orjson.dumps({"desc":"Conditions de charge VE:\n- \\<90%: Priorité Batterie\n- \\>95% Priorité VE"}), },
     },
 
     #   Charge the car and battery at the same time to maximize self consumption
@@ -498,11 +498,11 @@ ROUTER = {
     "evse_mid": { 
         "evse": {
             "high_priority_W"       : Interp((79, 0),  (80, 2000),var="soc"), 
-            "reserve_for_battery_W" : Interp((80, 6000),  (100,-5000),var="soc"),
+            "reserve_for_battery_W" : Interp((70, 7000), (80,400), (90,200), (100,-5000),var="soc"),
             "start_threshold_W"     : Interp((80, 2000), (100, 1200),var="soc"),
             "stop_threshold_W"      : Interp((80, 1400), (100,  800),var="soc"),     # allow it to discharge battery a little
         },
-        "router": { "config_description"    : orjson.dumps({"desc":"Conditions de charge VE:\n- \<80%: Priorité Batterie\n- 80-95%: transition\n- \>95% Batterie->VE"}), },
+        "router": { "config_description"    : orjson.dumps({"desc":"Conditions de charge VE:\n- \\<80%: Priorité Batterie\n- \\>85% Batterie->VE"}), },
     },
 
     #   Charge the car and battery at the same time to maximize self consumption
@@ -514,11 +514,11 @@ ROUTER = {
     "evse_high": { 
         "evse": {
             "high_priority_W"       : Interp((49, 0),  (50, 2000),var="soc"), 
-            "reserve_for_battery_W" : Interp((50, 6000),  (90,-6000),var="soc"),
+            "reserve_for_battery_W" : Interp((50, 6000), (70,0), (75,0), (90,-6000),var="soc"),
             "start_threshold_W"     : Interp((60, 2000), (100, 1200),var="soc"),
             "stop_threshold_W"      : Interp((70, 1400), (100,  800),var="soc"),     # allow it to discharge battery a little
         },
-        "router": { "config_description"    : orjson.dumps({"desc":"Conditions de charge VE:\n- \<50%: Priorité Batterie\n- 50-90%: transition\n- \>90% Batterie -> VE"}), },
+        "router": { "config_description"    : orjson.dumps({"desc":"Conditions de charge VE:\n- \\<70%: Priorité Batterie\n- \\>75%: Batterie -> VE"}), },
     },
 
     #   Maximum PV power for EV.
@@ -529,11 +529,23 @@ ROUTER = {
     "evse_max": { 
         "evse": {
             "high_priority_W"       : Interp((10, 0),  (11, 2000),var="soc"), 
-            "reserve_for_battery_W" : Interp((65, 0),  (85, -6000),var="soc"),
+            "reserve_for_battery_W" : Interp((20,0), (50,0), (90,0),var="soc"),
             "start_threshold_W"     : Interp((50, 1400), (100, 1000),var="soc"),
             "stop_threshold_W"      : Interp((50, 1000), (100,  500),var="soc"),
         },
-        "router": { "config_description"    : orjson.dumps({"desc":"Conditions de charge VE:\n- \<=10%: Priorité Batterie\n- \>10% Priorité VE\n - SOC>80% Batterie -> VE"}), },
+        "router": { "config_description"    : orjson.dumps({"desc":"Conditions de charge VE:\n- \\<=20%: Priorité Batterie\n- \\>25% Priorité VE"}), },
+    },
+
+    #   Don't discharge battery, but use all PV for charging
+    #
+    "evse_pvmax": { 
+        "evse": {
+            "high_priority_W"       : Interp((25, 0),  (26, 2000),var="soc"), 
+            "reserve_for_battery_W" : Interp((15,6000), (25,1000), (100,800), var="soc"),
+            "start_threshold_W"     : Interp((50, 1400), (100, 1000),var="soc"),
+            "stop_threshold_W"      : Interp((50, 1000), (100,  500),var="soc"),
+        },
+        "router": { "config_description"    : orjson.dumps({"desc":"Utilise tout le PV pour charger la voiture, sans décharger la batterie."}), },
     },
 }
 

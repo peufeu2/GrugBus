@@ -1,12 +1,11 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-import asyncio, os, time, traceback, collections, orjson, zstandard, logging, sys, datetime, uvloop, signal
+import asyncio, os, time, traceback, collections, orjson, logging, sys, datetime, uvloop, signal, zstandard
 import collections
-from xopen import xopen
 from path import Path
 
-import config
+import config, pv.mqtt_buffer_handlers
 import pv.reload
 from misc import *
 from pv.mqtt_wrapper import MQTTWrapper
@@ -98,11 +97,12 @@ class Buffer( MQTTWrapper ):
         await self.mqtt.connect( config.MQTT_BROKER_LOCAL )
 
         pv.reload.add_module_to_reload( "config", self.load_rate_limit ) # reload rate limit configuration
+        pv.reload.add_module_to_reload( "pv.mqtt_buffer_handlers" ) # reload rate limit configuration
 
         try:
             async with asyncio.TaskGroup() as tg:
                 tg.create_task( server.serve_forever() )
-                tg.create_task( pv.reload.reload_coroutine() )
+                tg.create_task( pv.reload.reload_coroutine( pv.mqtt_buffer_handlers.__file__ ) )
         except (KeyboardInterrupt, asyncio.CancelledError):
             print("Terminated.")
         finally:
@@ -124,65 +124,43 @@ class Buffer( MQTTWrapper ):
 
     async def on_message( self, client, topic, payload, qos, properties ):
         # Do not store high traffic interprocess control messages, for example
-        for prefix in config.MQTT_BUFFER_IGNORE:
-            if topic.startswith(prefix):
-                return
-
-        if payload.startswith(b"{"):
+        logged_topics = pv.mqtt_buffer_handlers.LOGGED_TOPICS
+        if not (func := pv.mqtt_buffer_handlers.get_handler( topic )):
+            pass
+            # if topic not in logged_topics:
+            #     print( "Ignore:", topic )
+        else:
+            # if topic not in logged_topics:
+            #     print( topic, payload )
+            # print( topic, payload )
             try:
-                d = orjson.loads( payload )
-            except Exception as e:
-                log.error( "%s: Topic: %s, value: %r", e, topic, payload )
-            else:
-                self.on_message_dict( topic, d )
-            return
+                t = round(time.time(),2)
+                for pub, pub_topic, value in func( self, client, topic, payload, qos, properties ):
+                    # if topic not in logged_topics:
+                        # print( int(pub), pub_topic, value )
 
-        # Encode MQTT message into json
-        jl = orjson.dumps( [ round(time.time(),2), topic, payload.decode() ], option=orjson.OPT_APPEND_NEWLINE )
-        self.msgcount += 1
-
-        # Queue it. deque() with maxlen is a ring buffer and will discard oldest items when full.
-        self.queue_socket.append( jl )
-        self.compressor.write( jl )
-        if self.flush_tick.ticked():
-            self.compressor.flush()
-        if self.new_file_tick.ticked():
-            self.file_new()
-        if elapsed := self.msgcount_tick.ticked():
-            print("Queue %d ; %f messages/s" % (len(self.queue_socket), self.msgcount/elapsed))
-            self.msgcount = 0
-
-    # Unnest and republish Tasmota dictionaries so they can be
-    # compressed properly into clickhouse and plotted in real time
-    def on_message_dict( self, topic, value ):
-        # get filters from configuration
-        if pub_config := config.MQTT_BUFFER_FILTER.get( topic ):
-            # print( topic, pub_config )
-            self.on_message_dict2( topic, value, pub_config )
-            return
-        # for topic_filter, pub_config in config.MQTT_BUFFER_FILTER:
-        #     if topic_filter.match( topic ):
-        #         self.on_message_dict2( topic, value, pub_config )
-        #         return
-        print( "ignored", topic )
-
-    def on_message_dict2( self, topic, value, pub_config ):
-        topic += "/"
-        for k, k_pub_config in pub_config.items():
-            v = value.get( k )
-            if v != None:
-                if isinstance( v, dict ):
-                    self.on_message_dict2( topic+k, v, k_pub_config )
-                else:
-                    parser, ratelimit = k_pub_config
-                    # rate limit and publish
-                    v = parser(v)
-                    topic2 = topic+k
-                    config.MQTT_RATE_LIMIT[topic2] = ratelimit
-                    if isinstance( v, (int, float) ):
-                        self.publish_value( topic2, v )
+                    # republish, then it will be logged 
+                    if pub:
+                        if isinstance( value, (int, float) ):
+                            self.publish_value( pub_topic, value )
+                        else:
+                            self.publish( pub_topic, value )
                     else:
-                        self.publish( topic2, v )
+                        jl = orjson.dumps( [ t, pub_topic, value ], option=orjson.OPT_APPEND_NEWLINE )
+                        self.msgcount += 1
+                        # Queue it. deque() with maxlen is a ring buffer and will discard oldest items when full.
+                        self.queue_socket.append( jl )
+                        self.compressor.write( jl )
+                        if self.flush_tick.ticked():
+                            self.compressor.flush()
+                        if self.new_file_tick.ticked():
+                            self.file_new()
+                        if elapsed := self.msgcount_tick.ticked():
+                            print("Queue %d ; %f messages/s" % (len(self.queue_socket), self.msgcount/elapsed))
+                            self.msgcount = 0
+            except:
+                log.exception( "ERROR" )
+                log.error( "Message was: %s %s", topic, payload)
 
 
     ########################################################
@@ -283,7 +261,7 @@ class Buffer( MQTTWrapper ):
                             await sendfile( fname )
                         else:
                             log.info("Send last file")
-                            self.queue_socket.clear()   # clear real time queue
+                            self.queue_socket.clear()   # clear real time queue since its contents are already in the file we're about to send
                             self.file_new()             # stop writing to file before sending it
                             await sendfile( fname )
                             # if real time queue didn't fill up while we were sending the file,

@@ -354,8 +354,8 @@ class InsertPooler():
                             return self.insert_str.append((k,ts,False,v))
 
     async def flush( self ):
-        print("Flush...")
-        async with asyncio.timeout( 10 ):
+        # print("Flush...")
+        async with asyncio.timeout( 20 ):
             st = time.time()
             l = len(self.insert_str)+len(self.insert_floats)
             settings={ "max_execution_time": 20 }
@@ -380,7 +380,7 @@ async def cleanup_coroutine( ):
     while True:
         try:
             for table in "system.trace_log", "system.metric_log", "system.asynchronous_metric_log", "system.session_log", "system.text_log":
-                print("Cleanup", table )
+                # print("Cleanup", table )
                 clickhouse.execute( "TRUNCATE TABLE "+table )
                 await asyncio.sleep(20)
         except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
@@ -520,18 +520,29 @@ async def transfer_data( mqtt ):
             await pool.flush()
             timer = Metronome( config.CLICKHOUSE_INSERT_PERIOD_SECONDS )
             while True:
+                t = time.monotonic()
+                print( "readline in" )
                 async with asyncio.timeout( 60 ):
                     line = await rsock.readline()
+                print( "readline %.03fs" % (time.monotonic()-t) )
                 if not line:
+                    print("Empty line")
                     return
+
+                t = time.monotonic()
+                print( "add in" )
                 try:
                     pool.add( *orjson.loads( line ) )
                 except Exception as e:
                     log.exception( "Error" )
+                print( "add %.03fs" % (time.monotonic()-t) )
 
                 # print( len( pool.insert_floats ))
                 if timer.ticked():
+                    t = time.monotonic()
+                    print("flush in")
                     await pool.flush()
+                    print("flush %.03fs" % (time.monotonic()-t) )
 
 
 RETRIEVE_SECONDS = 4*3600

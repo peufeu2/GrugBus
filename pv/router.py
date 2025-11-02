@@ -173,7 +173,7 @@ class TasmotaPlug( Routable ):
         MQTTVariable( "stat/"+self.plug_topic+"STATUS8/StatusSNS", self, "_status_power", orjson.loads, None, b'{"ENERGY":{"Power":0}}', self._mqtt_sensor_callback )
 
         # Request power updates on load power changes, to know when the heater turns off from its thermostat
-        self.mqtt.publish( "cmnd/"+self.plug_topic+"PowerDelta", 101 )
+        self.mqtt.publish( "cmnd/"+self.plug_topic+"PowerDelta", 151 )
 
     def load_config( self ):
         super().load_config()
@@ -718,9 +718,9 @@ class Router( ):
         self.evse = EVSEController( self, mgr.evse )
         self.battery = Battery( self, key="bat" )
         self.all_devices = [ 
-            TasmotaPlug( self, key="tasmota_t4" ),
+            # TasmotaPlug( self, key="tasmota_t4" ),
             TasmotaPlug( self, key="tasmota_t2" ),
-            TasmotaPlug( self, key="tasmota_t1" ),
+            # TasmotaPlug( self, key="tasmota_t1" ),
             self.battery,
             self.evse,
         ] 

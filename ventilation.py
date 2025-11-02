@@ -24,6 +24,9 @@ class ControleVentilation( MQTTWrapper ):
         self.mqtt.subscribe( "chauffage/ext_sous_balcon" )
         self.mqtt.subscribe( "chauffage/rc_pf_pcbt_ambient" )
         self.mqtt.subscribe( "chauffage/et_pcbt_ambient" )
+        self.mqtt.subscribe( "z2m/th2_ext_parking/temperature" )
+        self.mqtt.subscribe( "z2m/th13_ext_parking_etage/temperature" )
+
 
     async def on_message(self, client, topic, payload, qos, properties):
         self.received_data[topic] = payload
@@ -60,7 +63,9 @@ class ControleVentilation( MQTTWrapper ):
                     print( "ext_sous_balcon    ", temp_ext )
                     print()
 
-                    self.publish_value( "cmnd/plugs/tasmota_t5/Power", fan_on_pf )
+                    # self.publish_value( "cmnd/plugs/tasmota_t6/Power", fan_on_pf )
+                    # self.publish_value( "cmnd/plugs/tasmota_t5/Power", fan_on_pf )
+                    self.publish( "z2m/p2/set", ("OFF","ON")[ fan_on_pf ] )
                     self.publish_value( "cmnd/plugs/tasmota_t6/Power", fan_on_et )
 
                 except (KeyboardInterrupt, asyncio.exceptions.CancelledError):

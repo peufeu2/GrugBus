@@ -10,9 +10,9 @@ from grugbus.registers import *
 
 def MakeRegisters():
     return (
-    RegFloat( 4,   0, 1, 'phase_1_line_to_neutral_volts'    , 1, 'V'      , 'float', 0, 'Phase 1 line to neutral volts'    , ''),
-    RegFloat( 4,   2, 1, 'phase_2_line_to_neutral_volts'    , 1, 'V'      , 'float', 0, 'Phase 2 line to neutral volts'    , ''),
-    RegFloat( 4,   4, 1, 'phase_3_line_to_neutral_volts'    , 1, 'V'      , 'float', 0, 'Phase 3 line to neutral volts'    , ''),
+    RegFloat( 4,   0, 1, 'phase_1_line_to_neutral_volts'    , 1, 'V'      , 'float', 1, 'Phase 1 line to neutral volts'    , ''),
+    RegFloat( 4,   2, 1, 'phase_2_line_to_neutral_volts'    , 1, 'V'      , 'float', 1, 'Phase 2 line to neutral volts'    , ''),
+    RegFloat( 4,   4, 1, 'phase_3_line_to_neutral_volts'    , 1, 'V'      , 'float', 1, 'Phase 3 line to neutral volts'    , ''),
     RegFloat( 4,   6, 1, 'phase_1_current'                  , 1, 'A'      , 'float', 3, 'Phase 1 current'                  , ''),
     RegFloat( 4,   8, 1, 'phase_2_current'                  , 1, 'A'      , 'float', 3, 'Phase 2 current'                  , ''),
     RegFloat( 4,  10, 1, 'phase_3_current'                  , 1, 'A'      , 'float', 3, 'Phase 3 current'                  , ''),

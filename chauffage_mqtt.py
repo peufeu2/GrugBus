@@ -47,40 +47,41 @@ def get():
         print(data)
         raise
 
-    if data["boot_ts"]:
-        yield "boot_ts", datetime.datetime.fromisoformat( data["boot_ts"] ).timestamp()
-    yield "build_ts", dateparser.parse(data["build_ts"]).timestamp()
-    yield "device_ts", data["time"]
+    # if data["boot_ts"]:
+        # yield "boot_ts", datetime.datetime.fromisoformat( data["boot_ts"] ).timestamp()
+    # yield "build_ts", dateparser.parse(data["build_ts"]).timestamp()
+    # yield "device_ts", data["time"]
     for k,v in data["temperatures"].items():
         yield k, valid_temp( float(v) )
     for k,v in data["inputs"].items():
         yield k, int(v)
-    yield "pf_consigne_retour_max",  data["pcbt_pf"]["consigne_retour"]["max"]
-    yield "pf_consigne_retour_min",  data["pcbt_pf"]["consigne_retour"]["min"]
-    yield "pf_consigne_ambient_max", data["pcbt_pf"]["consigne_ambient"]["max"]
-    yield "pf_consigne_ambient_min", data["pcbt_pf"]["consigne_ambient"]["min"]
+        
+    # yield "pf_consigne_retour_max",  data["pcbt_pf"]["consigne_retour"]["max"]
+    # yield "pf_consigne_retour_min",  data["pcbt_pf"]["consigne_retour"]["min"]
+    # yield "pf_consigne_ambient_max", data["pcbt_pf"]["consigne_ambient"]["max"]
+    # yield "pf_consigne_ambient_min", data["pcbt_pf"]["consigne_ambient"]["min"]
 
-    yield "pc_consigne_retour_max",  data["pcbt_pc"]["consigne_retour"]["max"]
-    yield "pc_consigne_retour_min",  data["pcbt_pc"]["consigne_retour"]["min"]
-    yield "pc_consigne_ambient_max", data["pcbt_pc"]["consigne_ambient"]["max"]
-    yield "pc_consigne_ambient_min", data["pcbt_pc"]["consigne_ambient"]["min"]
+    # yield "pc_consigne_retour_max",  data["pcbt_pc"]["consigne_retour"]["max"]
+    # yield "pc_consigne_retour_min",  data["pcbt_pc"]["consigne_retour"]["min"]
+    # yield "pc_consigne_ambient_max", data["pcbt_pc"]["consigne_ambient"]["max"]
+    # yield "pc_consigne_ambient_min", data["pcbt_pc"]["consigne_ambient"]["min"]
 
-    yield "et_consigne_retour_max",  data["pcbt_et"]["consigne_retour"]["max"]
-    yield "et_consigne_retour_min",  data["pcbt_et"]["consigne_retour"]["min"]
-    yield "et_consigne_ambient_max", data["pcbt_et"]["consigne_ambient"]["max"]
-    yield "et_consigne_ambient_min", data["pcbt_et"]["consigne_ambient"]["min"]
+    # yield "et_consigne_retour_max",  data["pcbt_et"]["consigne_retour"]["max"]
+    # yield "et_consigne_retour_min",  data["pcbt_et"]["consigne_retour"]["min"]
+    # yield "et_consigne_ambient_max", data["pcbt_et"]["consigne_ambient"]["max"]
+    # yield "et_consigne_ambient_min", data["pcbt_et"]["consigne_ambient"]["min"]
 
-    yield "et_bureau_consigne_ambient_max", data["et_bureau"]["consigne_ambient"]["max"]
-    yield "et_bureau_consigne_ambient_min", data["et_bureau"]["consigne_ambient"]["min"]
+    # yield "et_bureau_consigne_ambient_max", data["et_bureau"]["consigne_ambient"]["max"]
+    # yield "et_bureau_consigne_ambient_min", data["et_bureau"]["consigne_ambient"]["min"]
 
     # yield "cuisine_consigne_ambient_max", data["demande"]["consigne_ambient"]["max"]
     # yield "cuisine_consigne_ambient_min", data["demande"]["consigne_ambient"]["min"]
 
     # yield "pv_day_energy", data["pv"]["day_energy"]
-    yield "autoconso_fake_power", data["autoconso"]["fake_power"]
+    # yield "autoconso_fake_power", data["autoconso"]["fake_power"]
     # yield "pv_power", data["pv"]["power"]
-    yield "ram", data["ram"]
-    yield "ram_blk", data["ram_blk"]
+    # yield "ram", data["ram"]
+    # yield "ram_blk", data["ram_blk"]
     # yield "relays", sum( 1<<n for n in data["relays"] )
     yield "degommage_state", data["idle"]["d_state"]
     yield "onewire_errors", data["onewire_errors"]

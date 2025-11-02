@@ -21,8 +21,8 @@ def add_module_to_reload( module_name, callback=None ):
     module_names_to_reload[module_name] = callback
 
 # modules should contain names, not modules
-async def reload_coroutine( ):
-    mtimes = { __file__ : Path(__file__).mtime }
+async def reload_coroutine( fname_timestamp_to_monitor = __file__ ):
+    mtimes = { fname_timestamp_to_monitor : Path(fname_timestamp_to_monitor).mtime }
     for module_name in module_names_to_reload:
         mtimes[ module_name ] = Path( sys.modules[module_name].__file__ ).mtime
 
@@ -33,9 +33,9 @@ async def reload_coroutine( ):
 
             # check mtime on the CURRENT FILE so we don't reload modules out of order
             # while they are being copied
-            mtime = Path( __file__ ).mtime
-            if mtime != mtimes[__file__]:
-                mtimes[__file__] = mtime
+            mtime = Path( fname_timestamp_to_monitor ).mtime
+            if mtime != mtimes[fname_timestamp_to_monitor]:
+                mtimes[fname_timestamp_to_monitor] = mtime
 
                 # check if at least 1 file was updated
                 updated = False

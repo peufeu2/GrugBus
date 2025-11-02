@@ -17,7 +17,7 @@ from misc import *
 STREAMING_LENGTH = 1200         # seconds
 STREAMING_LENGTH_MIN = 200     # seconds
 STREAMING_LENGTH_MAX = 3600    # seconds
-TIME_SHIFT_S = 3600*2          # to shift database timestamps stored in UTC
+TIME_SHIFT_S = 3600*1          # to shift database timestamps stored in UTC
 TIME_SHIFT = np.timedelta64( TIME_SHIFT_S, 's' )
 
 ENABLE_GAUGES = False
@@ -73,8 +73,8 @@ DATA_STREAMS = [
     ( "pv/solis%d/pv_power"                              , "W"   , "S%d PV"                      , "pv"            , "solid"    , 1.0 , {}                 , {} ),
     ( "pv/solis%d/mppt1_power"                           , "W"   , "S%d MPPT1"                   , "mppt1"         , "solid"    , 1.0 , {}                 , {} ),
     ( "pv/solis%d/mppt2_power"                           , "W"   , "S%d MPPT2"                   , "mppt2"         , "solid"    , 1.0 , {}                 , {} ),
-    ( "pv/solis%d/mppt1_current"                         , "A"   , "S%d MPPT1"                   , "mppt2"         , "solid"    , 1.0 , {}                 , {} ),
-    ( "pv/solis%d/mppt2_current"                         , "A"   , "S%d MPPT2"                   , "mppt1"         , "solid"    , 1.0 , {}                 , {} ),
+    ( "pv/solis%d/mppt1_current"                         , "A"   , "S%d MPPT1"                   , "mppt1"         , "solid"    , 1.0 , {}                 , {} ),
+    ( "pv/solis%d/mppt2_current"                         , "A"   , "S%d MPPT2"                   , "mppt2"         , "solid"    , 1.0 , {}                 , {} ),
     ( "pv/solis%d/mppt1_voltage"                         , "V"   , "S%d MPPT1"                   , "mppt1"         , "solid"    , 1.0 , {}                 , {} ),
     ( "pv/solis%d/mppt2_voltage"                         , "V"   , "S%d MPPT2"                   , "mppt2"         , "solid"    , 1.0 , {}                 , {} ),
 
@@ -246,7 +246,8 @@ PLOT_LAYOUTS = [
                 "pv/meter/house_power"                           ,
                 "pv/meter/total_power"                           ,
                 "pv/bms/power" ,
-                "pv/total_grid_port_power"                       ,
+                # "pv/total_grid_port_power"                       ,
+                "pv/solis%d/meter/active_power"                  ,
                 "pv/evse/meter/active_power"                     ,
             ],[
                 "pv/bms/soc"                                 ,
@@ -291,11 +292,15 @@ PLOT_LAYOUTS = [
                 "pv/solis2/mppt1_power"                          ,
                 "pv/solis2/mppt2_power"                          ,
             ],[
-                "pv/solis%d/mppt1_voltage"                       ,
-                "pv/solis%d/mppt2_voltage"                       ,
+                "pv/solis1/mppt1_voltage"                          ,
+                "pv/solis1/mppt2_voltage"                          ,
+                "pv/solis2/mppt1_voltage"                          ,
+                "pv/solis2/mppt2_voltage"                          ,
             ],[
-                "pv/solis%d/mppt1_current"                       ,
-                "pv/solis%d/mppt2_current"                       ,
+                "pv/solis1/mppt1_current"                          ,
+                "pv/solis1/mppt2_current"                          ,
+                "pv/solis2/mppt1_current"                          ,
+                "pv/solis2/mppt2_current"                          ,
             ],[
                 "pv/solis%d/leakage_current"
             ]
@@ -384,6 +389,8 @@ PLOT_LAYOUTS = [
     ],["Chauffage",
         [
             [
+                "chauffage/ext_parking"        ,
+                "chauffage/ext_sous_balcon"    ,
                 "chauffage/depart"             ,
                 "chauffage/retour"             ,
                 "chauffage/pac_depart"         ,
@@ -394,8 +401,6 @@ PLOT_LAYOUTS = [
                 "chauffage/et_pcbt_depart"     ,
                 "chauffage/et_pcbt_retour"     ,
                 "chauffage/et_pcbt_ambient"    ,
-                "chauffage/ext_parking"        ,
-                "chauffage/ext_sous_balcon"    ,
                 "chauffage/rc_pc_cuisine"      ,
                 "chauffage/rc_pc_pcbt_ambient" ,
                 "chauffage/rc_pc_pcbt_depart"  ,
@@ -548,7 +553,7 @@ class DataStream( object ):
         t = np.datetime64(datetime.datetime.now(), "ms")
         limit = t - np.timedelta64( STREAMING_LENGTH_MAX, 's' )
         while len(self.x) and self.x[0] < limit:
-            x = self.x.popleft()
+            self.x.popleft()
             self.y.popleft()
 
     def realtime( self ):

@@ -90,10 +90,10 @@ async def power_coroutine( module_updated, first_start, self ):
 
                 # inverters local smartmeters power (negative for export)
                 lm = solis.local_meter
-                lm_power = 0
+                solis.lm_power = 0
                 if lm.is_online:
-                    lm_power = solis.local_meter.active_power.value or 0
-                    total_grid_port_power += lm_power
+                    solis.lm_power = solis.local_meter.active_power.value or 0
+                    total_grid_port_power += solis.lm_power
                     meters_online += 1
 
                 # PV and battery
@@ -112,7 +112,7 @@ async def power_coroutine( module_updated, first_start, self ):
                     total_pv_power += pv_power
 
                     if lm.is_online:
-                        solis.input_power.value = pv_power + lm_power
+                        solis.input_power.value = pv_power + solis.lm_power
                     else:
                         # If meter offline, use inverter's measured battery power instead
                         solis.input_power.value = solis.battery_power.value
@@ -152,7 +152,12 @@ async def power_coroutine( module_updated, first_start, self ):
                     #                     + 0.05*(solis.battery_power.value - total_battery_power*0.5)
                     #                     - 0.01*(solis.pv_power.value - total_pv_power*0.5) )
                     # else:
-                    fake_power = meter_power_tweaked * 0.5 + config.INVERTER_BALANCE_FACTOR*(solis.input_power.value - total_input_power*0.5)
+                    if abs( total_input_power ) > 150:
+                        # balance charging between both inverters
+                        fake_power = meter_power_tweaked * 0.5 + config.INVERTER_BALANCE_FACTOR*(solis.input_power.value - total_input_power*0.5)
+                    else:
+                        # balance grid port output
+                        fake_power = meter_power_tweaked * 0.5 + config.INVERTER_BALANCE_FACTOR*(solis.lm_power - total_grid_port_power*0.5)
 
                 try:
 
@@ -365,6 +370,8 @@ async def inverter_powersave_coroutine( module_updated, first_start, self, solis
         await solis.event_all.wait()
         self.mqtt.publish_value( "pv/emergency_stop", self.emergency_stop_button.value )
         if self.emergency_stop_button.value:
+            # power_reg is read frequently in the polling loop, so even if the inverter is 
+            # turned back on by its GUI, we will turn it off if the stop button is actovated
             if await power_reg.write_if_changed( power_reg.value_off ):
                 log.info( "%s: Powering OFF (Emergency stop button)", solis.key )
             continue
@@ -401,7 +408,7 @@ async def inverter_powersave_coroutine( module_updated, first_start, self, solis
                 ctx.self  = self
                 reason, delta = inverter_cfg["FUNC"](ctx)
                 counter.add( delta * elapsed )
-                reason = "%s, MPPT %dV SOC %d%% house_power %dW pump %d" % ( reason, ctx.mpptv, ctx.soc, self.house_power, self.chauffage_pac_pompe.value )
+                reason = "'%s', MPPT %dV SOC %d%% house_power %dW pump %d" % ( reason, ctx.mpptv, ctx.soc, self.house_power, self.chauffage_pac_pompe.value )
 
             if counter.at_maximum():
                 if await power_reg.write_if_changed( power_reg.value_on ):
