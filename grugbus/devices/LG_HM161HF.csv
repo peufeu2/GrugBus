@@ -1,0 +1,60 @@
+"function","addr","addr_end","type","unit","name","name_for_id","usertype","decimals","description"
+1,0,,"bool",,"Enable Heat Cool",,"bool",,
+1,1,,"bool",,"Enable DHW",,"bool",,
+1,2,,"bool",,"Enable Silent",,"bool",,
+1,3,,"bool",,"Trigger Disinfect",,"bool",,"0 : Keep status / 1 : Operation start"
+1,4,,"bool",,"Emergency Stop",,"bool",,"0 : Normal operation / 1 : Emergency stop"
+1,5,,"bool",,"Emergency Operation",,"bool",,"0 : Keep status / 1 : Operation Start"
+1,6,,"bool",,"Limit Power",,"bool",,"1: Limit power acc. Reg. 40025"
+2,0,,"bool",,"Low Flow Error",,"bool",,"0 : Flow rate ok / 1 : Flow rate too low"
+2,1,,"bool",,"Pump",,"bool",,"0 : Water Pump OFF / 1 : Water Pump ON"
+2,2,,"bool",,"Ext Pump",,"bool",,"0 : Water Pump OFF / 1 : Water Pump ON"
+2,3,,"bool",,"Compressor",,"bool",,"0 : Compressor OFF / 1 : Compressor ON"
+2,4,,"bool",,"Defrost",,"bool",,"0 : Defrost OFF / 1 : Defrost ON"
+2,5,,"bool",,"DHW",,"bool",,"0 : DHW inactive / 1 : DHW active"
+2,6,,"bool",,"Disinfection",,"bool",,"0 : Disinfection inactive / 1 : Disinfection active"
+2,7,,"bool",,"Silent",,"bool",,"0 : Silent mode inactive / 1 : Silent mode active"
+2,8,,"bool",,"Cooling",,"bool",,"0 : No cooling / 1 : Cooling operation"
+2,9,,"bool",,"Solar pump",,"bool",,"0 : Solar pump OFF / 1: Solar pump ON"
+2,10,,"bool",,"Backup heater 1",,"bool",,"0 : OFF / 1 : ON"
+2,11,,"bool",,"Backup heater 2",,"bool",,"0 : OFF / 1 : ON"
+2,12,,"bool",,"DHW boost heater",,"bool",,"0 : OFF / 1 : ON"
+2,13,,"bool",,"Error",,"bool",,"0 : no error / 1 : error state"
+2,14,,"bool",,"Emergency Operation Available Heating",,"bool",,"0 : Unavailable / 1 : Available"
+2,15,,"bool",,"Emergency Operation Available DHW",,"bool",,"0 : Unavailable / 1 : Available"
+2,16,,"bool",,"Mix Pump",,"bool",,"0 : Mix pump OFF / 1 : Mix pump ON"
+4,0,,"U16",,"Error Code",,"int",,"Error Code"
+4,1,,"U16",,"ODU Operation",,"int",,"0 : Standby(OFF) / 1 : Cooling / 2 : Heating"
+4,2,,"S16","0.1 °C","Water inlet temp",,"float",,"[0.1 °C ×10]"
+4,3,,"S16","0.1 °C","Water outlet temp",,"float",,"[0.1 °C ×10]"
+4,4,,"S16","0.1 °C","Backup heater outlet temp",,"float",,"[0.1 °C ×10]"
+4,5,,"S16","0.1 °C","DHW tank water temp",,"float",,"[0.1 °C ×10]"
+4,6,,"S16","0.1 °C","Solar collector temp",,"float",,"[0.1 °C ×10]"
+4,7,,"S16","0.1 °C","Circuit 1 Room air temp",,"float",,"[0.1 °C ×10]"
+4,8,,"S16","0.1 lpm","Flow rate",,"float",,"[0.1 LPM ×10]"
+4,9,,"S16","0.1 °C","Circuit 1 Flow temp",,"float",,"[0.1 °C ×10]"
+4,10,,"S16","0.1 °C","Circuit 2 Room air temp",,"float",,"[0.1 °C ×10]"
+4,11,,"U16",,"Energy State",,"int",," 1: Energy state 1…."
+4,12,,"S16","0.1 °C","Outdoor Air temp",,"float",,"[0.1 °C ×10]"
+4,13,,"S16","0.1 Bar","Water pressure",,"float",,"[0.1 bar ×10]"
+4,9997,,"U16",,"Product Group ",,"int",,"0x8X (0x80, 0x83, 0x88, 0x89)"
+4,9998,,"U16",,"Product Info",,"int",,"Split : 0 / Monobloc : 3 / High Temp. : 4 / Medium Temp. : 5 / System Boiler : 6"
+3,0,,"U16",,"Operation Mode",,"int",,"0 : Cooling / 4 : Heating / 3 : Auto"
+3,1,,"U16",,"Control method",,"int",,"0 : Water outlet temp. control 1 : Water inlet temp. control 2 : Room air control"
+3,2,,"S16","0.1 °C","Circuit 1 Target temp",,"float",,"[0.1 °C ×10]"
+3,3,,"S16","0.1 °C","Circuit 1 Room Air Temp",,"float",,"[0.1 °C ×10]"
+3,4,,"S16","1 °C","Circuit 1 Shift value",,"float",,"1K"
+3,5,,"S16","0.1 °C","Circuit 2 Target temp",,"float",,"[0.1 °C ×10]"
+3,6,,"S16","0.1 °C","Circuit 2 Room Air Temp",,"float",,"[0.1 °C ×10]"
+3,7,,"S16","1 °C","Circuit 2 Shift value",,"float",,"1K"
+3,8,,"S16","0.1 °C","Target temp DHW",,"float",,"[0.1 °C ×10]"
+3,40009,,"U16",,"Energy state",,"int",,"0 : Not Use 
+1 : Forced off (equal to TB_SG1=close / TB_SG2=open)
+2 : Normal operation (equal to TB_SG1=open / TB_SG2=open)
+3 : On-recommendation (equal to TB_SG1=open / TB_SG2=close)
+4 : On-command (equal to TB_SG1=close / TB_SG2=close)
+5 : On-command step 2 (++ Energy Consumption)
+6 : On-recommendation Step 1 (+ Energy Consumption)
+7 : Energy Saving mode (- Energy Consumption)
+8 : Super Energy saving mode (-- Energy Consumption)"
+3,40024,,"U16","100 W","Power Limit",,"float",,"0.1 kW ~ 25.0 kW"

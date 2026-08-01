@@ -37,6 +37,7 @@ See output file.
 """
 
 def run( regfile ):
+    print( "Processing:", regfile )
     unit_transformations = {}
     register_ids = {}
     all_regs = []
@@ -261,8 +262,8 @@ if __name__ == "__main__":
 
 """ )
 
-
-for regfile in "Solis_S5_EH1P_6K_2020",:
+for regfile in "LG_HM161HF",:
+# for regfile in "Solis_S5_EH1P_6K_2020",:
 # for regfile in "Eastron_SDM120", "Acrel_ACR10RH", "Eastron_SDM630", "Solis_S5_EH1P_6K_2020", "Acrel_ACR10R", "Acrel_1_Phase":
 # for regfile in "Fronius_TS100A",: #Solis_S5_EH1P_6K_2020",:
 # for regfile in "Acrel_ACR10RD16TE4",:

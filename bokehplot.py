@@ -14,9 +14,9 @@ from gmqtt import Client as MQTTClient
 import config
 from misc import *
 
-STREAMING_LENGTH = 1200         # seconds
+STREAMING_LENGTH = 7200         # seconds
 STREAMING_LENGTH_MIN = 200     # seconds
-STREAMING_LENGTH_MAX = 3600    # seconds
+STREAMING_LENGTH_MAX = 7200    # seconds
 TIME_SHIFT_S = 3600*1          # to shift database timestamps stored in UTC
 TIME_SHIFT = np.timedelta64( TIME_SHIFT_S, 's' )
 
@@ -35,12 +35,11 @@ _nextcolor_iter = _nextcolor()
 def nextcolor():
     return next( _nextcolor_iter )
 
-display_bools_offset = 0
-def display_bools():
-    global display_bools_offset
-    o = display_bools_offset
-    display_bools_offset += 2
-    return lambda y: y+o
+display_bools_offset = {}
+def display_bools( pane=0 ):
+    o = display_bools_offset.setdefault( pane, 0 )
+    display_bools_offset[pane] -= 1
+    return lambda y: y*0.5+o
 
 colors = {
     "pv"            : ["#00FF00", "#00C000", "#008000"],
@@ -170,27 +169,52 @@ DATA_STREAMS = [
 
     # Heating                
     ( "chauffage/depart"             , "°C", "Départ"                   , "#FF0000"  , "solid",   1.0             , {"visible":False}, { }),
-    ( "chauffage/retour"             , "°C", "Retour"                   , "#FF0000"  , "solid",   1.0             , {"visible":False}, { }),
+    ( "chauffage/retour"             , "°C", "Retour"                   , "#E00000"  , "solid",   1.0             , {"visible":False}, { }),
     ( "chauffage/pac_depart"         , "°C", "PAC départ"               , "#FF8000"  , "solid",   1.0             , {"visible":False}, { }),
-    ( "chauffage/pac_retour"         , "°C", "PAC retour"               , "#FF8000"  , "solid",   1.0             , {"visible":False}, { }),
-    ( "chauffage/debit"              , "°C", "Débit"                    , "#FFFFFF"  , "solid",   1.0             , {"visible":False}, { }),
-    ( "chauffage/pompe"              , "°C", "Pompe"                    , "#80FF80"  , "solid",   1.0             , {"visible":False}, { }),
-    ( "chauffage/et_bureau"          , "°C", "Étage Bureau"             , "#800080"  , "solid",   1.0             , {"visible":False}, { }),
-    ( "chauffage/et_pcbt_depart"     , "°C", "Étage PCBT depart"        , "#8000FF"  , "solid",   1.0             , {"visible":False}, { }),
-    ( "chauffage/et_pcbt_retour"     , "°C", "Étage PCBT retour"        , "#8000FF"  , "solid",   1.0             , {"visible":False}, { }),
-    ( "chauffage/et_pcbt_ambient"    , "°C", "Étage PCBT ambient"       , "#8000FF"  , "solid",   1.0             , {"visible":True }, { }),
-    ( "chauffage/ext_parking"        , "°C", "Extérieur parking"        , "#808000"  , "solid",   1.0             , {"visible":True }, { }),
+    ( "chauffage/pac_retour"         , "°C", "PAC retour"               , "#E06000"  , "solid",   1.0             , {"visible":False}, { }),
+    # ( "chauffage/debit"              , "°C", "Débit"                    , "#FFFFFF"  , "solid",   1.0             , {"visible":False}, { }),
+    # ( "chauffage/pompe"              , "°C", "Pompe"                    , "#80FF80"  , "solid",   1.0             , {"visible":False}, { }),
+    # ( "chauffage/et_bureau"          , "°C", "Étage Bureau"             , "#800080"  , "solid",   1.0             , {"visible":False}, { }),
+    ( "chauffage/et_pcbt_depart"     , "°C", "Étage PCBT depart"        , "#E000E0"  , "solid",   1.0             , {"visible":True }, { }),
+    ( "chauffage/et_pcbt_retour"     , "°C", "Étage PCBT retour"        , "#800080"  , "solid",   1.0             , {"visible":True }, { }),
+    ( "chauffage/et_pcbt_ambient"    , "°C", "Étage PCBT ambient"       , "#FF00FF"  , "solid",   1.0             , {"visible":True }, { }),
+    # ( "chauffage/ext_parking"        , "°C", "Extérieur parking"        , "#808000"  , "solid",   1.0             , {"visible":True }, { }),
     ( "chauffage/ext_sous_balcon"    , "°C", "Extérieur sous balcon"    , "#808000"  , "solid",   1.0             , {"visible":True }, { }),
-    ( "chauffage/rc_pc_cuisine"      , "°C", "RC Cuisine"               , "#0000FF"  , "solid",   1.0             , {"visible":True }, { }),
-    ( "chauffage/rc_pc_pcbt_ambient" , "°C", "RC PCBT ambient"          , "#00FF00"  , "solid",   1.0             , {"visible":True }, { }),
-    ( "chauffage/rc_pc_pcbt_depart"  , "°C", "RC PCBT depart"           , "#00FF00"  , "solid",   1.0             , {"visible":False}, { }),
-    ( "chauffage/rc_pc_pcbt_retour"  , "°C", "RC PCBT retour"           , "#00FF00"  , "solid",   1.0             , {"visible":False}, { }),
+    ( "ha/th_ext_jardin/temperature" , "°C", "Jardin"                   , "#808080"  , "solid",   1.0             , {"visible":True }, { }),
+
+    ( "chauffage/rc_pc_cuisine"      , "°C", "RC Cuisine"               , "#0000FF"  , "solid",   1.0             , {"visible":False }, { }),
+    ( "chauffage/rc_pc_pcbt_ambient" , "°C", "RC PCBT ambient"          , "#00FF00"  , "solid",   1.0             , {"visible":False }, { }),
+    ( "chauffage/rc_pc_pcbt_depart"  , "°C", "RC PCBT depart"           , "#00E000"  , "solid",   1.0             , {"visible":False}, { }),
+    ( "chauffage/rc_pc_pcbt_retour"  , "°C", "RC PCBT retour"           , "#008000"  , "solid",   1.0             , {"visible":False}, { }),
     ( "chauffage/rc_pf_pcbt_ambient" , "°C", "RC PCBT2 ambient"         , "#0080FF"  , "solid",   1.0             , {"visible":True }, { }),
-    ( "chauffage/rc_pf_pcbt_depart"  , "°C", "RC PCBT2 depart"          , "#0080FF"  , "solid",   1.0             , {"visible":False}, { }),
-    ( "chauffage/rc_pf_pcbt_retour"  , "°C", "RC PCBT2 retour"          , "#0080FF"  , "solid",   1.0             , {"visible":False}, { }),
-    ( "chauffage/pac_puits"          , "°C", "PAC puits"                , "#00FFFF"  , "solid",   1.0             , {"visible":False}, { }),
-    ( "chauffage/pac_rejet"          , "°C", "PAC rejet"                , "#008080"  , "solid",   1.0             , {"visible":False}, { }),
-    ( "chauffage/rc_pf_che"          , "°C", "RC Chauffe-eau"           , "#FF8000"  , "solid",   1.0             , {"visible":False}, { }),
+    ( "chauffage/rc_pf_pcbt_depart"  , "°C", "RC PCBT2 depart"          , "#0060E0"  , "solid",   1.0             , {"visible":True }, { }),
+    ( "chauffage/rc_pf_pcbt_retour"  , "°C", "RC PCBT2 retour"          , "#0040A0"  , "solid",   1.0             , {"visible":True }, { }),
+    # ( "chauffage/pac_puits"          , "°C", "PAC puits"                , "#00FFFF"  , "solid",   1.0             , {"visible":False}, { }),
+    # ( "chauffage/pac_rejet"          , "°C", "PAC rejet"                , "#008080"  , "solid",   1.0             , {"visible":False}, { }),
+    # ( "chauffage/rc_pf_che"          , "°C", "RC Chauffe-eau"           , "#FF8000"  , "solid",   1.0             , {"visible":False}, { }),
+
+
+
+    ( "chauffage2/thermav/b_compressor"                , "ON"   , "b_compressor"                , "#FF00FF", "solid", 1.0, {"visible":True} , {"func":display_bools("pac")} ),
+    ( "chauffage2/thermav/b_defrost"                   , "ON"   , "b_defrost"                   , "#FFFFFF", "solid", 1.0, {"visible":False}, {"func":display_bools("pac")} ),
+    ( "chauffage2/thermav/b_pump"                      , "ON"   , "b_pump"                      , "#00C0FF", "solid", 1.0, {"visible":True},  {"func":display_bools("pac")} ),
+    ( "chauffage2/thermav/b_silent"                    , "ON"   , "b_silent"                    , "#808000", "solid", 1.0, {"visible":False}, {"func":display_bools("pac")} ),
+    ( "chauffage2/thermav/b_dhw"                       , "ON"   , "b_dhw"                       , "#FF0000", "solid", 1.0, {"visible":False}, {"func":display_bools("pac")} ),
+    ( "chauffage2/thermav/b_cooling"                   , "ON"   , "b_cooling"                   , "#0000FF", "solid", 1.0, {"visible":False}, {"func":display_bools("pac")} ),
+    ( "chauffage2/thermav/b_error"                     , "ON"   , "b_error"                     , "#FF8000", "solid", 1.0, {"visible":False}, {"func":display_bools("pac")} ),
+    ( "chauffage2/thermav/flow_rate"                   , "l/min", "flow_rate"                   , "#0080FF", "solid", 1.0, {"visible":True}, {} ),
+    ( "chauffage2/thermav/water_pressure"              , "Bar"  , "water_pressure"              , "#00FFFF", "solid", 1.0, {"visible":False}, {} ),
+    ( "chauffage2/thermav/circuit_1_room_air_temp"     , "°C"   , "circuit_1_room_air_temp"     , nextcolor, "solid", 1.0, {"visible":False}, {} ),
+    ( "chauffage2/thermav/rwr_circuit_1_room_air_temp" , "°C"   , "rwr_circuit_1_room_air_temp" , nextcolor, "solid", 1.0, {"visible":False}, {} ),
+    ( "chauffage2/thermav/rwr_circuit_1_target_temp"   , "°C"   , "rwr_circuit_1_target_temp"   , "#C0C0C0", "dashed", 1.0, {"visible":True}, {} ),
+    ( "chauffage2/thermav/water_inlet_temp"            , "°C"   , "water_inlet_temp"            , "#FFC000", "solid", 1.0, {"visible":True}, {} ),
+    ( "chauffage2/thermav/water_outlet_temp"           , "°C"   , "water_outlet_temp"           , "#FFFF00", "solid", 1.0, {"visible":True}, {} ),
+    ( "chauffage2/thermav/outdoor_air_temp"            , "°C"   , "outdoor_air_temp"            , "#808000", "solid", 1.0, {"visible":True}, {} ),
+    ( "chauffage2/thermav/odu_operation"               , ""     , "odu_operation"               , nextcolor, "solid", 1.0, {"visible":False}, {} ),
+    ( "chauffage2/thermav/thermal_power"               , "kW"   , "thermal_power"               , "#00FF00", "solid", 0.001, {"visible":True}, {} ),
+    ( "chauffage2/thermav/water_deltat"                , "°C"   , "water_deltat"                , "#008080", "solid", 1.0, {"visible":False}, {} ),
+    ( "chauffage2/thermav/compressor_hz"               , "10Hz" , "compressor_hz"               , "#808080", "solid", 0.1, {"visible":False}, {} ),
+
 
     # Broker
     ( "$SYS/broker/load/messages/received/1min" , "msg/s", "MQTT received"    , "#00FF00"  , "solid",      1/60             , {}, { }),
@@ -323,32 +347,32 @@ PLOT_LAYOUTS = [
                 "pv/solis%d/pv_power"                            ,
             ]
         ]
-    ],[ "Grid",
-        [
-            [
-                "pv/meter/phase_1_line_to_neutral_volts",
-                "pv/meter/phase_2_line_to_neutral_volts",
-                "pv/meter/phase_3_line_to_neutral_volts",
-            ],
-            [
-                "pv/meter/phase_1_power",
-                "pv/meter/phase_2_power",
-                "pv/meter/phase_3_power",
-            ],            
-            # [
-            #     "pv/meter/phase_1_volt_amps",
-            #     "pv/meter/phase_2_volt_amps",
-            #     "pv/meter/phase_3_volt_amps",
-            # ],            
-            [
-                "pv/meter/phase_1_current",
-                "pv/meter/phase_2_current",
-                "pv/meter/phase_3_current",
-            ],
-            [
-                "pv/meter/frequency",
-            ]
-        ]
+    # ],[ "Grid",
+    #     [
+    #         [
+    #             "pv/meter/phase_1_line_to_neutral_volts",
+    #             "pv/meter/phase_2_line_to_neutral_volts",
+    #             "pv/meter/phase_3_line_to_neutral_volts",
+    #         ],
+    #         [
+    #             "pv/meter/phase_1_power",
+    #             "pv/meter/phase_2_power",
+    #             "pv/meter/phase_3_power",
+    #         ],            
+    #         # [
+    #         #     "pv/meter/phase_1_volt_amps",
+    #         #     "pv/meter/phase_2_volt_amps",
+    #         #     "pv/meter/phase_3_volt_amps",
+    #         # ],            
+    #         [
+    #             "pv/meter/phase_1_current",
+    #             "pv/meter/phase_2_current",
+    #             "pv/meter/phase_3_current",
+    #         ],
+    #         [
+    #             "pv/meter/frequency",
+    #         ]
+    #     ]
     ],[ "Energy", 
         [
             [
@@ -389,15 +413,16 @@ PLOT_LAYOUTS = [
     ],["Chauffage",
         [
             [
-                "chauffage/ext_parking"        ,
+                # "chauffage/ext_parking"        ,
                 "chauffage/ext_sous_balcon"    ,
+                "ha/th_ext_jardin/temperature" ,
                 "chauffage/depart"             ,
                 "chauffage/retour"             ,
                 "chauffage/pac_depart"         ,
                 "chauffage/pac_retour"         ,
-                "chauffage/debit"              ,
-                "chauffage/pompe"              ,
-                "chauffage/et_bureau"          ,
+                # "chauffage/debit"              ,
+                # "chauffage/pompe"              ,
+                # "chauffage/et_bureau"          ,
                 "chauffage/et_pcbt_depart"     ,
                 "chauffage/et_pcbt_retour"     ,
                 "chauffage/et_pcbt_ambient"    ,
@@ -408,11 +433,41 @@ PLOT_LAYOUTS = [
                 "chauffage/rc_pf_pcbt_ambient" ,
                 "chauffage/rc_pf_pcbt_depart"  ,
                 "chauffage/rc_pf_pcbt_retour"  ,
-                "chauffage/pac_puits"          ,
-                "chauffage/pac_rejet"          ,
-                "chauffage/rc_pf_che"          ,
+                # "chauffage/pac_puits"          ,
+                # "chauffage/pac_rejet"          ,
+                # "chauffage/rc_pf_che"          ,
             ]
         ]
+    ],["PAC",
+        [
+            [
+                # "chauffage/ext_parking"        ,
+                "chauffage/depart"             ,
+                "chauffage/retour"             ,
+                "chauffage/pac_depart"         ,
+                "chauffage/pac_retour"         ,
+                "chauffage2/thermav/b_compressor"                ,           
+                "chauffage2/thermav/b_defrost"                   ,       
+                "chauffage2/thermav/b_dhw"                       ,   
+                "chauffage2/thermav/b_cooling"                   ,       
+                "chauffage2/thermav/b_error"                     ,       
+                "chauffage2/thermav/b_pump"                      ,   
+                "chauffage2/thermav/b_silent"                      ,   
+                "chauffage2/thermav/flow_rate"                   ,       
+                "chauffage2/thermav/water_pressure"              ,           
+                "chauffage2/thermav/circuit_1_room_air_temp"     ,                       
+                "chauffage2/thermav/rwr_circuit_1_room_air_temp" ,                           
+                "chauffage2/thermav/rwr_circuit_1_target_temp"   ,                       
+                "chauffage2/thermav/water_inlet_temp"            ,               
+                "chauffage2/thermav/water_outlet_temp"           ,               
+                "chauffage2/thermav/outdoor_air_temp"            ,               
+                "chauffage2/thermav/odu_operation"               ,           
+                "chauffage2/thermav/thermal_power"               ,           
+                "chauffage2/thermav/water_deltat"                ,           
+                "chauffage2/thermav/compressor_hz"
+
+            ]
+        ]        
     ],
     # ["TEST", 
     #     [
@@ -719,10 +774,10 @@ class PVDashboard():
                 # fig.on_event( bokeh.events.MouseWheel,   self.event_generic )
                 # fig.on_event( bokeh.events.Pan,          self.event_generic )
 
-                fig.lod_factor    = 10
-                fig.lod_interval  = 100
-                fig.lod_threshold = None
-                fig.lod_timeout   = 1000
+                fig.lod_factor    = 2
+                fig.lod_interval  = 500
+                fig.lod_threshold = 300
+                fig.lod_timeout   = 500
 
                 # link all X axes
                 if self.figs:
@@ -772,8 +827,8 @@ class PVDashboard():
         self.button_group_actions = bokeh.models.widgets.CheckboxButtonGroup( labels=self.button_group_actions_labels, active=[0] )
         self.button_group_actions.on_change( "active", self.button_action_onclick )
 
-        self.button_group_length_labels = [ "60min", "20min", "10min", "3min", "1min" ]
-        self.button_group_length = bokeh.models.widgets.RadioButtonGroup( labels=self.button_group_length_labels, active=1 )
+        self.button_group_length_labels = [ "120min", "60min", "20min", "10min", "3min", "1min" ]
+        self.button_group_length = bokeh.models.widgets.RadioButtonGroup( labels=self.button_group_length_labels, active=0 )
         self.button_group_length.on_change( "active", self.buttons_length_onclick )
 
         doc.add_root( bokeh.layouts.column( [ self.tabs, bokeh.layouts.row([ self.button_group_actions, self.button_group_length ]) ], width_policy="max", height_policy="max" ))
@@ -913,7 +968,7 @@ class PVDashboard():
     def event_lod_start( self, event ):
         # print( event )
         self.streaming  = False
-        # self.lod_reduce = True
+        self.lod_reduce = True
         self.redraw( event )
 
     def event_lod_end( self, event ):
@@ -937,7 +992,7 @@ class PVDashboard():
 
         tstart = int(trange[0]) * 0.001
         tend   = int(trange[1]) * 0.001
-        lod_length=300 if self.lod_reduce else int(5000 * 10/(10+self.lod_slider_value))
+        lod_length = 200 if self.lod_reduce else int(5000 * 10/(10+self.lod_slider_value))
         # print( tstart, tend, event, self.lod_reduce, lod_length )
 
         updated = 0

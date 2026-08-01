@@ -354,11 +354,12 @@ class InsertPooler():
                             return self.insert_str.append((k,ts,False,v))
 
     async def flush( self ):
-        # print("Flush...")
         async with asyncio.timeout( 20 ):
             st = time.time()
             l = len(self.insert_str)+len(self.insert_floats)
             settings={ "max_execution_time": 20 }
+
+            print( "Flush %d...\r" % l )
 
             try:
                 if self.insert_floats:
@@ -372,8 +373,9 @@ class InsertPooler():
                 print( e )
                 # raise
             else:
+                period = st - self.start_ts
                 r = self.reset( l, st )
-                print( "INSERT %f ms %s" % ((time.time()-st)*1000, r ))
+                print( "%s INSERT %f ms %s period %.2fs" % (datetime.datetime.now().isoformat(), (time.time()-st)*1000, r, period ))
 
 
 async def cleanup_coroutine( ):
@@ -489,6 +491,7 @@ async def transfer_data( mqtt ):
             #   make sure we read up to the next chunk, too complicated!
             #   just use temp file
             async with asyncio.timeout( 300 ):
+                print("recv %d kB..." % (length/1024))
                 with open( tmp_path := tmp_dir/("%.02f.json.zst"%file_ts), "wb" ) as zf:
                     length2 += length/1024
                     while length>0:
@@ -521,28 +524,25 @@ async def transfer_data( mqtt ):
             timer = Metronome( config.CLICKHOUSE_INSERT_PERIOD_SECONDS )
             while True:
                 t = time.monotonic()
-                print( "readline in" )
+                sys.stdout.write( "_" )
                 async with asyncio.timeout( 60 ):
                     line = await rsock.readline()
-                print( "readline %.03fs" % (time.monotonic()-t) )
+                if d := int(1000*(time.monotonic()-t)):
+                    sys.stdout.write( str(d) )
+                else:
+                    sys.stdout.write( "." )
                 if not line:
                     print("Empty line")
                     return
 
-                t = time.monotonic()
-                print( "add in" )
                 try:
                     pool.add( *orjson.loads( line ) )
                 except Exception as e:
                     log.exception( "Error" )
-                print( "add %.03fs" % (time.monotonic()-t) )
 
                 # print( len( pool.insert_floats ))
                 if timer.ticked():
-                    t = time.monotonic()
-                    print("flush in")
                     await pool.flush()
-                    print("flush %.03fs" % (time.monotonic()-t) )
 
 
 RETRIEVE_SECONDS = 4*3600
@@ -557,20 +557,22 @@ RETRIEVE_SECONDS = 4*3600
 # pool.flush()
 # stop
 
-if sys.version_info >= (3, 11):
-    if len( sys.argv ) > 1:
-        try:
-            RETRIEVE_SECONDS = int( sys.argv[1] )*3600
-        except:
-            print("usage: %s [n]\n  n number of days worth of data to retrieve from MQTT logger")
-            sys.exit(1)
-    log.info("######################### START #########################")
-    with asyncio.Runner(loop_factory=uvloop.new_event_loop) as runner:
-        runner.run(astart())
-else:
-    uvloop.install()
-    asyncio.run(astart())
-
+try:
+    if sys.version_info >= (3, 11):
+        if len( sys.argv ) > 1:
+            try:
+                RETRIEVE_SECONDS = int( sys.argv[1] )*3600
+            except:
+                print("usage: %s [n]\n  n number of days worth of data to retrieve from MQTT logger")
+                sys.exit(1)
+        log.info("######################### START #########################")
+        with asyncio.Runner(loop_factory=uvloop.new_event_loop) as runner:
+            runner.run(astart())
+    else:
+        uvloop.install()
+        asyncio.run(astart())
+finally:
+    sys.stdout.flush()
 
 
 

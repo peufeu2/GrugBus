@@ -528,8 +528,8 @@ ROUTER = {
     #
     "evse_max": { 
         "evse": {
-            "high_priority_W"       : Interp((10, 0),  (11, 2000),var="soc"), 
-            "reserve_for_battery_W" : Interp((20,0), (50,0), (90,0),var="soc"),
+            "high_priority_W"       : Interp((15, 0),  (16, 2000),var="soc"), 
+            "reserve_for_battery_W" : Interp((15,6000), (30,0), (50,0), (90,0),var="soc"),
             "start_threshold_W"     : Interp((50, 1400), (100, 1000),var="soc"),
             "stop_threshold_W"      : Interp((50, 1000), (100,  500),var="soc"),
         },
@@ -540,7 +540,7 @@ ROUTER = {
     #
     "evse_pvmax": { 
         "evse": {
-            "high_priority_W"       : Interp((25, 0),  (26, 2000),var="soc"), 
+            "high_priority_W"       : Interp((25, 0),  (26, 0),var="soc"), 
             "reserve_for_battery_W" : Interp((15,6000), (25,1000), (100,800), var="soc"),
             "start_threshold_W"     : Interp((50, 1400), (100, 1000),var="soc"),
             "stop_threshold_W"      : Interp((50, 1000), (100,  500),var="soc"),

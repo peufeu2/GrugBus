@@ -49,6 +49,10 @@ class DeviceBase( ):
         # if not hasattr( modbus, "_async_mutex" ):   # mutex protects serial port if we have more than 1 device banging on it
             # modbus._async_mutex = asyncio.Lock()
         config.PYMODBUS_CLIENT_TWEAKS( modbus )
+        # add lock to block several concurrent calls to this pymodbus instance
+        # if not hasattr( modbus, "_lock" ):
+            # modbus._lock = asyncio.Lock()
+
         self.modbus      = modbus
         self.bus_address = bus_address
         self.name        = name
